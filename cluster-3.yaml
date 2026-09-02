@@ -1,0 +1,75 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cluster-3
+  namespace: cluster-3
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+
+  storage:
+    size: 10Gi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: super-secret-3
+
+  primaryUpdateStrategy: unsupervised
+
+  bootstrap:
+    recovery:
+      source: cluster-1
+
+  replica:
+    self: cluster-3
+    primary: cluster-1
+    source: cluster-1
+
+  externalClusters:
+    - name: cluster-1
+      barmanObjectStore:
+        destinationPath: s3://cluster-1-backups/wals
+        endpointURL: http://minio.cluster-1.svc:9000
+        s3Credentials:
+          accessKeyId:
+            name: minio-creds
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-creds
+            key: SECRET_ACCESS_KEY
+        wal:
+          compression: gzip
+        data:
+          compression: gzip
+    - name: cluster-3
+      barmanObjectStore:
+        destinationPath: s3://cluster-3-backups/wals
+        endpointURL: http://minio.cluster-3.svc:9000
+        s3Credentials:
+          accessKeyId:
+            name: minio-creds
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-creds
+            key: SECRET_ACCESS_KEY
+
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cluster-3-backups/wals
+      endpointURL: http://minio.cluster-3.svc:9000
+      s3Credentials:
+        accessKeyId:
+          name: minio-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+    retentionPolicy: "30d"

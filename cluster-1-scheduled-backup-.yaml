@@ -1,0 +1,12 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: cluster-1-scheduled-backup
+  namespace: cluster-1
+spec:
+  schedule: "0 0 */6 * * *"        # every 6 hours (cnpg cron: sec min hour ...)
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: cluster-1
+  method: barmanObjectStore

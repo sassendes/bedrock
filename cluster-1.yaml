@@ -1,0 +1,69 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: cluster-1
+  namespace: cluster-1
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.4
+
+  storage:
+    size: 10Gi
+
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: super-secret-1
+
+  bootstrap:
+    initdb:
+      database: app
+      owner: appuser
+      secret:
+        name: user-secret-1
+      postInitApplicationSQL:
+        - CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+  primaryUpdateStrategy: unsupervised
+
+  replica:
+    self: cluster-1
+    primary: cluster-1
+    source: cluster-1
+
+  externalClusters:
+    - name: cluster-1
+      barmanObjectStore:
+        destinationPath: s3://cluster-1-backups/wals
+        endpointURL: http://minio.cluster-1.svc:9000
+        s3Credentials:
+          accessKeyId:
+            name: minio-creds
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: minio-creds
+            key: SECRET_ACCESS_KEY
+        wal:
+          compression: gzip
+        data:
+          compression: gzip
+
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cluster-1-backups/wals
+      endpointURL: http://minio.cluster-1.svc:9000
+      s3Credentials:
+        accessKeyId:
+          name: minio-creds
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: minio-creds
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+    retentionPolicy: "30d"
