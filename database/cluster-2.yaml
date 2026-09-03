@@ -18,23 +18,22 @@ spec:
   replica:
     enabled: true
     source: cluster-1
-  affinity:
-    enablePodAntiAffinity: true
-    topologyKey: kubernetes.io/hostname
   externalClusters:
     - name: cluster-1
       connectionParameters:
         host: cluster-1-rw.cluster-1.svc
         user: streaming_replica
         dbname: app
-        sslmode: verify-full
-        sslrootcert: /controller/certificates/cluster-1-ca.crt
-      sslCert:
-        name: cluster-1-replication
-        key: tls.crt
+        sslmode: verify-ca
       sslKey:
         name: cluster-1-replication
         key: tls.key
+      sslCert:
+        name: cluster-1-replication
+        key: tls.crt
+      sslRootCert:
+        name: cluster-1-ca
+        key: ca.crt
       barmanObjectStore:
         destinationPath: s3://cluster-1-backups/wals
         endpointURL: http://minio.cluster-1.svc:9000
@@ -45,10 +44,9 @@ spec:
           secretAccessKey:
             name: minio-creds
             key: SECRET_ACCESS_KEY
-        wal:
-          compression: gzip
-        data:
-          compression: gzip
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
   backup:
     barmanObjectStore:
       destinationPath: s3://cluster-2-backups/wals
