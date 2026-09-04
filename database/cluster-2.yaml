@@ -12,6 +12,17 @@ spec:
   superuserSecret:
     name: super-secret-2
   primaryUpdateStrategy: unsupervised
+  replicationSlots:
+    highAvailability:
+      enabled: true
+      slotPrefix: _cnpg_
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
   bootstrap:
     recovery:
       source: cluster-1
