@@ -1,0 +1,127 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bedrock-alerts
+  namespace: application
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: node.rules
+      rules:
+        - alert: NodeHighCPU
+          expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High CPU on {{ $labels.instance }}"
+            description: "CPU above 85% for 10 minutes ({{ $value | humanize }}%)."
+        - alert: NodeHighMemory
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory on {{ $labels.instance }}"
+            description: "Memory usage above 90% for 10 minutes ({{ $value | humanize }}%)."
+        - alert: NodeMemoryCritical
+          expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL memory on {{ $labels.instance }}"
+            description: "Memory above 95% for 5 minutes, OOM risk ({{ $value | humanize }}%)."
+        - alert: NodeDiskSpaceLow
+          expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Disk filling on {{ $labels.instance }}"
+            description: "Filesystem {{ $labels.mountpoint }} above 85% ({{ $value | humanize }}%)."
+        - alert: NodeDiskSpaceCritical
+          expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 92
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL disk on {{ $labels.instance }}"
+            description: "Filesystem {{ $labels.mountpoint }} above 92%, act now ({{ $value | humanize }}%)."
+        - alert: NodeDown
+          expr: up{job="node-exporter"} == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Node exporter down: {{ $labels.instance }}"
+            description: "Cannot scrape node {{ $labels.instance }} for 3 minutes, node may be down."
+    - name: kubernetes.rules
+      rules:
+        - alert: PodCrashLooping
+          expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod crashlooping: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Restarted more than 3 times in 15 minutes."
+        - alert: PodNotReady
+          expr: sum by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown"}) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod stuck: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Pod not Ready (Pending/Unknown) for 15 minutes."
+        - alert: ContainerNearMemoryLimit
+          expr: (container_memory_working_set_bytes{container!=""} / on(namespace,pod,container) kube_pod_container_resource_limits{resource="memory"}) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Container near memory limit: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "{{ $labels.container }} using {{ $value | humanize }}% of its memory limit, OOMKill risk."
+        - alert: PVCAlmostFull
+          expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 85
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "PVC filling: {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}"
+            description: "PersistentVolumeClaim above 85% ({{ $value | humanize }}%)."
+        - alert: PVCCritical
+          expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 > 92
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL PVC: {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}"
+            description: "PVC above 92%, postgres/minio write failure risk ({{ $value | humanize }}%)."
+    - name: cnpg.rules
+      rules:
+        - alert: CNPGReplicationLagHigh
+          expr: cnpg_pg_replication_lag > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High replication lag: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Replica is {{ $value | humanize }}s behind for 5 minutes."
+        - alert: CNPGReplicationLagCritical
+          expr: cnpg_pg_replication_lag > 120
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "CRITICAL replication lag: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Replica {{ $value | humanize }}s behind, may be unusable for failover."
+        - alert: CNPGInstanceDown
+          expr: cnpg_collector_up == 0
+          for: 3m
+          labels:
+            severity: critical
+          annotations:
+            summary: "cnpg instance down: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "cnpg metrics collector unreachable for 3 minutes."

@@ -4,6 +4,8 @@ metadata:
   name: cluster-2
   namespace: cluster-2
 spec:
+  monitoring:
+    enablePodMonitor: true
   instances: 2
   imageName: ghcr.io/cloudnative-pg/postgresql:17.4
   storage:
