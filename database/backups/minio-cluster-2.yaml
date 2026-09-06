@@ -29,6 +29,8 @@ spec:
                 secretKeyRef:
                   name: minio-creds
                   key: SECRET_ACCESS_KEY
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: "public"
           ports:
             - containerPort: 9000
             - containerPort: 9001
@@ -47,6 +49,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  labels:
+    app: minio
   name: minio
   namespace: cluster-2
 spec:

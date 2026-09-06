@@ -1,0 +1,35 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio-clusters
+  namespace: application
+  labels:
+    app: minio
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app: minio
+  endpoints:
+    - port: api
+      path: /minio/v2/metrics/cluster
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minio-loki
+  namespace: application
+  labels:
+    app: loki-minio
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app: loki-minio
+  endpoints:
+    - port: api
+      path: /minio/v2/metrics/cluster
+      interval: 30s

@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: loki-minio-creds
+  namespace: application
+type: Opaque
+stringData:
+  ACCESS_KEY_ID: lokiadmin
+  SECRET_ACCESS_KEY: lokiadmin
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: loki-minio
+  namespace: application
+spec:
+  serviceName: loki-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki-minio
+  template:
+    metadata:
+      labels:
+        app: loki-minio
+    spec:
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: loki-minio-creds
+                  key: ACCESS_KEY_ID
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: loki-minio-creds
+                  key: SECRET_ACCESS_KEY
+            - name: MINIO_PROMETHEUS_AUTH_TYPE
+              value: "public"
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          resources:
+            requests:
+              memory: 128Mi
+              cpu: 50m
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-minio
+  namespace: application
+  labels:
+    app: loki-minio
+spec:
+  selector:
+    app: loki-minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: loki-minio-makebucket
+  namespace: application
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:RELEASE.2024-10-08T09-37-26Z
+          env:
+            - name: ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: loki-minio-creds
+                  key: ACCESS_KEY_ID
+            - name: SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loki-minio-creds
+                  key: SECRET_ACCESS_KEY
+          command:
+            - /bin/sh
+            - -c
+            - |
+              until mc alias set local http://loki-minio:9000 "$ACCESS_KEY_ID" "$SECRET_ACCESS_KEY"; do sleep 2; done
+              mc mb --ignore-existing local/loki-data
