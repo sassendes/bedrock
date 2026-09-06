@@ -47,6 +47,11 @@ metadata:
   name: prometheus
   namespace: application
 spec:
+  alerting:
+    alertmanagers:
+      - namespace: application
+        name: alertmanager-operated
+        port: web
   serviceAccountName: prometheus
   replicas: 1
   retention: 15d

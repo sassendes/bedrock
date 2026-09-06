@@ -1,0 +1,42 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: alertmanager
+  namespace: application
+spec:
+  replicas: 1
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 25m
+    limits:
+      memory: 128Mi
+  secrets:
+    - ntfy-token
+  configSecret: alertmanager-config
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-config
+  namespace: application
+type: Opaque
+stringData:
+  alertmanager.yaml: |
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: 'ntfy'
+      group_by: ['alertname','namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+    receivers:
+      - name: 'ntfy'
+        webhook_configs:
+          - url: 'http://ntfy.application.svc/alerts'
+            send_resolved: true
+            http_config:
+              authorization:
+                type: Bearer
+                credentials_file: /etc/alertmanager/secrets/ntfy-token/token
