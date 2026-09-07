@@ -10,6 +10,7 @@ spec:
   imageName: ghcr.io/cloudnative-pg/postgresql:17.4
   storage:
     size: 10Gi
+    storageClass: longhorn
   enableSuperuserAccess: true
   superuserSecret:
     name: super-secret-1

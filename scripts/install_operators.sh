@@ -3,6 +3,7 @@ set -euo pipefail
 
 CNPG_VERSION="1.27.0"
 PROM_OP_VERSION="0.93.1"
+LONGHORN_VERSION="1.7.3"
 
 echo ">> installing cnpg operator v${CNPG_VERSION}"
 kubectl apply --server-side -f \
@@ -20,5 +21,13 @@ echo ">> waiting for prometheus-operator to be ready"
 kubectl wait --for=condition=Available deployment/prometheus-operator \
   -n default --timeout=180s
 
+echo ">> installing longhorn v${LONGHORN_VERSION}"
+kubectl apply -f \
+  "https://raw.githubusercontent.com/longhorn/longhorn/v${LONGHORN_VERSION}/deploy/longhorn.yaml"
+
+echo ">> waiting for longhorn to be ready"
+kubectl wait --for=condition=Available deployment/longhorn-driver-deployer \
+  -n longhorn-system --timeout=300s
+
 echo ">> operators installed"
-kubectl get crd | grep -E 'postgresql.cnpg.io|monitoring.coreos.com'
+kubectl get crd | grep -E 'postgresql.cnpg.io|monitoring.coreos.com|longhorn.io'
