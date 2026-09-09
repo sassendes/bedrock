@@ -18,6 +18,7 @@ metadata:
   namespace: application
 spec:
   accessModes: ["ReadWriteOnce"]
+  storageClassName: longhorn
   resources:
     requests:
       storage: 1Gi
