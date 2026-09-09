@@ -5,7 +5,7 @@ metadata:
   namespace: application
 data:
   server.yml: |
-    base-url: "http://wireguard"
+    base-url: "http://localhost"
     cache-file: "/var/lib/ntfy/cache.db"
     auth-file: "/var/lib/ntfy/auth.db"
     auth-default-access: "deny-all"
@@ -79,44 +79,4 @@ spec:
     - port: 80
       targetPort: 80
       nodePort: 30080
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: ntfy-selfsigned
-  namespace: application
-spec:
-  selfSigned: {}
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: ntfy-tls
-  namespace: application
-spec:
-  secretName: ntfy-tls
-  issuerRef:
-    name: ntfy-selfsigned
-    kind: Issuer
-  ipAddresses:
-    - 192.168.100.82
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: ntfy
-  namespace: application
-spec:
-  ingressClassName: traefik
-  tls:
-    - secretName: ntfy-tls
-  rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: ntfy
-                port:
-                  number: 80
+
