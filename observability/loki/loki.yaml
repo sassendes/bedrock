@@ -29,7 +29,7 @@ data:
         active_index_directory: /loki/index
         cache_location: /loki/cache
       aws:
-        s3: http://lokiadmin:lokiadmin@loki-minio.application.svc:9000/loki-data
+        s3: http://loki-minio.application.svc:9000/loki-data
         s3forcepathstyle: true
     limits_config:
       retention_period: 720h
