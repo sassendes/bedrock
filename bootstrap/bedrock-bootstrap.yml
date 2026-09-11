@@ -1,0 +1,294 @@
+---
+- name: Longhorn node prerequisites (all nodes)
+  hosts: k3s_servers
+  become: true
+  tasks:
+    - name: Install open-iscsi + nfs-common
+      ansible.builtin.apt:
+        name:
+          - open-iscsi
+          - nfs-common
+        update_cache: true
+        state: present
+
+    - name: Enable and start iscsid
+      ansible.builtin.systemd:
+        name: iscsid
+        enabled: true
+        state: started
+
+
+- name: Bring up k3s control-plane (cluster-init)
+  hosts: server_init
+  become: true
+  tasks:
+    - name: Install k3s server with embedded etcd (cluster-init)
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | sh -s - server --cluster-init
+      args:
+        creates: /etc/rancher/k3s/k3s.yaml
+
+    - name: Wait for node-token
+      ansible.builtin.wait_for:
+        path: /var/lib/rancher/k3s/server/node-token
+
+    - name: Read the full node-token
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: k3s_token_raw
+
+    - name: Stash token + server URL as facts
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
+        k3s_url: "https://{{ ansible_host }}:6443"
+
+    - name: Fetch kubeconfig to the controller
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /tmp/bedrock-kubeconfig
+        flat: true
+
+    - name: Rewrite kubeconfig 127.0.0.1 -> real IP
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: /tmp/bedrock-kubeconfig
+        regexp: 'https://127\.0\.0\.1:6443'
+        replace: "{{ k3s_url }}"
+
+
+- name: Join remaining servers to HA control plane
+  hosts: server_join
+  become: true
+  tasks:
+    - name: Install k3s as joining server (full token)
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | sh -s - server \
+          --server {{ hostvars[groups['server_init'][0]].k3s_url }} \
+          --token {{ hostvars[groups['server_init'][0]].k3s_token }}
+      args:
+        creates: /etc/rancher/k3s/k3s.yaml
+
+
+- name: Deploy bedrock platform stack (ordered, gated)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    kubeconfig: /tmp/bedrock-kubeconfig
+    repo_root: "{{ playbook_dir }}/.."
+  tasks:
+
+    - name: Apply namespaces
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/namespace.yaml"
+
+    - name: Apply secrets
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/secrets/minio-creds.yaml"
+        - "{{ repo_root }}/secrets/super-secret-1.yaml"
+        - "{{ repo_root }}/secrets/super-secret-2.yaml"
+        - "{{ repo_root }}/secrets/super-secret-3.yaml"
+        - "{{ repo_root }}/secrets/user-secret-1.yaml"
+        - "{{ repo_root }}/secrets/user-secret-2.yaml"
+        - "{{ repo_root }}/secrets/user-secret-3.yaml"
+
+    - name: Apply Longhorn v1.7.3
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "https://raw.githubusercontent.com/longhorn/longhorn/v1.7.3/deploy/longhorn.yaml"
+
+    - name: Wait for longhorn-driver-deployer Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: longhorn-system
+        name: longhorn-driver-deployer
+      register: lh
+      until: >
+        lh.resources | length > 0 and
+        (lh.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 40
+      delay: 15
+
+    - name: Apply CNPG operator v1.27.0
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        server_side_apply:
+          field_manager: bedrock-ansible
+        src: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.27/releases/cnpg-1.27.0.yaml"
+
+    - name: Wait for CNPG controller Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: cnpg-system
+        name: cnpg-controller-manager
+      register: cnpg
+      until: >
+        cnpg.resources | length > 0 and
+        (cnpg.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    - name: Apply Prometheus operator v0.93.1
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        server_side_apply:
+          field_manager: bedrock-ansible
+        src: "https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml"
+
+    - name: Wait for prometheus-operator Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: default
+        name: prometheus-operator
+      register: promop
+      until: >
+        promop.resources | length > 0 and
+        (promop.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    - name: Apply MinIO for cluster-1/2/3
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/database/backups/minio-cluster-1.yaml"
+        - "{{ repo_root }}/database/backups/minio-cluster-2.yaml"
+        - "{{ repo_root }}/database/backups/minio-cluster-3.yaml"
+
+    - name: Wait for MinIO Running in cluster-1
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: cluster-1
+        label_selectors:
+          - "app=minio"
+      register: minio1
+      until: >
+        minio1.resources | length > 0 and
+        (minio1.resources | map(attribute='status.phase') | list | unique) == ['Running']
+      retries: 30
+      delay: 10
+
+    - name: Wait for MinIO Running in cluster-2
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: cluster-2
+        label_selectors:
+          - "app=minio"
+      register: minio2
+      until: >
+        minio2.resources | length > 0 and
+        (minio2.resources | map(attribute='status.phase') | list | unique) == ['Running']
+      retries: 30
+      delay: 10
+
+    - name: Wait for MinIO Running in cluster-3
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: cluster-3
+        label_selectors:
+          - "app=minio"
+      register: minio3
+      until: >
+        minio3.resources | length > 0 and
+        (minio3.resources | map(attribute='status.phase') | list | unique) == ['Running']
+      retries: 30
+      delay: 10
+
+    - name: Create MinIO buckets
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/backups/all-minio-buckets.yaml"
+
+    - name: Apply CNPG cluster-1 (primary)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/cluster-1.yaml"
+
+    - name: Wait for cluster-1 primary healthy
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: cluster-1
+        name: cluster-1
+      register: c1
+      until: >
+        c1.resources | length > 0 and
+        (c1.resources[0].status.readyInstances | default(0)) >= 1
+      retries: 40
+      delay: 15
+
+    - name: Apply replica clusters 2 and 3
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/database/cluster-2.yaml"
+        - "{{ repo_root }}/database/cluster-3.yaml"
+
+    - name: Apply pooler + scheduled backups
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/database/pooler.yaml"
+        - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
+        - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
+
+    - name: Apply Loki stack
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/observability/loki/"
+
+    - name: Apply Prometheus scrape configs + exporters
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/observability/prometheus/"
+
+    - name: Apply alerting
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/observability/alerting/"
+
+    - name: Apply Grafana
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/observability/grafana/grafana.yaml"
+
+    - name: Apply Grafana dashboards
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        server_side_apply:
+          field_manager: bedrock-ansible
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
+        - "{{ repo_root }}/observability/grafana/dash-minio.yaml"
+        - "{{ repo_root }}/observability/grafana/dash-node.yaml"

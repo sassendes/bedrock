@@ -1,0 +1,20 @@
+---
+- name: Tear down bedrock cleanly on all nodes
+  hosts: k3s_servers
+  become: true
+  tasks:
+    - name: Uninstall k3s server (ignore if already gone)
+      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+      args:
+        removes: /usr/local/bin/k3s-uninstall.sh
+
+    - name: Wipe Longhorn on-disk state (kills faulted zombie volumes)
+      ansible.builtin.file:
+        path: /var/lib/longhorn
+        state: absent
+
+    - name: Recreate empty Longhorn dir
+      ansible.builtin.file:
+        path: /var/lib/longhorn
+        state: directory
+        mode: "0755"
