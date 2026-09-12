@@ -139,13 +139,12 @@
       retries: 30
       delay: 10
 
-    - name: Apply Prometheus operator v0.93.1
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        server_side_apply:
-          field_manager: bedrock-ansible
-        src: "https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml"
+    - name: Apply Prometheus operator v0.93.1 (via kubectl - bundle YAML breaks ansible parser)
+      ansible.builtin.command: >
+        kubectl apply --server-side --force-conflicts
+        -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for prometheus-operator Available
       kubernetes.core.k8s_info:
@@ -281,13 +280,11 @@
         state: present
         src: "{{ repo_root }}/observability/grafana/grafana.yaml"
 
-    - name: Apply Grafana dashboards
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        server_side_apply:
-          field_manager: bedrock-ansible
-        src: "{{ item }}"
+    - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
+      ansible.builtin.command: >
+        kubectl apply --server-side --force-conflicts -f "{{ item }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
       loop:
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-minio.yaml"
