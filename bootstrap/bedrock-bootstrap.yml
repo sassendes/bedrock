@@ -109,7 +109,7 @@
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/kyverno/policies/"
+        src: "{{ repo_root }}/kyverno/"
 
     - name: Apply secrets
       kubernetes.core.k8s:
