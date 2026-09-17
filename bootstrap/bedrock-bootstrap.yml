@@ -85,6 +85,32 @@
         state: present
         src: "{{ repo_root }}/namespace.yaml"
 
+    - name: Install Kyverno v1.19.1 (policy admission must exist before validated workloads)
+      ansible.builtin.command: >
+        kubectl apply --server-side --force-conflicts
+        -f https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for kyverno admission-controller Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: kyverno
+        name: kyverno-admission-controller
+      register: kyverno_ac
+      until: >
+        kyverno_ac.resources | length > 0 and
+        (kyverno_ac.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    - name: Apply Kyverno policies
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/kyverno/policies/"
+
     - name: Apply secrets
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"

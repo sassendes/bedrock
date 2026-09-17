@@ -1,0 +1,35 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: harden-run-as-nonroot
+spec:
+  background: true
+  rules:
+    - name: inject-pod-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      mutate:
+        patchStrategicMerge:
+          spec:
+            +(securityContext):
+              runAsNonRoot: true
+              runAsUser: 1000
+              runAsGroup: 1000
+    - name: inject-container-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      mutate:
+        foreach:
+          - list: "request.object.spec.containers"
+            patchStrategicMerge:
+              spec:
+                containers:
+                  - name: "{{ element.name }}"
+                    +(securityContext):
+                      allowPrivilegeEscalation: false

@@ -81,6 +81,9 @@ spec:
         app: alloy
     spec:
       serviceAccountName: alloy
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
       containers:
         - name: alloy
           image: grafana/alloy:v1.5.1
