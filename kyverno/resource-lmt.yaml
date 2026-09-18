@@ -12,6 +12,8 @@ spec:
           - resources:
               kinds:
                 - Pod
+              namespaces:
+                - application
       validate:
         message: "cpu and memory limits are required on every container"
         pattern:

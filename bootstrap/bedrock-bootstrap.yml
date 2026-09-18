@@ -108,16 +108,19 @@
         name: kyverno-admission-controller
       register: kyverno_ac
       until: >
-        kyverno_ac.resources | length > 0 and
+        kyverno_ac.resources |default([]) |  length > 0 and
         (kyverno_ac.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 30
       delay: 10
 
     - name: Apply Kyverno policies
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/kyverno/"
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: kyverno_apply
+      until: kyverno_apply.rc == 0
+      retries: 6
+      delay: 10
 
     - name: Apply secrets
       kubernetes.core.k8s:
@@ -291,23 +294,19 @@
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
 
     - name: Apply Loki stack
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/observability/loki/"
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/loki/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Apply Prometheus scrape configs + exporters
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/observability/prometheus/"
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/prometheus/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Apply alerting
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/observability/alerting/"
-
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/alerting/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
     - name: Apply Grafana
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"

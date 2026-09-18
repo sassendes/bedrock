@@ -8,6 +8,11 @@
       args:
         removes: /usr/local/bin/k3s-uninstall.sh
 
+    - name: Wipe k3s server state incl. etcd db (kills stale/learner etcd membership)
+      ansible.builtin.file:
+        path: /var/lib/rancher/k3s
+        state: absent
+
     - name: Wipe Longhorn on-disk state (kills faulted zombie volumes)
       ansible.builtin.file:
         path: /var/lib/longhorn
