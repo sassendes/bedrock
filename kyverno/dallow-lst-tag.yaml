@@ -3,6 +3,9 @@ kind: ClusterPolicy
 metadata:
   name: disallow-latest-tag
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
+    timeoutSeconds: 10
   validationFailureAction: Enforce
   background: true
   rules:
@@ -12,6 +15,8 @@ spec:
           - resources:
               kinds:
                 - Pod
+              namespaces:
+                - application
       validate:
         message: "an image tag is required (pin a version, no untagged images)"
         pattern:
@@ -24,6 +29,8 @@ spec:
           - resources:
               kinds:
                 - Pod
+              namespaces:
+                - application
       validate:
         message: "using a mutable ':latest' tag is not allowed"
         pattern:
