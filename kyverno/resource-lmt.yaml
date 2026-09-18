@@ -3,6 +3,9 @@ kind: ClusterPolicy
 metadata:
   name: require-resource-limits
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
+    timeoutSeconds: 10
   validationFailureAction: Enforce
   background: true
   rules:
