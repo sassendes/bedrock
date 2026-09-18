@@ -99,6 +99,10 @@
         -f https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      register: kyverno_install
+      until: kyverno_install.rc == 0
+      retries: 6
+      delay: 15
 
     - name: Wait for kyverno admission-controller Available
       kubernetes.core.k8s_info:
@@ -182,6 +186,10 @@
         -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      register: kyverno_install
+      until: kyverno_install.rc == 0
+      retries: 6
+      delay: 15
 
     - name: Wait for prometheus-operator Available
       kubernetes.core.k8s_info:
