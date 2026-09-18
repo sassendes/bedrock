@@ -26,7 +26,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z
+          image: quay.io/minio/minio:RELEASE.2025-06-13T11-33-47Z
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
@@ -50,6 +50,7 @@ spec:
               cpu: 50m
             limits:
               memory: 512Mi
+              cpu: "1"
           volumeMounts:
             - name: data
               mountPath: /data
@@ -92,7 +93,14 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: quay.io/minio/mc:RELEASE.2024-10-08T09-37-26Z
+          image: quay.io/minio/mc:RELEASE.2025-05-21T01-59-54Z
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 50m
+            limits:
+              memory: 64Mi
+              cpu: "250m"
           env:
             - name: ACCESS_KEY_ID
               valueFrom:
