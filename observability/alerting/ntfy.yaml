@@ -52,6 +52,7 @@ spec:
               cpu: 25m
             limits:
               memory: 128Mi
+              cpu: "250m"
           volumeMounts:
             - name: config
               mountPath: /etc/ntfy
