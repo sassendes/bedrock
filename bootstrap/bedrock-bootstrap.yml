@@ -123,7 +123,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_apply
       until: kyverno_apply.rc == 0
-      retries: 6
+      retries: 10
       delay: 10
 
     - name: Apply secrets
@@ -186,9 +186,9 @@
         -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      register: kyverno_install
-      until: kyverno_install.rc == 0
-      retries: 6
+      register: prom_install
+      until: prom_install.rc == 0
+      retries: 10
       delay: 15
 
     - name: Wait for prometheus-operator Available
