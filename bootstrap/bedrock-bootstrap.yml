@@ -78,7 +78,15 @@
     kubeconfig: /tmp/bedrock-kubeconfig
     repo_root: "{{ playbook_dir }}/.."
   tasks:
-
+    - name: Wait for Kubernetes API to answer
+      ansible.builtin.command: kubectl get --raw=/readyz
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: api_ready
+      until: api_ready.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
     - name: Apply namespaces
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
