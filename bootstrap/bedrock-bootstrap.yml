@@ -123,7 +123,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_apply
       until: kyverno_apply.rc == 0
-      retries: 10
+      retries: 6
       delay: 10
 
     - name: Apply secrets
@@ -154,7 +154,7 @@
         name: longhorn-driver-deployer
       register: lh
       until: >
-        lh.resources | length > 0 and
+        lh.resources | default([]) | length > 0 and
         (lh.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 40
       delay: 15
@@ -186,9 +186,9 @@
         -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      register: prom_install
-      until: prom_install.rc == 0
-      retries: 10
+      register: kyverno_install
+      until: kyverno_install.rc == 0
+      retries: 6
       delay: 15
 
     - name: Wait for prometheus-operator Available
@@ -199,7 +199,7 @@
         name: prometheus-operator
       register: promop
       until: >
-        promop.resources | length > 0 and
+        promop.resources | default([]) | length > 0 and
         (promop.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 30
       delay: 10
@@ -223,7 +223,7 @@
           - "app=minio"
       register: minio1
       until: >
-        minio1.resources | length > 0 and
+        minio1.resources | default([]) | length > 0 and
         (minio1.resources | map(attribute='status.phase') | list | unique) == ['Running']
       retries: 30
       delay: 10
@@ -237,7 +237,7 @@
           - "app=minio"
       register: minio2
       until: >
-        minio2.resources | length > 0 and
+        minio2.resources | default([]) | length > 0 and
         (minio2.resources | map(attribute='status.phase') | list | unique) == ['Running']
       retries: 30
       delay: 10
@@ -251,7 +251,7 @@
           - "app=minio"
       register: minio3
       until: >
-        minio3.resources | length > 0 and
+        minio3.resources | default([]) | length > 0 and
         (minio3.resources | map(attribute='status.phase') | list | unique) == ['Running']
       retries: 30
       delay: 10
@@ -277,7 +277,7 @@
         name: cluster-1
       register: c1
       until: >
-        c1.resources | length > 0 and
+        c1.resources | default([]) | length > 0 and
         (c1.resources[0].status.readyInstances | default(0)) >= 1
       retries: 40
       delay: 15
