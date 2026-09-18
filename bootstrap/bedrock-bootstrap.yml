@@ -101,7 +101,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_install
       until: kyverno_install.rc == 0
-      retries: 6
+      retries: 10
       delay: 15
 
     - name: Wait for kyverno admission-controller Available
@@ -123,7 +123,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_apply
       until: kyverno_apply.rc == 0
-      retries: 6
+      retries: 10
       delay: 10
 
     - name: Apply secrets
@@ -188,7 +188,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_install
       until: kyverno_install.rc == 0
-      retries: 6
+      retries: 10
       delay: 15
 
     - name: Wait for prometheus-operator Available
