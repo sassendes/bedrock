@@ -186,8 +186,8 @@
         -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      register: kyverno_install
-      until: kyverno_install.rc == 0
+      register: prom_install
+      until: prom_install.rc == 0
       retries: 10
       delay: 15
 
@@ -203,6 +203,49 @@
         (promop.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 30
       delay: 10
+
+    - name: Create argocd namespace
+      ansible.builtin.command: >
+        kubectl create namespace argocd --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_ns_manifest
+      changed_when: false
+
+    - name: Apply argocd namespace
+      ansible.builtin.command: kubectl apply -f -
+      args:
+        stdin: "{{ argocd_ns_manifest.stdout }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_ns
+      until: argocd_ns.rc == 0
+      retries: 6
+      delay: 10
+
+    - name: Install ArgoCD v3.5.3
+      ansible.builtin.command: >
+        kubectl apply -n argocd --server-side --force-conflicts
+        -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_install
+      until: argocd_install.rc == 0
+      retries: 10
+      delay: 15
+
+    - name: Wait for argocd-server Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: argocd
+        name: argocd-server
+      register: argocd_srv
+      until: >
+        argocd_srv.resources | default([]) | length > 0 and
+        (argocd_srv.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 40
+      delay: 15
 
     - name: Apply MinIO for cluster-1/2/3
       kubernetes.core.k8s:
@@ -330,3 +373,12 @@
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-minio.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
+
+    - name: Point ArgoCD at the bedrock repo (GitOps takeover)
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/gitops.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_app
+      until: argocd_app.rc == 0
+      retries: 6
+      delay: 10
