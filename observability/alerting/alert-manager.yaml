@@ -11,6 +11,7 @@ spec:
       cpu: 25m
     limits:
       memory: 128Mi
+      cpu: "250m"
   secrets:
     - ntfy-token
   configSecret: alertmanager-config
