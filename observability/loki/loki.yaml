@@ -61,6 +61,11 @@ spec:
       labels:
         app: loki
     spec:
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: loki
           image: grafana/loki:3.2.1
