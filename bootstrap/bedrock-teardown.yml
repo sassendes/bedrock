@@ -23,3 +23,29 @@
         path: /var/lib/longhorn
         state: directory
         mode: "0755"
+
+    - name: Wipe Rook/Ceph host state (mon db, keys - stale state here breaks the next mon quorum)
+      ansible.builtin.file:
+        path: /var/lib/rook
+        state: absent
+
+    - name: Guard - refuse to zap a disk that has anything mounted (root disk, swap, wrong device)
+      ansible.builtin.command: lsblk -nr -o MOUNTPOINT {{ ceph_osd_device }}
+      register: zap_guard
+      changed_when: false
+      failed_when: >
+        zap_guard.rc != 0 or
+        (zap_guard.stdout_lines | select | list | length) > 0
+
+    - name: Remove ceph osd device-mapper / lvm leftovers
+      ansible.builtin.shell: |
+        for m in /dev/mapper/ceph--*; do [ -e "$m" ] && dmsetup remove "$m"; done
+        rm -rf /dev/ceph-*
+        true
+
+    - name: Zap ceph osd disk back to blank (kills zombie osd - same lesson as /var/lib/longhorn)
+      ansible.builtin.shell: |
+        sgdisk --zap-all {{ ceph_osd_device }}
+        dd if=/dev/zero of={{ ceph_osd_device }} bs=1M count=100 oflag=direct,dsync
+        blkdiscard {{ ceph_osd_device }} || true
+        partprobe {{ ceph_osd_device }} || true
