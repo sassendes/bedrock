@@ -8,6 +8,8 @@
         name:
           - open-iscsi
           - nfs-common
+          - curl
+          - jq
         update_cache: true
         state: present
 
@@ -329,8 +331,8 @@
       ansible.builtin.shell: |
         for ns in cluster-2 cluster-3; do
           for sec in cluster-1-ca cluster-1-replication; do
-            kubectl -n cluster-1 get secret "$sec" -o yaml \
-              | grep -vE '^\s*(namespace|resourceVersion|uid|creationTimestamp):' \
+            kubectl -n cluster-1 get secret "$sec" -o json \
+              | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.managedFields,.status)' \
               | kubectl apply -n "$ns" -f -
           done
         done
