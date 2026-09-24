@@ -39,7 +39,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: quay.io/minio/mc:RELEASE.2025-05-21T01-59-54Z
+          image: quay.io/minio/aistor/mc:RELEASE.2026-02-03T00-12-26Z
           env:
             - name: KEY
               valueFrom:
@@ -69,7 +69,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
-          image: quay.io/minio/mc:RELEASE.2025-05-21T01-59-54Z
+          image: quay.io/minio/aistor/mc:RELEASE.2026-02-03T00-12-26Z
           env:
             - name: KEY
               valueFrom:

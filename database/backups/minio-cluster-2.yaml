@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: minio
-          image: quay.io/minio/aistor/mc:RELEASE.2026-02-03T00-12-26Z
+          image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
           args: ["server", "/data", "--console-address", ":9001"]
           env:
             - name: MINIO_ROOT_USER
