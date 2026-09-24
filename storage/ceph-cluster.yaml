@@ -7,7 +7,7 @@ allowVolumeExpansion: true
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 parameters:
-  numberOfReplicas: "1"
+  numberOfReplicas: "3"
   dataLocality: "best-effort"
   staleReplicaTimeout: "2880"
 ---
@@ -48,15 +48,15 @@ spec:
     storageClassDeviceSets:
       - name: osd
         count: 3
-        # pinned to the node it was born on so ceph's "host" = a real node.
-        # pools replicate across hosts so each copy sits on a different machine.
-        portable: false
+        # portable: the osd can move to another node when its node dies (its longhorn volume follows it)
+        portable: true
         encrypted: false
         placement:
+          # spread 1 per node normally. ScheduleAnyway so a dead node never blocks the osd from moving.
           topologySpreadConstraints:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: DoNotSchedule
+              whenUnsatisfiable: ScheduleAnyway
               labelSelector:
                 matchExpressions:
                   - key: app
@@ -122,3 +122,4 @@ spec:
         interval: 60s
       status:
         interval: 60s
+ 
