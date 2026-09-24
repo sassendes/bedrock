@@ -1,15 +1,50 @@
 ---
-- name: Longhorn node prerequisites (all nodes)
+- name: Node prerequisites + storage preflight (all nodes)
   hosts: k3s_servers
   become: true
   tasks:
-    - name: Install open-iscsi + nfs-common
+    - name: Preflight - ceph osd disk exists
+      ansible.builtin.stat:
+        path: "{{ ceph_osd_device }}"
+      register: osd_dev
+
+    - name: Preflight - fail if ceph osd disk is missing
+      ansible.builtin.fail:
+        msg: >-
+          {{ inventory_hostname }} has no {{ ceph_osd_device }}. add a blank raw disk to this vm
+          (no partitions, no filesystem) and set ceph_osd_device in hosts.ini.
+      when: not osd_dev.stat.exists
+
+    - name: Preflight - has this node already been given to ceph (re-run without teardown)
+      ansible.builtin.stat:
+        path: /var/lib/rook
+      register: rook_dir
+
+    - name: Preflight - read partitions / filesystems / mountpoints on ceph osd disk
+      ansible.builtin.command: lsblk -nr -o NAME,FSTYPE,MOUNTPOINT {{ ceph_osd_device }}
+      register: osd_lsblk
+      changed_when: false
+      when: not rook_dir.stat.exists
+
+    - name: Preflight - fail if ceph osd disk is not blank
+      ansible.builtin.fail:
+        msg: >-
+          {{ ceph_osd_device }} on {{ inventory_hostname }} is not blank:
+          {{ osd_lsblk.stdout_lines }}. wrong disk? or leftover osd from a previous run: make teardown zaps it.
+      when: >
+        not rook_dir.stat.exists and (
+        (osd_lsblk.stdout_lines | length) > 1 or
+        (osd_lsblk.stdout_lines[0].split(' ') | select | list | length) > 1 )
+
+    - name: Install open-iscsi + nfs-common + lvm2 (ceph osd) + gdisk (teardown zap)
       ansible.builtin.apt:
         name:
           - open-iscsi
           - nfs-common
           - curl
           - jq
+          - lvm2
+          - gdisk
         update_cache: true
         state: present
 
@@ -134,7 +169,6 @@
         state: present
         src: "{{ item }}"
       loop:
-        - "{{ repo_root }}/secrets/minio-creds.yaml"
         - "{{ repo_root }}/secrets/super-secret-1.yaml"
         - "{{ repo_root }}/secrets/super-secret-2.yaml"
         - "{{ repo_root }}/secrets/super-secret-3.yaml"
@@ -206,6 +240,98 @@
       retries: 30
       delay: 10
 
+    - name: Install Rook v1.20.7 (crds, common, csi-operator, operator - in that order)
+      ansible.builtin.command: >
+        kubectl apply --server-side --force-conflicts
+        -f https://raw.githubusercontent.com/rook/rook/v1.20.7/deploy/examples/crds.yaml
+        -f https://raw.githubusercontent.com/rook/rook/v1.20.7/deploy/examples/common.yaml
+        -f https://raw.githubusercontent.com/rook/rook/v1.20.7/deploy/examples/csi-operator.yaml
+        -f https://raw.githubusercontent.com/rook/rook/v1.20.7/deploy/examples/operator.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: rook_install
+      until: rook_install.rc == 0
+      retries: 10
+      delay: 15
+
+    - name: Wait for rook-ceph-operator Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: rook-ceph
+        name: rook-ceph-operator
+      register: rookop
+      until: >
+        rookop.resources | default([]) | length > 0 and
+        (rookop.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    - name: Apply CephCluster
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/storage/ceph-cluster.yaml"
+
+    - name: Wait for CephCluster Ready (mons + mgr + osds, slow on first boot)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: ceph.rook.io/v1
+        kind: CephCluster
+        namespace: rook-ceph
+        name: rook-ceph
+      register: ceph
+      until: >
+        ceph.resources | default([]) | length > 0 and
+        (ceph.resources[0].status.phase | default('')) == 'Ready'
+      retries: 80
+      delay: 15
+
+    - name: Apply object store (rgw) + bucket StorageClass
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/storage/object-store.yaml"
+
+    - name: Wait for CephObjectStore Ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: ceph.rook.io/v1
+        kind: CephObjectStore
+        namespace: rook-ceph
+        name: bedrock-s3
+      register: rgw
+      until: >
+        rgw.resources | default([]) | length > 0 and
+        (rgw.resources[0].status.phase | default('')) == 'Ready'
+      retries: 60
+      delay: 15
+
+    - name: Apply bucket claims (creates buckets + per-bucket creds)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/storage/buckets.yaml"
+
+    - name: Wait for every bucket claim Bound (creds secret exists after this)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: objectbucket.io/v1alpha1
+        kind: ObjectBucketClaim
+        namespace: "{{ item.ns }}"
+        name: "{{ item.name }}"
+      register: obc
+      until: >
+        obc.resources | default([]) | length > 0 and
+        (obc.resources[0].status.phase | default('')) == 'Bound'
+      retries: 30
+      delay: 10
+      loop:
+        - { ns: cluster-1, name: cluster-1-backups }
+        - { ns: cluster-2, name: cluster-2-backups }
+        - { ns: cluster-3, name: cluster-3-backups }
+        - { ns: application, name: loki-data }
+
     - name: Create argocd namespace
       ansible.builtin.command: >
         kubectl create namespace argocd --dry-run=client -o yaml
@@ -249,58 +375,6 @@
       retries: 40
       delay: 15
 
-    - name: Apply MinIO for cluster-1/2/3
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ item }}"
-      loop:
-        - "{{ repo_root }}/database/backups/minio-cluster-1.yaml"
-        - "{{ repo_root }}/database/backups/minio-cluster-2.yaml"
-        - "{{ repo_root }}/database/backups/minio-cluster-3.yaml"
-
-    - name: Wait for MinIO Running in cluster-1
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Pod
-        namespace: cluster-1
-        label_selectors:
-          - "app=minio"
-      register: minio1
-      until: >
-        minio1.resources | default([]) | length > 0 and
-        (minio1.resources | map(attribute='status.phase') | list | unique) == ['Running']
-      retries: 30
-      delay: 10
-
-    - name: Wait for MinIO Running in cluster-2
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Pod
-        namespace: cluster-2
-        label_selectors:
-          - "app=minio"
-      register: minio2
-      until: >
-        minio2.resources | default([]) | length > 0 and
-        (minio2.resources | map(attribute='status.phase') | list | unique) == ['Running']
-      retries: 30
-      delay: 10
-
-    - name: Wait for MinIO Running in cluster-3
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Pod
-        namespace: cluster-3
-        label_selectors:
-          - "app=minio"
-      register: minio3
-      until: >
-        minio3.resources | default([]) | length > 0 and
-        (minio3.resources | map(attribute='status.phase') | list | unique) == ['Running']
-      retries: 30
-      delay: 10
-
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -321,10 +395,32 @@
       retries: 40
       delay: 15
 
-    - name: Propagate cluster-1 CA + replication secrets to replica namespaces
+    - name: Apply cluster-1 scheduled backup (immediate - takes the first base backup now)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
+
+    - name: Wait for first cluster-1 base backup completed (replicas bootstrap from it)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: postgresql.cnpg.io/v1
+        kind: Backup
+        namespace: cluster-1
+        label_selectors:
+          - "cnpg.io/cluster=cluster-1"
+      register: c1_backup
+      until: >
+        c1_backup.resources | default([]) |
+        map(attribute='status', default={}) | map(attribute='phase', default='') |
+        select('equalto', 'completed') | list | length > 0
+      retries: 40
+      delay: 15
+
+    - name: Propagate cluster-1 CA + replication + bucket creds to replica namespaces
       ansible.builtin.shell: |
         for ns in cluster-2 cluster-3; do
-          for sec in cluster-1-ca cluster-1-replication; do
+          for sec in cluster-1-ca cluster-1-replication cluster-1-backups; do
             kubectl -n cluster-1 get secret "$sec" -o json \
               | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.managedFields,.status)' \
               | kubectl apply -n "$ns" -f -
@@ -353,7 +449,6 @@
         src: "{{ item }}"
       loop:
         - "{{ repo_root }}/database/pooler.yaml"
-        - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
 
     - name: Apply Loki stack
@@ -383,7 +478,6 @@
         KUBECONFIG: "{{ kubeconfig }}"
       loop:
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
-        - "{{ repo_root }}/observability/grafana/dash-minio.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
 
     - name: Point ArgoCD at the bedrock repo (GitOps takeover)
