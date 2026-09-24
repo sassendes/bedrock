@@ -26,6 +26,12 @@ spec:
     limits:
       memory: "1Gi"
       cpu: "1"
+  # newer boto3 sends checksum headers some s3 backends reject. only send when the api requires it.
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
   bootstrap:
     initdb:
       database: app
@@ -40,14 +46,14 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: s3://cluster-1-backups/wals
-      endpointURL: http://minio.cluster-1.svc:9000
+      endpointURL: http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80
       s3Credentials:
         accessKeyId:
-          name: minio-creds
-          key: ACCESS_KEY_ID
+          name: cluster-1-backups
+          key: AWS_ACCESS_KEY_ID
         secretAccessKey:
-          name: minio-creds
-          key: SECRET_ACCESS_KEY
+          name: cluster-1-backups
+          key: AWS_SECRET_ACCESS_KEY
       wal:
         compression: gzip
       data:
