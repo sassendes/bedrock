@@ -1,3 +1,16 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-ceph-osd
+provisioner: driver.longhorn.io
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  numberOfReplicas: "1"
+  dataLocality: "best-effort"
+  staleReplicaTimeout: "2880"
+---
 apiVersion: ceph.rook.io/v1
 kind: CephCluster
 metadata:
@@ -29,9 +42,49 @@ spec:
       compression:
         enabled: false
   storage:
-    useAllNodes: true
+    useAllNodes: false
     useAllDevices: false
-    deviceFilter: "^sdb$"
+    onlyApplyOSDPlacement: false
+    storageClassDeviceSets:
+      - name: osd
+        count: 3
+        # pinned to the node it was born on so ceph's "host" = a real node.
+        # pools replicate across hosts so each copy sits on a different machine.
+        portable: false
+        encrypted: false
+        placement:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - rook-ceph-osd
+        preparePlacement:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - rook-ceph-osd-prepare
+        volumeClaimTemplates:
+          - metadata:
+              name: data
+            spec:
+              resources:
+                requests:
+                  storage: 20Gi
+              storageClassName: longhorn-ceph-osd
+              volumeMode: Block
+              accessModes:
+                - ReadWriteOnce
   resources:
     mon:
       requests:
