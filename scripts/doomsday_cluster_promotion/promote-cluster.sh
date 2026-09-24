@@ -5,6 +5,7 @@ TARGET="${1:-}"
 TARGET_NS="${2:-}"
 SOURCE="${3:-}"
 SOURCE_NS="${4:-}"
+FENCE_TIMEOUT="${FENCE_TIMEOUT:-180}"
 
 if [ -z "$TARGET" ] || [ -z "$TARGET_NS" ] || [ -z "$SOURCE" ] || [ -z "$SOURCE_NS" ]; then
   echo "usage: $0 <target-cluster> <target-ns> <dead-source-cluster> <dead-source-ns>"
@@ -23,7 +24,7 @@ if [ "$IS_REPLICA" != "true" ]; then
 fi
 
 kubectl get cluster "$SOURCE" -n "$SOURCE_NS" 2>/dev/null || true
-kubectl get pods -n "$SOURCE_NS" 2>/dev/null || true
+kubectl get pods -n "$SOURCE_NS" -l "cnpg.io/cluster=$SOURCE" 2>/dev/null || true
 
 read -r -p "confirmed $SOURCE is truly dead, not just unreachable? [type: yes] " C1
 if [ "$C1" != "yes" ]; then
@@ -37,12 +38,32 @@ if [ "$C2" != "$TARGET" ]; then
   exit 1
 fi
 
+# fence. cnpg rejects instances: 0 (crd minimum is 1) so hibernation is the real off switch:
+# all source pods get deleted, pvcs are kept. no silent || true here. a failed fence must stop the promotion.
 if kubectl get cluster "$SOURCE" -n "$SOURCE_NS" >/dev/null 2>&1; then
-  kubectl patch cluster "$SOURCE" -n "$SOURCE_NS" --type merge -p '{"spec":{"instances":0}}' || true
+  echo ">> fencing $SOURCE (hibernation)"
+  kubectl annotate cluster "$SOURCE" -n "$SOURCE_NS" cnpg.io/hibernation=on --overwrite
+else
+  echo ">> $SOURCE cluster resource is gone, checking no pods survived"
 fi
 
-sleep 15
+echo ">> waiting up to ${FENCE_TIMEOUT}s for 0 $SOURCE pods"
+DEADLINE=$(( $(date +%s) + FENCE_TIMEOUT ))
+while true; do
+  LEFT=$(kubectl get pods -n "$SOURCE_NS" -l "cnpg.io/cluster=$SOURCE" --no-headers 2>/dev/null | wc -l)
+  if [ "$LEFT" -eq 0 ]; then
+    echo ">> fence confirmed: 0 $SOURCE pods"
+    break
+  fi
+  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+    echo "fence NOT confirmed: $LEFT $SOURCE pod(s) still exist. refusing to promote (split-brain risk)."
+    kubectl get pods -n "$SOURCE_NS" -l "cnpg.io/cluster=$SOURCE" || true
+    exit 1
+  fi
+  sleep 5
+done
 
+echo ">> promoting $TARGET"
 kubectl patch cluster "$TARGET" -n "$TARGET_NS" --type merge -p '{"spec":{"replica":{"enabled":false}}}'
 
 sleep 5
