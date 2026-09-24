@@ -98,7 +98,7 @@ spec:
             severity: critical
           annotations:
             summary: "CRITICAL PVC: {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}"
-            description: "PVC above 92%, postgres/minio write failure risk ({{ $value | humanize }}%)."
+            description: "PVC above 92%, postgres write failure risk ({{ $value | humanize }}%)."
     - name: cnpg.rules
       rules:
         - alert: CNPGReplicationLagHigh
