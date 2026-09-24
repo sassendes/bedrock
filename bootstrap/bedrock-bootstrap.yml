@@ -301,12 +301,6 @@
       retries: 30
       delay: 10
 
-    - name: Create MinIO buckets
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/database/backups/all-minio-buckets.yaml"
-
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
