@@ -1,0 +1,71 @@
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  cephVersion:
+    image: quay.io/ceph/ceph:v20.2.4
+    allowUnsupported: false
+  dataDirHostPath: /var/lib/rook
+  skipUpgradeChecks: false
+  continueUpgradeAfterChecksEvenIfNotHealthy: false
+  mon:
+    count: 3
+    allowMultiplePerNode: false
+  mgr:
+    count: 2
+    allowMultiplePerNode: false
+  dashboard:
+    enabled: false
+  monitoring:
+    enabled: true
+  crashCollector:
+    disable: true
+  network:
+    connections:
+      encryption:
+        enabled: false
+      compression:
+        enabled: false
+  storage:
+    useAllNodes: true
+    useAllDevices: false
+    deviceFilter: "^sdb$"
+  resources:
+    mon:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    mgr:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    osd:
+      requests:
+        cpu: 250m
+        memory: 2Gi
+      limits:
+        memory: 3Gi
+    prepareosd:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  priorityClassNames:
+    mon: system-node-critical
+    osd: system-node-critical
+    mgr: system-cluster-critical
+  disruptionManagement:
+    managePodBudgets: true
+  healthCheck:
+    daemonHealth:
+      mon:
+        interval: 45s
+      osd:
+        interval: 60s
+      status:
+        interval: 60s
