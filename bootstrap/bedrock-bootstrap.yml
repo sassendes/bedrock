@@ -1,42 +1,9 @@
 ---
-- name: Node prerequisites + storage preflight (all nodes)
+- name: Node prerequisites (all nodes)
   hosts: k3s_servers
   become: true
   tasks:
-    - name: Preflight - ceph osd disk exists
-      ansible.builtin.stat:
-        path: "{{ ceph_osd_device }}"
-      register: osd_dev
-
-    - name: Preflight - fail if ceph osd disk is missing
-      ansible.builtin.fail:
-        msg: >-
-          {{ inventory_hostname }} has no {{ ceph_osd_device }}. add a blank raw disk to this vm
-          (no partitions, no filesystem) and set ceph_osd_device in hosts.ini.
-      when: not osd_dev.stat.exists
-
-    - name: Preflight - has this node already been given to ceph (re-run without teardown)
-      ansible.builtin.stat:
-        path: /var/lib/rook
-      register: rook_dir
-
-    - name: Preflight - read partitions / filesystems / mountpoints on ceph osd disk
-      ansible.builtin.command: lsblk -nr -o NAME,FSTYPE,MOUNTPOINT {{ ceph_osd_device }}
-      register: osd_lsblk
-      changed_when: false
-      when: not rook_dir.stat.exists
-
-    - name: Preflight - fail if ceph osd disk is not blank
-      ansible.builtin.fail:
-        msg: >-
-          {{ ceph_osd_device }} on {{ inventory_hostname }} is not blank:
-          {{ osd_lsblk.stdout_lines }}. wrong disk? or leftover osd from a previous run: make teardown zaps it.
-      when: >
-        not rook_dir.stat.exists and (
-        (osd_lsblk.stdout_lines | length) > 1 or
-        (osd_lsblk.stdout_lines[0].split(' ') | select | list | length) > 1 )
-
-    - name: Install open-iscsi + nfs-common + lvm2 (ceph osd) + gdisk (teardown zap)
+    - name: Install open-iscsi + nfs-common + lvm2 (ceph osd)
       ansible.builtin.apt:
         name:
           - open-iscsi
@@ -44,7 +11,6 @@
           - curl
           - jq
           - lvm2
-          - gdisk
         update_cache: true
         state: present
 
@@ -267,11 +233,64 @@
       retries: 30
       delay: 10
 
+    - name: Load storage/ceph-cluster.yaml
+      ansible.builtin.set_fact:
+        ceph_docs: "{{ lookup('file', repo_root + '/storage/ceph-cluster.yaml') | from_yaml_all | select | list }}"
+
+    - name: Apply any StorageClass defined in ceph-cluster.yaml (the longhorn osd class by default)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        definition: "{{ item }}"
+      loop: "{{ ceph_docs | selectattr('kind', 'equalto', 'StorageClass') | list }}"
+
+    - name: Read which storageClass the osds ask for (empty = cluster default)
+      ansible.builtin.set_fact:
+        osd_sc_name: >-
+          {{ (ceph_docs | selectattr('kind', 'equalto', 'CephCluster') | first)
+             .spec.storage.storageClassDeviceSets[0].volumeClaimTemplates[0].spec.storageClassName
+             | default('') }}
+
+    - name: List storageClasses
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: StorageClass
+      register: all_sc
+
+    - name: Resolve the osd storageClass (named one, or the newest default)
+      ansible.builtin.set_fact:
+        osd_sc: >-
+          {%- if osd_sc_name | length > 0 -%}
+          {{ all_sc.resources | selectattr('metadata.name', 'equalto', osd_sc_name) | list }}
+          {%- else -%}
+          {%- set d = [] -%}
+          {%- for sc in all_sc.resources | sort(attribute='metadata.creationTimestamp', reverse=true) -%}
+          {%- if (sc.metadata.annotations | default({})).get('storageclass.kubernetes.io/is-default-class') == 'true' -%}
+          {%- set _ = d.append(sc) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ d }}
+          {%- endif -%}
+
+    - name: Preflight - osd storageClass must exist and must be able to do block volumes
+      ansible.builtin.fail:
+        msg: >-
+          ceph osd storageClass '{{ osd_sc_name | default('', true) or '<cluster default>' }}'
+          {{ 'does not exist' if osd_sc | length == 0 else
+             'uses provisioner ' + osd_sc[0].provisioner + ' which cannot hand out block volumes' }}.
+          set storageClassName in storage/ceph-cluster.yaml to a block-capable class (longhorn, cloud block storage, openebs, topolvm, rbd).
+      when: >
+        osd_sc | length == 0 or
+        osd_sc[0].provisioner in ['rancher.io/local-path', 'nfs.csi.k8s.io',
+                                  'cluster.local/nfs-subdir-external-provisioner',
+                                  'k8s-sigs.io/nfs-subdir-external-provisioner',
+                                  'kubernetes.io/no-provisioner']
+
     - name: Apply CephCluster
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/storage/ceph-cluster.yaml"
+        definition: "{{ ceph_docs | selectattr('kind', 'equalto', 'CephCluster') | first }}"
 
     - name: Wait for CephCluster Ready (mons + mgr + osds, slow on first boot)
       kubernetes.core.k8s_info:
