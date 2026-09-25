@@ -230,7 +230,7 @@
       until: >
         rookop.resources | default([]) | length > 0 and
         (rookop.resources[0].status.availableReplicas | default(0)) >= 1
-      retries: 30
+      retries: 90
       delay: 10
 
     - name: Load storage/ceph-cluster.yaml
