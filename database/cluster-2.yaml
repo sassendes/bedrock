@@ -2,6 +2,8 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: cluster-2
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
   namespace: cluster-2
 spec:
   monitoring:
