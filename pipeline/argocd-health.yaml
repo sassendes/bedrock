@@ -1,4 +1,21 @@
 data:
+  resource.customizations.health.ceph.rook.io_CephCluster: |
+    hs = {}
+    hs.status = "Progressing"
+    hs.message = "waiting for ceph status"
+    if obj.status ~= nil and obj.status.ceph ~= nil and obj.status.ceph.health ~= nil then
+      local h = obj.status.ceph.health
+      hs.message = "ceph " .. h
+      if h == "HEALTH_OK" or h == "HEALTH_WARN" then
+        hs.status = "Healthy"
+      elseif h == "HEALTH_ERR" then
+        hs.status = "Degraded"
+      end
+    end
+    if obj.status ~= nil and obj.status.phase == "Failure" then
+      hs.status = "Degraded"
+    end
+    return hs
   resource.customizations.health.argoproj.io_Application: |
     hs = {}
     hs.status = "Progressing"
