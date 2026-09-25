@@ -232,7 +232,19 @@
         (rookop.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 90
       delay: 10
-
+      
+    - name: Remove unused ceph csi drivers (ceph is s3 only, longhorn does volumes)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: absent
+        api_version: csi.ceph.io/v1
+        kind: Driver
+        namespace: rook-ceph
+        name: "{{ item }}"
+      loop:
+        - rook-ceph.rbd.csi.ceph.com
+        - rook-ceph.cephfs.csi.ceph.com
+        
     - name: Load storage/ceph-cluster.yaml
       ansible.builtin.set_fact:
         ceph_docs: "{{ lookup('file', repo_root + '/storage/ceph-cluster.yaml') | from_yaml_all | select | list }}"
