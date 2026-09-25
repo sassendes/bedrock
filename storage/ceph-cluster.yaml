@@ -2,6 +2,8 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: longhorn-ceph-osd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 provisioner: driver.longhorn.io
 allowVolumeExpansion: true
 reclaimPolicy: Delete
@@ -15,6 +17,8 @@ apiVersion: ceph.rook.io/v1
 kind: CephCluster
 metadata:
   name: rook-ceph
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
   namespace: rook-ceph
 spec:
   cephVersion:
@@ -122,4 +126,3 @@ spec:
         interval: 60s
       status:
         interval: 60s
- 
