@@ -5,7 +5,13 @@ metadata:
   namespace: application
 data:
   server.yml: |
+    # base-url MUST be the exact url your phone subscribes with (e.g. http://<node-ip>:30080).
+    # the ios app matches notifications to topics through it.
     base-url: "http://localhost"
+    # ios gets pushes through apple, and apple only talks to ntfy.sh. this forwards a
+    # "poll_request" (just the message id, never the content) to ntfy.sh, which wakes the
+    # phone, which then fetches the real message from THIS server. needs outbound internet.
+    upstream-base-url: "https://ntfy.sh"
     cache-file: "/var/lib/ntfy/cache.db"
     auth-file: "/var/lib/ntfy/auth.db"
     auth-default-access: "deny-all"
@@ -42,8 +48,25 @@ spec:
     spec:
       containers:
         - name: ntfy
-          image: binwiederhier/ntfy:v2.11.0
+          image: binwiederhier/ntfy:v2.28.0
           args: ["serve"]
+          # users / acl / tokens come from secrets/ntfy-auth.yaml and are re-applied on every start
+          env:
+            - name: NTFY_AUTH_USERS
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: NTFY_AUTH_USERS
+            - name: NTFY_AUTH_ACCESS
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: NTFY_AUTH_ACCESS
+            - name: NTFY_AUTH_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: NTFY_AUTH_TOKENS
           ports:
             - containerPort: 80
           resources:
@@ -81,4 +104,3 @@ spec:
     - port: 80
       targetPort: 80
       nodePort: 30080
-
