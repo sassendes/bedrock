@@ -2,6 +2,8 @@ apiVersion: ceph.rook.io/v1
 kind: CephObjectStore
 metadata:
   name: bedrock-s3
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
   namespace: rook-ceph
 spec:
   metadataPool:
@@ -27,9 +29,10 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: bedrock-bucket
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
 provisioner: rook-ceph.ceph.rook.io/bucket
 reclaimPolicy: Retain
 parameters:
   objectStoreName: bedrock-s3
   objectStoreNamespace: rook-ceph
-
