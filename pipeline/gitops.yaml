@@ -8,31 +8,11 @@ spec:
   source:
     repoURL: https://github.com/sassendes/bedrock.git
     targetRevision: main
-    path: .
-    directory:
-      recurse: true
-      exclude: '{bootstrap/*,scripts/*}'
+    path: pipeline/apps
   destination:
     server: https://kubernetes.default.svc
+    namespace: argocd
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-  ignoreDifferences:
-    - group: "*"
-      kind: Pod
-      jsonPointers:
-        - /spec/securityContext
-        - /spec/containers
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        - /spec/template/spec/securityContext
-    - group: apps
-      kind: DaemonSet
-      jsonPointers:
-        - /spec/template/spec/securityContext
-    - group: apps
-      kind: StatefulSet
-      jsonPointers:
-        - /spec/template/spec/securityContext
