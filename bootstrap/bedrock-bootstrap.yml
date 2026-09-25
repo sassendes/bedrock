@@ -414,43 +414,48 @@
       retries: 40
       delay: 15
 
-    - name: Apply cluster-1 scheduled backup (immediate - takes the first base backup now)
+    - name: Take the first cluster-1 base backup (replicas bootstrap from it)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
+        src: "{{ repo_root }}/database/backups/cluster-1-initial-backup.yaml"
 
-    - name: Wait for first cluster-1 base backup completed (replicas bootstrap from it)
+    - name: Wait for the first cluster-1 base backup completed
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         api_version: postgresql.cnpg.io/v1
         kind: Backup
         namespace: cluster-1
-        label_selectors:
-          - "cnpg.io/cluster=cluster-1"
+        name: cluster-1-initial
       register: c1_backup
       until: >
-        c1_backup.resources | default([]) |
-        map(attribute='status', default={}) | map(attribute='phase', default='') |
-        select('equalto', 'completed') | list | length > 0
+        c1_backup.resources | default([]) | length > 0 and
+        (c1_backup.resources[0].status.phase | default('')) == 'completed'
       retries: 40
       delay: 15
 
-    - name: Propagate cluster-1 CA + replication + bucket creds to replica namespaces
-      ansible.builtin.shell: |
-        for ns in cluster-2 cluster-3; do
-          for sec in cluster-1-ca cluster-1-replication cluster-1-backups; do
-            kubectl -n cluster-1 get secret "$sec" -o json \
-              | jq 'del(.metadata.namespace,.metadata.resourceVersion,.metadata.uid,.metadata.creationTimestamp,.metadata.ownerReferences,.metadata.managedFields,.status)' \
-              | kubectl apply -n "$ns" -f -
-          done
-        done
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: secret_prop
-      until: secret_prop.rc == 0
-      retries: 6
+    - name: Apply kyverno secret sync (clones cluster-1 ca / replication / bucket creds into cluster-2 and cluster-3)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/replica-secret-sync.yaml"
+      # kyverno refuses the policy until the aggregated secrets role has landed. retry covers that race.
+      register: secret_sync
+      until: secret_sync is succeeded
+      retries: 10
+      delay: 6
+
+    - name: Wait for the cloned secrets to land in the replica namespaces
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: "{{ item.0 }}"
+        name: "{{ item.1 }}"
+      register: cloned
+      until: cloned.resources | default([]) | length > 0
+      retries: 30
       delay: 10
+      loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca', 'cluster-1-replication', 'cluster-1-backups']) | list }}"
 
     - name: Apply replica clusters 2 and 3
       kubernetes.core.k8s:
@@ -468,6 +473,7 @@
         src: "{{ item }}"
       loop:
         - "{{ repo_root }}/database/pooler.yaml"
+        - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
 
     - name: Apply Loki stack
@@ -498,6 +504,17 @@
       loop:
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
+
+    - name: Teach ArgoCD health for child apps + cnpg backups (waves wait on these)
+      ansible.builtin.command: >
+        kubectl -n argocd patch configmap argocd-cm --type merge
+        --patch-file {{ repo_root }}/pipeline/argocd-health.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: argocd_cm
+      until: argocd_cm.rc == 0
+      retries: 6
+      delay: 10
 
     - name: Point ArgoCD at the bedrock repo (GitOps takeover)
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/gitops.yaml
