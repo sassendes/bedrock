@@ -2,6 +2,8 @@ apiVersion: objectbucket.io/v1alpha1
 kind: ObjectBucketClaim
 metadata:
   name: cluster-1-backups
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
   namespace: cluster-1
 spec:
   bucketName: cluster-1-backups
@@ -11,6 +13,8 @@ apiVersion: objectbucket.io/v1alpha1
 kind: ObjectBucketClaim
 metadata:
   name: cluster-2-backups
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
   namespace: cluster-2
 spec:
   bucketName: cluster-2-backups
@@ -20,6 +24,8 @@ apiVersion: objectbucket.io/v1alpha1
 kind: ObjectBucketClaim
 metadata:
   name: cluster-3-backups
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
   namespace: cluster-3
 spec:
   bucketName: cluster-3-backups
@@ -29,6 +35,8 @@ apiVersion: objectbucket.io/v1alpha1
 kind: ObjectBucketClaim
 metadata:
   name: loki-data
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
   namespace: application
 spec:
   bucketName: loki-data
