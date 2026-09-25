@@ -141,6 +141,78 @@
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/user-secret-2.yaml"
         - "{{ repo_root }}/secrets/user-secret-3.yaml"
+    - name: ntfy creds - already minted? (reruns never rotate them)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: application
+        name: ntfy-auth
+      register: ntfy_existing
+
+    - name: ntfy creds - mint random admin password + alertmanager token (bcrypt hashed)
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -c
+          - |
+            import json, secrets, string, sys
+            try:
+                import bcrypt
+            except ImportError:
+                sys.exit("python3-bcrypt missing on the ansible controller. run scripts/ansible_deps.sh")
+            alnum = string.ascii_lowercase + string.digits
+            token = "tk_" + "".join(secrets.choice(alnum) for _ in range(29))
+            admin_pw = secrets.token_urlsafe(18)
+            am_pw = secrets.token_urlsafe(32)
+            h = lambda p: bcrypt.hashpw(p.encode(), bcrypt.gensalt(10)).decode().replace("$2b$", "$2a$", 1)
+            print(json.dumps({
+                "token": token,
+                "admin_password": admin_pw,
+                "users": "admin:" + h(admin_pw) + ":admin,alertmanager:" + h(am_pw) + ":user",
+            }))
+      register: ntfy_minted
+      changed_when: true
+      no_log: true
+      when: ntfy_existing.resources | length == 0
+
+    - name: ntfy creds - ntfy-auth secret (users / acl / token for ntfy itself)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: ntfy-auth
+            namespace: application
+            labels:
+              app.kubernetes.io/managed-by: bedrock-bootstrap
+          type: Opaque
+          stringData:
+            NTFY_AUTH_USERS: "{{ (ntfy_minted.stdout | from_json).users }}"
+            NTFY_AUTH_ACCESS: "alertmanager:alerts:wo"
+            NTFY_AUTH_TOKENS: "alertmanager:{{ (ntfy_minted.stdout | from_json).token }}:alertmanager"
+            ADMIN_PASSWORD: "{{ (ntfy_minted.stdout | from_json).admin_password }}"
+      no_log: true
+      when: ntfy_existing.resources | length == 0
+
+    - name: ntfy creds - ntfy-token secret (what alertmanager mounts)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: ntfy-token
+            namespace: application
+            labels:
+              app.kubernetes.io/managed-by: bedrock-bootstrap
+          type: Opaque
+          stringData:
+            token: "{{ (ntfy_minted.stdout | from_json).token }}"
+      no_log: true
+      when: ntfy_existing.resources | length == 0
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
