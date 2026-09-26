@@ -62,6 +62,12 @@ spec:
     limits:
       memory: 1Gi
       cpu: "1"
+  securityContext:
+       runAsUser: 1000
+       runAsGroup: 2000
+       runAsNonRoot: true
+       fsGroup: 2000
+       fsGroupChangePolicy: OnRootMismatch
   serviceMonitorNamespaceSelector: {}
   serviceMonitorSelector: {}
   podMonitorNamespaceSelector: {}
@@ -71,12 +77,6 @@ spec:
   storage:
     volumeClaimTemplate:
       spec:
-      securityContext:
-       runAsUser: 1000
-       runAsGroup: 2000
-       runAsNonRoot: true
-    fsGroup: 2000
-    fsGroupChangePolicy: OnRootMismatch
         accessModes: ["ReadWriteOnce"]
         storageClassName: longhorn
         resources:
