@@ -3,14 +3,22 @@
   hosts: k3s_servers
   become: true
   tasks:
-    - name: Uninstall k3s server (ignore if already gone)
-      ansible.builtin.command: /usr/local/bin/k3s-uninstall.sh
+    - name: Uninstall RKE2 (ignore if already gone)
+      ansible.builtin.command: /usr/local/bin/rke2-uninstall.sh
       args:
-        removes: /usr/local/bin/k3s-uninstall.sh
+        removes: /usr/local/bin/rke2-uninstall.sh
 
-    - name: Wipe k3s server state incl. etcd db (kills stale/learner etcd membership)
+    - name: Wipe RKE2 state incl. etcd db
       ansible.builtin.file:
-        path: /var/lib/rancher/k3s
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/rancher/rke2
+        - /etc/rancher/rke2
+
+    - name: Remove CIS kernel parameters file
+      ansible.builtin.file:
+        path: /etc/sysctl.d/60-rke2-cis.conf
         state: absent
 
     - name: Wipe Longhorn on-disk state (kills faulted zombie volumes)
@@ -28,4 +36,3 @@
       ansible.builtin.file:
         path: /var/lib/rook
         state: absent
-    
