@@ -1,0 +1,201 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: opencost
+  namespace: application
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: opencost
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, nodes, pods, services, resourcequotas, replicationcontrollers, limitranges,
+                persistentvolumeclaims, persistentvolumes, namespaces, endpoints]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets, deployments, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: opencost
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: opencost
+subjects:
+  - kind: ServiceAccount
+    name: opencost
+    namespace: application
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-pricing-model
+  namespace: application
+data:
+  default.json: |
+    {
+      "description": "bedrock on-prem pricing",
+      "provider": "custom",
+      "CPU": "1.25",
+      "spotCPU": "0.006655",
+      "RAM": "0.50",
+      "spotRAM": "0.000892",
+      "GPU": "0.95",
+      "storage": "0.25",
+      "zoneNetworkEgress": "0.01",
+      "regionNetworkEgress": "0.01",
+      "internetNetworkEgress": "0.12"
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opencost
+  namespace: application
+  labels:
+    app: opencost
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: opencost
+  template:
+    metadata:
+      labels:
+        app: opencost
+    spec:
+      serviceAccountName: opencost
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: opencost
+          image: ghcr.io/opencost/opencost:1.121.3
+          ports:
+            - name: http
+              containerPort: 9003
+          env:
+            - name: PROMETHEUS_SERVER_ENDPOINT
+              value: http://prometheus-operated.application.svc:9090
+            - name: CLUSTER_ID
+              value: bedrock
+            - name: CLOUD_PROVIDER_API_KEY
+              value: ""
+            - name: CONFIG_PATH
+              value: /tmp/custom-config
+            - name: PRICING_CONFIGMAP_NAME
+              value: custom-pricing-model
+            - name: INSTALL_NAMESPACE
+              value: application
+            - name: API_PORT
+              value: "9003"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9003
+            periodSeconds: 20
+          volumeMounts:
+            - name: custom-configs
+              mountPath: /tmp/custom-config
+        - name: opencost-ui
+          image: ghcr.io/opencost/opencost-ui:1.121.3
+          ports:
+            - name: http-ui
+              containerPort: 9090
+          env:
+            - name: API_SERVER
+              value: "0.0.0.0"
+            - name: API_PORT
+              value: "9003"
+            - name: UI_PORT
+              value: "9090"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 10
+      volumes:
+        - name: custom-configs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opencost
+  namespace: application
+  labels:
+    app: opencost
+spec:
+  type: NodePort
+  selector:
+    app: opencost
+  ports:
+    - name: http
+      port: 9003
+      targetPort: 9003
+    - name: http-ui
+      port: 9090
+      targetPort: 9090
+      nodePort: 30091
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: opencost
+  namespace: application
+spec:
+  selector:
+    matchLabels:
+      app: opencost
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
