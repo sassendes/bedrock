@@ -2,9 +2,9 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:
   name: cluster-1-pooler-rw
+  namespace: cluster-1
   annotations:
     argocd.argoproj.io/sync-wave: "3"
-  namespace: cluster-1
 spec:
   cluster:
     name: cluster-1
@@ -15,3 +15,56 @@ spec:
     parameters:
       max_client_conn: "1000"
       default_pool_size: "25"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: cluster-2-pooler-rw
+  namespace: cluster-2
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  cluster:
+    name: cluster-2
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "25"
+---
+# warm spare
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: cluster-3-pooler-rw
+  namespace: cluster-3
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  cluster:
+    name: cluster-3
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "25"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-rw
+  namespace: application
+  labels:
+    bedrock.io/points-at: cluster-1
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  type: ExternalName
+  externalName: cluster-1-pooler-rw.cluster-1.svc.cluster.local
+  ports:
+    - name: postgres
+      port: 5432
