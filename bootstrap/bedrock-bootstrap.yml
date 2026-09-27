@@ -20,34 +20,87 @@
         enabled: true
         state: started
 
+    - name: Create etcd system user (required by the CIS profile)
+      ansible.builtin.user:
+        name: etcd
+        comment: etcd user
+        system: true
+        shell: /sbin/nologin
+        create_home: false
 
-- name: Bring up k3s control-plane (cluster-init)
+    - name: Install RKE2 server binaries
+      ansible.builtin.shell: |
+        curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL={{ rke2_channel }} sh -
+      args:
+        creates: /usr/local/bin/rke2
+      vars:
+        rke2_channel: stable
+
+    - name: Install CIS kernel parameters
+      ansible.builtin.copy:
+        src: /usr/local/share/rke2/rke2-cis-sysctl.conf
+        dest: /etc/sysctl.d/60-rke2-cis.conf
+        remote_src: true
+        mode: "0644"
+      register: cis_sysctl
+
+    - name: Apply kernel parameters
+      ansible.builtin.systemd:
+        name: systemd-sysctl
+        state: restarted
+      when: cis_sysctl.changed
+
+    - name: Create RKE2 config directory
+      ansible.builtin.file:
+        path: /etc/rancher/rke2
+        state: directory
+        mode: "0755"
+
+
+- name: Bring up RKE2 control-plane (first server)
   hosts: server_init
   become: true
   tasks:
-    - name: Install k3s server with embedded etcd (cluster-init)
-      ansible.builtin.shell: |
-        curl -sfL https://get.k3s.io | sh -s - server --cluster-init
-      args:
-        creates: /etc/rancher/k3s/k3s.yaml
+    - name: Write RKE2 config (first server)
+      ansible.builtin.copy:
+        dest: /etc/rancher/rke2/config.yaml
+        mode: "0600"
+        content: |
+          profile: cis
+          cni: cilium
+          write-kubeconfig-mode: "0600"
+          secrets-encryption: true
+
+    - name: Start rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        enabled: true
+        state: started
 
     - name: Wait for node-token
       ansible.builtin.wait_for:
-        path: /var/lib/rancher/k3s/server/node-token
+        path: /var/lib/rancher/rke2/server/node-token
+        timeout: 900
 
-    - name: Read the full node-token
+    - name: Read the node-token
       ansible.builtin.slurp:
-        src: /var/lib/rancher/k3s/server/node-token
-      register: k3s_token_raw
+        src: /var/lib/rancher/rke2/server/node-token
+      register: rke2_token_raw
 
-    - name: Stash token + server URL as facts
+    - name: Stash token + URLs as facts
       ansible.builtin.set_fact:
-        k3s_token: "{{ k3s_token_raw.content | b64decode | trim }}"
-        k3s_url: "https://{{ ansible_host }}:6443"
+        rke2_token: "{{ rke2_token_raw.content | b64decode | trim }}"
+        rke2_join_url: "https://{{ ansible_host }}:9345"
+        rke2_api_url: "https://{{ ansible_host }}:6443"
+
+    - name: Wait for kubeconfig
+      ansible.builtin.wait_for:
+        path: /etc/rancher/rke2/rke2.yaml
+        timeout: 900
 
     - name: Fetch kubeconfig to the controller
       ansible.builtin.fetch:
-        src: /etc/rancher/k3s/k3s.yaml
+        src: /etc/rancher/rke2/rke2.yaml
         dest: /tmp/bedrock-kubeconfig
         flat: true
 
@@ -57,20 +110,36 @@
       ansible.builtin.replace:
         path: /tmp/bedrock-kubeconfig
         regexp: 'https://127\.0\.0\.1:6443'
-        replace: "{{ k3s_url }}"
+        replace: "{{ rke2_api_url }}"
 
 
-- name: Join remaining servers to HA control plane
+- name: Join remaining servers to HA control plane (one at a time)
   hosts: server_join
   become: true
+  serial: 1
   tasks:
-    - name: Install k3s as joining server (full token)
-      ansible.builtin.shell: |
-        curl -sfL https://get.k3s.io | sh -s - server \
-          --server {{ hostvars[groups['server_init'][0]].k3s_url }} \
-          --token {{ hostvars[groups['server_init'][0]].k3s_token }}
-      args:
-        creates: /etc/rancher/k3s/k3s.yaml
+    - name: Write RKE2 config (joining server)
+      ansible.builtin.copy:
+        dest: /etc/rancher/rke2/config.yaml
+        mode: "0600"
+        content: |
+          server: {{ hostvars[groups['server_init'][0]].rke2_join_url }}
+          token: {{ hostvars[groups['server_init'][0]].rke2_token }}
+          profile: cis
+          cni: cilium
+          write-kubeconfig-mode: "0600"
+          secrets-encryption: true
+
+    - name: Start rke2-server
+      ansible.builtin.systemd:
+        name: rke2-server
+        enabled: true
+        state: started
+
+    - name: Wait for this server's kubeconfig (joined and running)
+      ansible.builtin.wait_for:
+        path: /etc/rancher/rke2/rke2.yaml
+        timeout: 900
 
 
 - name: Deploy bedrock platform stack (ordered, gated)
@@ -435,49 +504,6 @@
         - { ns: cluster-3, name: cluster-3-backups }
         - { ns: application, name: loki-data }
 
-    - name: Create argocd namespace
-      ansible.builtin.command: >
-        kubectl create namespace argocd --dry-run=client -o yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argocd_ns_manifest
-      changed_when: false
-
-    - name: Apply argocd namespace
-      ansible.builtin.command: kubectl apply -f -
-      args:
-        stdin: "{{ argocd_ns_manifest.stdout }}"
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argocd_ns
-      until: argocd_ns.rc == 0
-      retries: 6
-      delay: 10
-
-    - name: Install ArgoCD v3.5.3
-      ansible.builtin.command: >
-        kubectl apply -n argocd --server-side --force-conflicts
-        -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argocd_install
-      until: argocd_install.rc == 0
-      retries: 10
-      delay: 15
-
-    - name: Wait for argocd-server Available
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Deployment
-        namespace: argocd
-        name: argocd-server
-      register: argocd_srv
-      until: >
-        argocd_srv.resources | default([]) | length > 0 and
-        (argocd_srv.resources[0].status.availableReplicas | default(0)) >= 1
-      retries: 40
-      delay: 15
-
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -523,7 +549,6 @@
         kubeconfig: "{{ kubeconfig }}"
         state: present
         src: "{{ repo_root }}/database/replica-secret-sync.yaml"
-      # kyverno refuses the policy until the aggregated secrets role has landed. retry covers that race.
       register: secret_sync
       until: secret_sync is succeeded
       retries: 10
@@ -580,6 +605,11 @@
         state: present
         src: "{{ repo_root }}/observability/grafana/grafana.yaml"
 
+    - name: Apply OpenCost
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/opencost/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
     - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts -f "{{ item }}"
@@ -588,23 +618,3 @@
       loop:
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
-
-    - name: Teach ArgoCD health for child apps + cnpg backups (waves wait on these)
-      ansible.builtin.command: >
-        kubectl -n argocd patch configmap argocd-cm --type merge
-        --patch-file {{ repo_root }}/pipeline/argocd-health.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argocd_cm
-      until: argocd_cm.rc == 0
-      retries: 6
-      delay: 10
-
-    - name: Point ArgoCD at the bedrock repo (GitOps takeover)
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/gitops.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argocd_app
-      until: argocd_app.rc == 0
-      retries: 6
-      delay: 10
