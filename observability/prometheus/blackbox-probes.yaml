@@ -1,0 +1,48 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: bedrock-http
+  namespace: application
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  interval: 30s
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.application.svc:9115
+  targets:
+    staticConfig:
+      labels:
+        probe_group: http
+      static:
+        - http://ntfy.application.svc/v1/health
+        - http://grafana.application.svc:3000/api/health
+        - http://loki.application.svc:3100/ready
+        - http://alertmanager-operated.application.svc:9093/-/healthy
+        - http://prometheus-operated.application.svc:9090/-/healthy
+        - http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: bedrock-postgres
+  namespace: application
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  interval: 30s
+  module: tcp_connect
+  prober:
+    url: blackbox-exporter.application.svc:9115
+  targets:
+    staticConfig:
+      labels:
+        probe_group: postgres
+      static:
+        - postgres-rw.application.svc:5432
+        - cluster-1-pooler-rw.cluster-1.svc:5432
+        - cluster-2-pooler-rw.cluster-2.svc:5432
+        - cluster-3-pooler-rw.cluster-3.svc:5432
+        - cluster-1-rw.cluster-1.svc:5432
+        - cluster-2-rw.cluster-2.svc:5432
+        - cluster-3-rw.cluster-3.svc:5432
