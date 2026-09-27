@@ -1,9 +1,16 @@
+# OpenCost: what this tenant's cluster costs.
+# every tenant is its own cluster on its own nodes, so the cluster total IS the tenant's cost.
+# reads usage from the Prometheus that already runs here. no new database.
+#
+# UI:  http://<node-ip>:30091
+# API: http://opencost.application.svc:9003/allocation/compute?window=7d
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: opencost
   namespace: application
 ---
+# read-only. opencost never writes anything to the cluster.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -42,6 +49,10 @@ subjects:
     name: opencost
     namespace: application
 ---
+# on-prem pricing. opencost's spec prices CPU per core-hour, RAM and storage per GB-hour.
+# worked out from one box: ~0.05/h (hardware over 3 years + power), split 50% cpu / 40% ram / 10% disk,
+# then divided by 12 threads, 32 GB ram, 1000 GB disk. change the numbers to your real costs.
+# the ui may show a $ sign. read it as euros.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -50,17 +61,17 @@ metadata:
 data:
   default.json: |
     {
-      "description": "bedrock on-prem pricing",
+      "description": "bedrock on-prem pricing. per core-hour and per GB-hour",
       "provider": "custom",
-      "CPU": "1.25",
-      "spotCPU": "0.006655",
-      "RAM": "0.50",
-      "spotRAM": "0.000892",
-      "GPU": "0.95",
-      "storage": "0.25",
-      "zoneNetworkEgress": "0.01",
-      "regionNetworkEgress": "0.01",
-      "internetNetworkEgress": "0.12"
+      "CPU": "0.0021",
+      "spotCPU": "0.0021",
+      "RAM": "0.000625",
+      "spotRAM": "0.000625",
+      "GPU": "0",
+      "storage": "0.000005",
+      "zoneNetworkEgress": "0",
+      "regionNetworkEgress": "0",
+      "internetNetworkEgress": "0"
     }
 ---
 apiVersion: apps/v1
@@ -186,6 +197,7 @@ spec:
       targetPort: 9090
       nodePort: 30091
 ---
+# opencost's own cost metrics go back into prometheus, so grafana can chart them
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
