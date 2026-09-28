@@ -3,10 +3,20 @@
   hosts: k3s_servers
   become: true
   tasks:
-    - name: Uninstall RKE2 (ignore if already gone)
+    - name: Uninstall RKE2
       ansible.builtin.command: /usr/local/bin/rke2-uninstall.sh
       args:
         removes: /usr/local/bin/rke2-uninstall.sh
+
+    - name: Remove kubectl links and profile
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/bin/kubectl
+        - /usr/local/bin/crictl
+        - /usr/local/bin/ctr
+        - /etc/profile.d/rke2.sh
 
     - name: Wipe RKE2 state incl. etcd db
       ansible.builtin.file:
@@ -21,7 +31,7 @@
         path: /etc/sysctl.d/60-rke2-cis.conf
         state: absent
 
-    - name: Wipe Longhorn on-disk state (kills faulted zombie volumes)
+    - name: Wipe Longhorn on-disk state
       ansible.builtin.file:
         path: /var/lib/longhorn
         state: absent
@@ -32,7 +42,7 @@
         state: directory
         mode: "0755"
 
-    - name: Wipe Rook/Ceph host state (mon db, keys - stale state here breaks the next mon quorum)
+    - name: Wipe Rook/Ceph host state
       ansible.builtin.file:
         path: /var/lib/rook
         state: absent
