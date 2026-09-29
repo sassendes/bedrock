@@ -69,6 +69,11 @@
         state: directory
         mode: "0755"
 
+    - name: Audit policy
+      ansible.builtin.copy:
+        src: audit-policy.yaml
+        dest: /etc/rancher/rke2/bedrock-audit.yaml
+        mode: "0600"
 
 - name: Bring up RKE2 control-plane (first server)
   hosts: server_init
@@ -83,6 +88,7 @@
           cni: cilium
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
+          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -125,7 +131,6 @@
         regexp: 'https://127\.0\.0\.1:6443'
         replace: "{{ rke2_api_url }}"
 
-
 - name: Join remaining servers to HA control plane (one at a time)
   hosts: server_join
   become: true
@@ -142,6 +147,7 @@
           cni: cilium
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
+          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -153,7 +159,6 @@
       ansible.builtin.wait_for:
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 900
-
 
 - name: kubectl on every node
   hosts: k3s_servers
@@ -177,7 +182,6 @@
         content: |
           export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
           export CRI_CONFIG_FILE=/var/lib/rancher/rke2/agent/etc/crictl.yaml
-
 
 - name: Deploy bedrock platform stack (ordered, gated)
   hosts: localhost
@@ -412,7 +416,7 @@
         (rookop.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 90
       delay: 10
-      
+
     - name: Remove unused ceph csi drivers (ceph is s3 only, longhorn does volumes)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -424,7 +428,7 @@
       loop:
         - rook-ceph.rbd.csi.ceph.com
         - rook-ceph.cephfs.csi.ceph.com
-        
+
     - name: Load storage/ceph-cluster.yaml
       ansible.builtin.set_fact:
         ceph_docs: "{{ lookup('file', repo_root + '/storage/ceph-cluster.yaml') | from_yaml_all | select | list }}"
