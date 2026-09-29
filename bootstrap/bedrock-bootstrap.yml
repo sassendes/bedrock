@@ -704,8 +704,15 @@
       retries: 40
       delay: 10
 
-    - name: Hand the platform to Argo (pipeline/)
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/
+    - name: Argo health checks for ceph, cnpg backups and apps
+      ansible.builtin.command: >
+        kubectl -n argocd patch configmap argocd-cm --type merge
+        --patch-file {{ repo_root }}/pipeline/argocd-health.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Hand the platform to Argo
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/gitops.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
