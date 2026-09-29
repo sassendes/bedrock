@@ -58,6 +58,25 @@ data:
       forward_to = [loki.write.default.receiver]
     }
 
+    local.file_match "audit" {
+      path_targets = [{"__path__" = "/var/lib/rancher/rke2/server/logs/audit.log", "job" = "kube-audit", "node" = sys.env("NODE_NAME")}]
+    }
+
+    loki.source.file "audit" {
+      targets    = local.file_match.audit.targets
+      forward_to = [loki.process.audit.receiver]
+    }
+
+    loki.process "audit" {
+      stage.json {
+        expressions = { verb = "verb" }
+      }
+      stage.labels {
+        values = { verb = "" }
+      }
+      forward_to = [loki.write.default.receiver]
+    }
+
     loki.write "default" {
       endpoint {
         url = "http://loki.application.svc:3100/loki/api/v1/push"
