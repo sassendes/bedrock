@@ -75,6 +75,10 @@
         dest: /etc/rancher/rke2/bedrock-audit.yaml
         mode: "0600"
 
+- name: Bring up RKE2 control-plane (first server)
+  hosts: server_init
+  become: true
+  tasks:
     - name: Write RKE2 config (first server)
       ansible.builtin.copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -85,17 +89,6 @@
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
-          etcd-snapshot-schedule-cron: "0 */6 * * *"
-          etcd-snapshot-retention: 10
-          etcd-snapshot-compress: true
-          etcd-s3: true
-          etcd-s3-endpoint: {{ etcd_s3_endpoint }}
-          etcd-s3-bucket: bedrock-etcd
-          etcd-s3-folder: tenant
-          etcd-s3-access-key: {{ etcd_s3_access_key }}
-          etcd-s3-secret-key: {{ etcd_s3_secret_key }}
-          etcd-s3-insecure: true
-          etcd-s3-retention: 20
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -143,8 +136,6 @@
   become: true
   serial: 1
   tasks:
-
-
     - name: Write RKE2 config (joining server)
       ansible.builtin.copy:
         dest: /etc/rancher/rke2/config.yaml
@@ -157,17 +148,6 @@
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
-          etcd-snapshot-schedule-cron: "0 */6 * * *"
-          etcd-snapshot-retention: 10
-          etcd-snapshot-compress: true
-          etcd-s3: true
-          etcd-s3-endpoint: {{ etcd_s3_endpoint }}
-          etcd-s3-bucket: bedrock-etcd
-          etcd-s3-folder: tenant
-          etcd-s3-access-key: {{ etcd_s3_access_key }}
-          etcd-s3-secret-key: {{ etcd_s3_secret_key }}
-          etcd-s3-insecure: true
-          etcd-s3-retention: 20
 
     - name: Start rke2-server
       ansible.builtin.systemd:
