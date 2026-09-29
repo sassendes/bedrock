@@ -60,3 +60,36 @@ spec:
   ports:
     - name: postgres
       port: 5432
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cluster-1-pooler-rw
+  namespace: cluster-1
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      cnpg.io/poolerName: cluster-1-pooler-rw
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cluster-2-pooler-rw
+  namespace: cluster-2
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      cnpg.io/poolerName: cluster-2-pooler-rw
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: cluster-3-pooler-rw
+  namespace: cluster-3
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      cnpg.io/poolerName: cluster-3-pooler-rw
