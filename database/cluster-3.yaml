@@ -40,6 +40,7 @@ spec:
   replica:
     enabled: true
     source: cluster-1
+    minApplyDelay: '5m'
   externalClusters:
     - name: cluster-1
       connectionParameters:
