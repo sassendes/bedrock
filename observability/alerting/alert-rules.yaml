@@ -102,7 +102,7 @@ spec:
     - name: cnpg.rules
       rules:
         - alert: CNPGReplicationLagHigh
-          expr: cnpg_pg_replication_lag > 30
+          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 30
           for: 5m
           labels:
             severity: warning
@@ -110,7 +110,7 @@ spec:
             summary: "High replication lag: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "Replica is {{ $value | humanize }}s behind for 5 minutes."
         - alert: CNPGReplicationLagCritical
-          expr: cnpg_pg_replication_lag > 120
+          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 120
           for: 5m
           labels:
             severity: critical
@@ -125,3 +125,44 @@ spec:
           annotations:
             summary: "cnpg instance down: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "cnpg metrics collector unreachable for 3 minutes."
+        - alert: CNPGDelayedReplicaStuck
+          expr: cnpg_pg_replication_lag{namespace="cluster-3"} > 600
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "delayed replica stuck: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "cluster-3 is {{ $value | humanize }}s behind, expected about 300s."
+        - alert: WALArchivingFailing
+          expr: increase(cnpg_pg_stat_archiver_failed_count[10m]) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "wal archiving failing: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "archiving to s3 failed in the last 10 minutes, point-in-time recovery is at risk."
+    - name: platform.rules
+      rules:
+        - alert: EndpointDown
+          expr: probe_success == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "endpoint down: {{ $labels.instance }}"
+            description: "blackbox probe failing for 2 minutes."
+        - alert: CephHealthWarn
+          expr: ceph_health_status == 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ceph HEALTH_WARN"
+            description: "ceph has been in HEALTH_WARN for 15 minutes."
+        - alert: CephHealthError
+          expr: ceph_health_status == 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "ceph HEALTH_ERR"
+            description: "ceph is in HEALTH_ERR, the s3 store and backups are at risk."
