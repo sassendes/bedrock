@@ -642,6 +642,7 @@
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/alerting/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+
     - name: Apply Grafana
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -652,71 +653,12 @@
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/opencost/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-        
+
     - name: Apply Falco
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/falco/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-    - name: Create argocd namespace
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: argocd
 
-    - name: Install Argo CD v3.5.3
-      ansible.builtin.command: >
-        kubectl apply --server-side --force-conflicts -n argocd
-        -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.3/manifests/install.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      register: argo_install
-      until: argo_install.rc == 0
-      retries: 10
-      delay: 15
-
-    - name: Wait for argocd-repo-server Available
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Deployment
-        namespace: argocd
-        name: argocd-repo-server
-      register: argo_repo
-      until: >
-        argo_repo.resources | default([]) | length > 0 and
-        (argo_repo.resources[0].status.availableReplicas | default(0)) >= 1
-      retries: 40
-      delay: 10
-
-    - name: Wait for argocd-application-controller Ready
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: StatefulSet
-        namespace: argocd
-        name: argocd-application-controller
-      register: argo_ctrl
-      until: >
-        argo_ctrl.resources | default([]) | length > 0 and
-        (argo_ctrl.resources[0].status.readyReplicas | default(0)) >= 1
-      retries: 40
-      delay: 10
-
-    - name: Argo health checks for ceph, cnpg backups and apps
-      ansible.builtin.command: >
-        kubectl -n argocd patch configmap argocd-cm --type merge
-        --patch-file {{ repo_root }}/pipeline/argocd-health.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-
-    - name: Hand the platform to Argo
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/pipeline/gitops.yaml
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-
-      
     - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts -f "{{ item }}"
