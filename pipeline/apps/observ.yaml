@@ -27,6 +27,7 @@ spec:
         maxDuration: 3m
     syncOptions:
       - RespectIgnoreDifferences=true
+      - ServerSideApply=true
   ignoreDifferences:
     - group: apps
       kind: Deployment
