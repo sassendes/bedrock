@@ -70,8 +70,6 @@ metadata:
   namespace: application
   labels:
     app: opencost
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
 spec:
   replicas: 1
   strategy:
