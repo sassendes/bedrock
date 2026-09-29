@@ -27,3 +27,15 @@ spec:
         maxDuration: 3m
     syncOptions:
       - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/replica
+    - group: ""
+      kind: Service
+      name: postgres-rw
+      namespace: application
+      jsonPointers:
+        - /spec/externalName
+        - /metadata/labels
