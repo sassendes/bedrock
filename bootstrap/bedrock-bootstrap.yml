@@ -652,7 +652,13 @@
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/opencost/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+        
+    - name: Apply Falco
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/falco/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
+      
     - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts -f "{{ item }}"
