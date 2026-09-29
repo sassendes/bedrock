@@ -45,8 +45,9 @@
       register: cis_sysctl
 
     - name: Apply kernel parameters
-      ansible.builtin.command: sysctl --system
-      when: cis_sysctl.changed
+      ansible.builtin.systemd:
+        name: systemd-sysctl
+        state: restarted
 
     - name: Create RKE2 config directory
       ansible.builtin.file:
