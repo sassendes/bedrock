@@ -4,8 +4,11 @@ metadata:
   name: disallow-latest-tag
 spec:
   webhookConfiguration:
-    failurePolicy: Ignore
+    failurePolicy: Fail
     timeoutSeconds: 10
+    matchConditions:
+      - name: application-only
+        expression: 'request.namespace == "application"'
   validationFailureAction: Enforce
   background: true
   rules:
