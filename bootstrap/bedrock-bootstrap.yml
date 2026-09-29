@@ -2,6 +2,8 @@
 - name: Node prerequisites (all nodes)
   hosts: k3s_servers
   become: true
+  vars:
+    rke2_version: v1.36.4+rke2r1
   tasks:
     - name: Install open-iscsi + nfs-common + lvm2 (ceph osd)
       ansible.builtin.apt:
@@ -28,10 +30,23 @@
         shell: /sbin/nologin
         create_home: false
 
-    - name: Install RKE2
-      ansible.builtin.shell: curl -sfL https://get.rke2.io | sh -
-      args:
+    - name: Download RKE2 {{ rke2_version }} (checksum verified)
+      ansible.builtin.get_url:
+        url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | urlencode }}/rke2.linux-amd64.tar.gz"
+        dest: /tmp/rke2.linux-amd64.tar.gz
+        checksum: "sha256:https://github.com/rancher/rke2/releases/download/{{ rke2_version | urlencode }}/sha256sum-amd64.txt"
+        mode: "0644"
+
+    - name: Install RKE2 into /usr/local
+      ansible.builtin.unarchive:
+        src: /tmp/rke2.linux-amd64.tar.gz
+        dest: /usr/local
+        remote_src: true
         creates: /usr/local/bin/rke2
+
+    - name: Load the rke2-server unit
+      ansible.builtin.systemd:
+        daemon_reload: true
 
     - name: CIS kernel parameters
       ansible.builtin.copy:
@@ -45,9 +60,8 @@
       register: cis_sysctl
 
     - name: Apply kernel parameters
-      ansible.builtin.systemd:
-        name: systemd-sysctl
-        state: restarted
+      ansible.builtin.command: sysctl --system
+      when: cis_sysctl.changed
 
     - name: Create RKE2 config directory
       ansible.builtin.file:
