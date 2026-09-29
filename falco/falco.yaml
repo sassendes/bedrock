@@ -1,0 +1,187 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: falco
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco
+  namespace: falco
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: falco
+data:
+  bedrock.yaml: |
+    json_output: true
+    json_include_output_property: true
+    priority: notice
+    metrics:
+      enabled: true
+      interval: 1m
+      output_rule: false
+      rules_counters_enabled: true
+    webserver:
+      enabled: true
+      listen_port: 8765
+      k8s_healthz_endpoint: /healthz
+      prometheus_metrics_enabled: true
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: falco
+  labels:
+    app: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: falco
+    spec:
+      serviceAccountName: falco
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: falco
+          image: docker.io/falcosecurity/falco:0.44.1
+          args:
+            - /usr/bin/falco
+          env:
+            - name: HOST_ROOT
+              value: /host
+            - name: FALCO_K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          ports:
+            - name: metrics
+              containerPort: 8765
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: 8765
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8765
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8765
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/falco/config.d/bedrock.yaml
+              subPath: bedrock.yaml
+            - name: root-falco
+              mountPath: /root/.falco
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: etc
+              mountPath: /host/etc
+              readOnly: true
+            - name: containerd
+              mountPath: /host/run/k3s/containerd
+            - name: containerd
+              mountPath: /host/run/containerd
+      volumes:
+        - name: config
+          configMap:
+            name: falco-config
+        - name: root-falco
+          emptyDir: {}
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: etc
+          hostPath:
+            path: /etc
+        - name: containerd
+          hostPath:
+            path: /run/k3s/containerd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: falco
+  namespace: falco
+  labels:
+    app: falco
+spec:
+  selector:
+    app: falco
+  ports:
+    - name: metrics
+      port: 8765
+      targetPort: 8765
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: falco
+  namespace: falco
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: falco
+  namespace: application
+spec:
+  groups:
+    - name: falco
+      rules:
+        - alert: FalcoCriticalEvent
+          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m])) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "falco: {{ $labels.rule_name }}"
+            description: "critical falco rule fired. search {namespace=\"falco\"} in loki for the full event."
+        - alert: FalcoWarningEvent
+          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"3|4"}[15m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: "falco: {{ $labels.rule_name }}"
+        - alert: FalcoDown
+          expr: up{job="falco"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "falco is down on {{ $labels.instance }}"
