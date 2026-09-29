@@ -219,6 +219,7 @@
       retries: 10
       delay: 15
 
+      
     - name: Wait for kyverno admission-controller Available
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
@@ -231,6 +232,12 @@
         (kyverno_ac.resources[0].status.availableReplicas | default(0)) >= 1
       retries: 30
       delay: 10
+
+    - name: Kyverno admission controller to 3 replicas (fail-closed needs no single point of failure)
+      ansible.builtin.command: kubectl -n kyverno scale deployment kyverno-admission-controller --replicas=3
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
 
     - name: Apply Kyverno policies
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/
