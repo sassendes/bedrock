@@ -46,7 +46,7 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: s3://cluster-1-backups/wals
-      endpointURL: http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80
+      endpointURL: http://garage.garage.svc:3900
       s3Credentials:
         accessKeyId:
           name: cluster-1-backups
