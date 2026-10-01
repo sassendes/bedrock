@@ -1,0 +1,155 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garage-init
+  namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: garage-init-secrets
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: cluster-1
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: cluster-2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: cluster-3
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: application
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-init
+  namespace: garage
+data:
+  init.sh: |
+    set -euo pipefail
+    A="http://garage.garage.svc:3903/v2"
+    api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
+    until api "$A/GetClusterStatus" >/dev/null; do sleep 5; done
+    NODE=$(api "$A/GetClusterStatus" | jq -r '.nodes[0].id')
+    if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
+      api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":[{\"id\":\"$NODE\",\"zone\":\"dc1\",\"capacity\":35000000000,\"tags\":[]}]}" >/dev/null
+      V=$(api "$A/GetClusterLayout" | jq -r '.version')
+      api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null
+    fi
+    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:application; do
+      B=${pair%%:*}
+      NS=${pair##*:}
+      if kubectl -n "$NS" get secret "$B" >/dev/null 2>&1; then continue; fi
+      BID=$(api "$A/GetBucketInfo?globalAlias=$B" 2>/dev/null | jq -r '.id' || true)
+      if [ -z "$BID" ] || [ "$BID" = "null" ]; then
+        BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$B\"}" | jq -r '.id')
+      fi
+      K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$B\"}")
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" >/dev/null
+      kubectl -n "$NS" create secret generic "$B" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+    done
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-init
+  namespace: garage
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      serviceAccountName: garage-init
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init
+          image: alpine/k8s:1.36.4
+          command: ["bash", "/script/init.sh"]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: admin_token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: script
+              mountPath: /script
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: garage-init
+        - name: tmp
+          emptyDir: {}
