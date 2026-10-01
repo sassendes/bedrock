@@ -62,9 +62,8 @@ spec:
             - name: admin
               containerPort: 3903
           readinessProbe:
-            httpGet:
-              path: /health
-              port: admin
+            tcpSocket:
+               port: s3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
