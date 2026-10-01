@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-config
+  namespace: garage
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "lmdb"
+    replication_factor = 1
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+
+    [s3_api]
+    s3_region = "garage"
+    api_bind_addr = "[::]:3900"
+
+    [admin]
+    api_bind_addr = "[::]:3903"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: garage
+  namespace: garage
+spec:
+  serviceName: garage
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garage
+  template:
+    metadata:
+      labels:
+        app: garage
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: garage
+          image: dxflrs/garage:v2.4.1
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: rpc_secret
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: admin_token
+          ports:
+            - name: s3
+              containerPort: 3900
+            - name: admin
+              containerPort: 3903
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: admin
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+            - name: data
+              mountPath: /var/lib/garage
+      volumes:
+        - name: config
+          configMap:
+            name: garage-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 40Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+  namespace: garage
+spec:
+  selector:
+    app: garage
+  ports:
+    - name: s3
+      port: 3900
+    - name: admin
+      port: 3903
