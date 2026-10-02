@@ -29,8 +29,9 @@ data:
         active_index_directory: /loki/index
         cache_location: /loki/cache
       aws:
-        s3: http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80/loki-data
+        s3: http://garage.garage.svc:3900/loki-data
         s3forcepathstyle: true
+        region: garage
     limits_config:
       retention_period: 720h
     compactor:
