@@ -18,7 +18,7 @@ spec:
         - http://loki.application.svc:3100/ready
         - http://alertmanager-operated.application.svc:9093/-/healthy
         - http://prometheus-operated.application.svc:9090/-/healthy
-        - http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80
+        - http://garage.garage.svc:3903/health
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
