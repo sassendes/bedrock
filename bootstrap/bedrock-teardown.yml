@@ -42,7 +42,3 @@
         state: directory
         mode: "0755"
 
-    - name: Wipe Rook/Ceph host state
-      ansible.builtin.file:
-        path: /var/lib/rook
-        state: absent
