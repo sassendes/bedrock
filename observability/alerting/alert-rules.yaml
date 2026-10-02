@@ -150,19 +150,3 @@ spec:
           annotations:
             summary: "endpoint down: {{ $labels.instance }}"
             description: "blackbox probe failing for 2 minutes."
-        - alert: CephHealthWarn
-          expr: ceph_health_status == 1
-          for: 15m
-          labels:
-            severity: warning
-          annotations:
-            summary: "ceph HEALTH_WARN"
-            description: "ceph has been in HEALTH_WARN for 15 minutes."
-        - alert: CephHealthError
-          expr: ceph_health_status == 2
-          for: 2m
-          labels:
-            severity: critical
-          annotations:
-            summary: "ceph HEALTH_ERR"
-            description: "ceph is in HEALTH_ERR, the s3 store and backups are at risk."
