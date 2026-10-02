@@ -26,12 +26,13 @@ spec:
     limits:
       memory: "1Gi"
       cpu: "1"
-  # newer boto3 sends checksum headers some s3 backends reject. only send when the api requires it.
   env:
     - name: AWS_REQUEST_CHECKSUM_CALCULATION
       value: when_required
     - name: AWS_RESPONSE_CHECKSUM_VALIDATION
       value: when_required
+    - name: AWS_DEFAULT_REGION
+      value: garage
   bootstrap:
     recovery:
       source: cluster-1
