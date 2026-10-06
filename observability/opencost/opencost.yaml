@@ -48,20 +48,17 @@ metadata:
   name: custom-pricing-model
   namespace: application
 data:
-  default.json: |
-    {
-      "description": "bedrock on-prem pricing. per core-hour and per GB-hour",
-      "provider": "custom",
-      "CPU": "0.0021",
-      "spotCPU": "0.0021",
-      "RAM": "0.000625",
-      "spotRAM": "0.000625",
-      "GPU": "0",
-      "storage": "0.000005",
-      "zoneNetworkEgress": "0",
-      "regionNetworkEgress": "0",
-      "internetNetworkEgress": "0"
-    }
+  description: "bedrock on-prem pricing. per core-hour and per GB-hour"
+  provider: "custom"
+  CPU: "0.0021"
+  spotCPU: "0.0021"
+  RAM: "0.000625"
+  spotRAM: "0.000625"
+  GPU: "0"
+  storage: "0.000005"
+  zoneNetworkEgress: "0"
+  regionNetworkEgress: "0"
+  internetNetworkEgress: "0"
 ---
 apiVersion: apps/v1
 kind: Deployment
