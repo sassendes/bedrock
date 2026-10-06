@@ -44,7 +44,7 @@ spec:
       containers:
         - name: ntfy
           image: binwiederhier/ntfy:v2.28.0
-          args: ["server"]
+          args: ["serve"]
           ports:
             - containerPort: 80
           resources:
