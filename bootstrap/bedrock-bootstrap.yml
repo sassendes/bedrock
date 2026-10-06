@@ -260,6 +260,7 @@
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/user-secret-2.yaml"
         - "{{ repo_root }}/secrets/user-secret-3.yaml"
+        - "{{repo_root }}/secrets/garage-secrets.yaml"
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
@@ -325,31 +326,6 @@
       retries: 30
       delay: 10
 
-
-    - name: garage secrets - already minted
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Secret
-        namespace: garage
-        name: garage-secrets
-      register: garage_existing
-
-    - name: garage secrets - mint
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: garage-secrets
-            namespace: garage
-          type: Opaque
-          stringData:
-            rpc_secret: "{{ lookup('community.general.random_string', length=64, special=false, upper=false, override_all='0123456789abcdef') }}"
-            admin_token: "{{ lookup('community.general.random_string', length=48, special=false) }}"
-      no_log: true
-      when: garage_existing.resources | length == 0
 
     - name: Apply garage
       kubernetes.core.k8s:
