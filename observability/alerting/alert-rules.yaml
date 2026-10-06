@@ -150,3 +150,11 @@ spec:
           annotations:
             summary: "endpoint down: {{ $labels.instance }}"
             description: "blackbox probe failing for 2 minutes."
+    - name: meta.rules
+      rules:
+        - alert: Watchdog
+          expr: vector(1)
+          labels:
+            severity: none
+          annotations:
+            summary: "alerting pipeline is alive"
