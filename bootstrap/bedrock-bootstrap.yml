@@ -57,6 +57,8 @@
           vm.overcommit_memory=1
           kernel.panic=10
           kernel.panic_on_oops=1
+          fs.inotify.max_user_instances=8192
+          fs.inotify.max_user_watches=524288
       register: cis_sysctl
 
     - name: Apply kernel parameters
