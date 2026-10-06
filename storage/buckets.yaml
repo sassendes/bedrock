@@ -79,10 +79,10 @@ data:
     set -euo pipefail
     A="http://garage.garage.svc:3903/v2"
     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
-    until api "$A/GetClusterStatus" >/dev/null; do sleep 5; done
-    NODE=$(api "$A/GetClusterStatus" | jq -r '.nodes[0].id')
+    until [ "$(api "$A/GetClusterStatus" | jq '[.nodes[] | select(.isUp)] | length')" = "3" ]; do sleep 5; done
     if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
-      api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":[{\"id\":\"$NODE\",\"zone\":\"dc1\",\"capacity\":35000000000,\"tags\":[]}]}" >/dev/null
+      ROLES=$(api "$A/GetClusterStatus" | jq -c '[.nodes[] | {id: .id, zone: "dc1", capacity: 35000000000, tags: []}]')
+      api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":$ROLES}" >/dev/null
       V=$(api "$A/GetClusterLayout" | jq -r '.version')
       api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null
     fi
