@@ -30,7 +30,6 @@ spec:
       max_client_conn: "1000"
       default_pool_size: "25"
 ---
-# warm spare
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:

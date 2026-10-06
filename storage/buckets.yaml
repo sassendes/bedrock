@@ -97,7 +97,7 @@ data:
       K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$B\"}")
       KID=$(echo "$K" | jq -r '.accessKeyId')
       KS=$(echo "$K" | jq -r '.secretAccessKey')
-      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":true}}" >/dev/null
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":false}}" >/dev/null
       kubectl -n "$NS" create secret generic "$B" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
     done
 ---

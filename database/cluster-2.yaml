@@ -26,7 +26,6 @@ spec:
     limits:
       memory: "1Gi"
       cpu: "1"
-  # newer boto3 sends checksum headers some s3 backends reject. only send when the api requires it.
   env:
     - name: AWS_REQUEST_CHECKSUM_CALCULATION
       value: when_required
@@ -72,7 +71,7 @@ spec:
   backup:
     barmanObjectStore:
       destinationPath: s3://cluster-2-backups/wals
-      endpointURL: http://rook-ceph-rgw-bedrock-s3.rook-ceph.svc:80
+      endpointURL: http://garage.garage.svc:3900
       s3Credentials:
         accessKeyId:
           name: cluster-2-backups

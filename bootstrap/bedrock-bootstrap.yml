@@ -5,7 +5,7 @@
   vars:
     rke2_version: v1.36.4+rke2r1
   tasks:
-    - name: Install open-iscsi + nfs-common 
+    - name: Install open-iscsi + nfs-common
       ansible.builtin.apt:
         name:
           - open-iscsi
@@ -89,6 +89,8 @@
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
+          disable:
+            - rke2-traefik
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -148,6 +150,8 @@
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
+          disable:
+            - rke2-traefik
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -202,6 +206,7 @@
       retries: 30
       delay: 10
       changed_when: false
+
     - name: Apply namespaces
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -219,7 +224,6 @@
       retries: 10
       delay: 15
 
-      
     - name: Wait for kyverno admission-controller Available
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
@@ -258,9 +262,7 @@
         - "{{ repo_root }}/secrets/super-secret-2.yaml"
         - "{{ repo_root }}/secrets/super-secret-3.yaml"
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
-        - "{{ repo_root }}/secrets/user-secret-2.yaml"
-        - "{{ repo_root }}/secrets/user-secret-3.yaml"
-        - "{{repo_root }}/secrets/garage-secrets.yaml"
+        - "{{ repo_root }}/secrets/garage-secrets.yaml"
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
@@ -351,6 +353,7 @@
         (gjob.resources[0].status.succeeded | default(0)) >= 1
       retries: 40
       delay: 15
+
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
