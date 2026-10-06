@@ -8,9 +8,14 @@ data:
     metadata_dir = "/var/lib/garage/meta"
     data_dir = "/var/lib/garage/data"
     db_engine = "lmdb"
-    replication_factor = 1
+    replication_factor = 3
+    consistency_mode = "consistent"
     rpc_bind_addr = "[::]:3901"
-    rpc_public_addr = "127.0.0.1:3901"
+
+    [kubernetes_discovery]
+    namespace = "garage"
+    service_name = "garage"
+    skip_crd = false
 
     [s3_api]
     s3_region = "garage"
@@ -19,6 +24,37 @@ data:
     [admin]
     api_bind_addr = "[::]:3903"
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: garage
+  namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: garage-discovery
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  - apiGroups: ["deuxfleurs.fr"]
+    resources: ["garagenodes"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: garage-discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-discovery
+subjects:
+  - kind: ServiceAccount
+    name: garage
+    namespace: garage
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -26,7 +62,8 @@ metadata:
   namespace: garage
 spec:
   serviceName: garage
-  replicas: 1
+  replicas: 3
+  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app: garage
@@ -35,6 +72,7 @@ spec:
       labels:
         app: garage
     spec:
+      serviceAccountName: garage
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -42,6 +80,13 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: garage
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: garage
           image: dxflrs/garage:v2.4.1
@@ -59,11 +104,13 @@ spec:
           ports:
             - name: s3
               containerPort: 3900
+            - name: rpc
+              containerPort: 3901
             - name: admin
               containerPort: 3903
           readinessProbe:
             tcpSocket:
-               port: s3
+              port: s3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -91,7 +138,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: longhorn
+        storageClassName: longhorn-local
         resources:
           requests:
             storage: 40Gi
