@@ -283,6 +283,15 @@
       retries: 40
       delay: 15
 
+    - name: Longhorn settings
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/storage/longhorn-settings.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: lh_settings
+      until: lh_settings.rc == 0
+      retries: 10
+      delay: 10
+
     - name: Apply CNPG operator v1.27.0
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
