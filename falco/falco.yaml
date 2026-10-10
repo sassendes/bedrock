@@ -109,8 +109,6 @@ spec:
               readOnly: true
             - name: containerd
               mountPath: /host/run/k3s/containerd
-            - name: containerd
-              mountPath: /host/run/containerd
       volumes:
         - name: config
           configMap:
