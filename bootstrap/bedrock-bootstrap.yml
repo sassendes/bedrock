@@ -215,6 +215,13 @@
         state: present
         src: "{{ repo_root }}/namespace.yaml"
 
+
+    - name: Apply priority classes
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/priorityclasses.yaml"
+
     - name: Install Kyverno v1.19.1 (policy admission must exist before validated workloads)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts
