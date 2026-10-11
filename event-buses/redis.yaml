@@ -8,13 +8,28 @@ data:
     set -eu
     DOMAIN="redis-headless.redis.svc.cluster.local"
     SELF="${POD_NAME}.${DOMAIN}"
+    SAVED="/data/sentinel.conf"
     MASTER=""
+    CURRENT_EPOCH=0
+    CONFIG_EPOCH=0
+
     for i in 0 1 2; do
       PEER="redis-${i}.${DOMAIN}"
       if [ "$PEER" = "$SELF" ]; then continue; fi
       FOUND=$(timeout 3 redis-cli -h "$PEER" -p 26379 --no-auth-warning -a "$REDIS_PASSWORD" sentinel get-master-addr-by-name bedrock 2>/dev/null | head -n 1 || true)
       if [ -n "$FOUND" ]; then MASTER="$FOUND"; break; fi
     done
+
+    if [ -f "$SAVED" ]; then
+      if [ -z "$MASTER" ]; then
+        MASTER=$(awk '$1=="sentinel" && $2=="monitor" {print $4; exit}' "$SAVED")
+      fi
+      CURRENT_EPOCH=$(awk '$1=="sentinel" && $2=="current-epoch" {print $3; exit}' "$SAVED")
+      CONFIG_EPOCH=$(awk '$1=="sentinel" && $2=="config-epoch" {print $4; exit}' "$SAVED")
+      CURRENT_EPOCH=${CURRENT_EPOCH:-0}
+      CONFIG_EPOCH=${CONFIG_EPOCH:-0}
+    fi
+
     if [ -z "$MASTER" ]; then MASTER="redis-0.${DOMAIN}"; fi
 
     cat > /etc/redis/redis.conf <<CONF
@@ -34,19 +49,36 @@ data:
       echo "replicaof ${MASTER} 6379" >> /etc/redis/redis.conf
     fi
 
-    cat > /etc/redis/sentinel.conf <<CONF
+    cat > "$SAVED" <<CONF
     port 26379
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
     sentinel announce-ip ${SELF}
     requirepass ${REDIS_PASSWORD}
     sentinel sentinel-pass ${REDIS_PASSWORD}
+    sentinel current-epoch ${CURRENT_EPOCH}
     sentinel monitor bedrock ${MASTER} 6379 2
+    sentinel config-epoch bedrock ${CONFIG_EPOCH}
     sentinel auth-pass bedrock ${REDIS_PASSWORD}
     sentinel down-after-milliseconds bedrock 5000
     sentinel failover-timeout bedrock 60000
     sentinel parallel-syncs bedrock 1
     CONF
+  prestop.sh: |
+    ROLE=$(redis-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
+    if [ "$ROLE" != "master" ]; then exit 0; fi
+    DOMAIN="redis-headless.redis.svc.cluster.local"
+    SELF="${POD_NAME}.${DOMAIN}"
+    for i in 0 1 2; do
+      PEER="redis-${i}.${DOMAIN}"
+      if [ "$PEER" = "$SELF" ]; then continue; fi
+      if timeout 3 redis-cli -h "$PEER" -p 26379 sentinel failover bedrock 2>/dev/null | grep -q OK; then break; fi
+    done
+    for i in $(seq 1 20); do
+      ROLE=$(redis-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
+      if [ "$ROLE" != "master" ]; then exit 0; fi
+      sleep 1
+    done
 ---
 apiVersion: v1
 kind: Service
@@ -100,7 +132,7 @@ spec:
         app: redis
     spec:
       priorityClassName: bedrock-workload
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 40
       securityContext:
         runAsNonRoot: true
         runAsUser: 999
@@ -147,11 +179,21 @@ spec:
               mountPath: /init
             - name: conf
               mountPath: /etc/redis
+            - name: data
+              mountPath: /data
       containers:
         - name: redis
           image: redis:8.8.3-alpine
           command: ["redis-server", "/etc/redis/redis.conf"]
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "/init/prestop.sh"]
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
@@ -189,13 +231,19 @@ spec:
               cpu: "1"
               memory: 1Gi
           volumeMounts:
+            - name: init
+              mountPath: /init
             - name: conf
               mountPath: /etc/redis
             - name: data
               mountPath: /data
         - name: sentinel
           image: redis:8.8.3-alpine
-          command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+          command: ["redis-sentinel", "/data/sentinel.conf"]
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "25"]
           env:
             - name: REDISCLI_AUTH
               valueFrom:
@@ -229,8 +277,8 @@ spec:
               cpu: 200m
               memory: 128Mi
           volumeMounts:
-            - name: conf
-              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
       volumes:
         - name: init
           configMap:
