@@ -23,9 +23,9 @@ data:
       name: bedrock
       port: 6222
       routes: [
-        nats://nats-0.nats-headless.nats.svc.cluster.local:6222
-        nats://nats-1.nats-headless.nats.svc.cluster.local:6222
-        nats://nats-2.nats-headless.nats.svc.cluster.local:6222
+        $ROUTE_0
+        $ROUTE_1
+        $ROUTE_2
       ]
       connect_retries: 120
       authorization {
@@ -133,6 +133,12 @@ spec:
                 secretKeyRef:
                   name: nats-auth
                   key: route_password
+            - name: ROUTE_0
+              value: "nats://route:$(ROUTE_PASSWORD)@nats-0.nats-headless.nats.svc.cluster.local:6222"
+            - name: ROUTE_1
+              value: "nats://route:$(ROUTE_PASSWORD)@nats-1.nats-headless.nats.svc.cluster.local:6222"
+            - name: ROUTE_2
+              value: "nats://route:$(ROUTE_PASSWORD)@nats-2.nats-headless.nats.svc.cluster.local:6222"
             - name: SYS_PASSWORD
               valueFrom:
                 secretKeyRef:
