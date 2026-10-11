@@ -572,6 +572,11 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
+    - name: Apply Tempo
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/tempo/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
     - name: Apply Prometheus scrape configs + exporters
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/prometheus/
       environment:
