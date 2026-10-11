@@ -273,6 +273,7 @@
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
         - "{{repo_root }}/secrets/nats-auth.yaml"
+        - "{{repo_root ]]/secrets/redis-auth.yaml"
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
@@ -477,7 +478,23 @@
       retries: 40
       delay: 15
 
-      
+    - name: Apply Redis
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/redis.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Redis ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: StatefulSet
+        namespace: redis
+        name: redis
+      register: redis_sts
+      until: >
+        redis_sts.resources | default([]) | length > 0 and
+        (redis_sts.resources[0].status.readyReplicas | default(0)) >= 3
+      retries: 40
+      delay: 15
 
     - name: Apply Loki stack
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/loki/
