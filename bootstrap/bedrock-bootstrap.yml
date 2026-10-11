@@ -276,7 +276,7 @@
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
         - "{{repo_root }}/secrets/nats-auth.yaml"
-        - "{{repo_root ]]/secrets/redis-auth.yaml"
+        - "{{repo_root }}/secrets/redis-auth.yaml"
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
