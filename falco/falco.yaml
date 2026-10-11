@@ -53,6 +53,7 @@ spec:
         app: falco
     spec:
       serviceAccountName: falco
+      priorityClassName: bedrock-data
       tolerations:
         - operator: Exists
       containers:
