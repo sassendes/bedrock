@@ -19,6 +19,7 @@ spec:
         - http://alertmanager-operated.application.svc:9093/-/healthy
         - http://prometheus-operated.application.svc:9090/-/healthy
         - http://garage.garage.svc:3903/health
+        - http://tempo.application.svc:3200/ready
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
