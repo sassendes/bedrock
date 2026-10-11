@@ -58,6 +58,25 @@ data:
         type: loki
         access: proxy
         url: http://loki.application.svc:3100
+        jsonData:
+          derivedFields:
+            - name: TraceID
+              datasourceUid: tempo
+              matcherRegex: '(?:trace_?[iI][dD]|traceID)["=: ]+"?(\w+)'
+              url: "$${__value.raw}"
+      - name: Tempo
+        uid: tempo
+        type: tempo
+        access: proxy
+        url: http://tempo.application.svc:3200
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: P8E80F9AEF21F6940
+            spanStartTimeShift: "-5m"
+            spanEndTimeShift: "5m"
+            filterByTraceID: true
+          nodeGraph:
+            enabled: true
 ---
 apiVersion: v1
 kind: ConfigMap
