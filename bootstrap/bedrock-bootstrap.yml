@@ -465,7 +465,7 @@
 
     - name: Apply NATS JetStream
       when: nats_enabled | bool
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/buses/nats.yaml
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/nats.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
