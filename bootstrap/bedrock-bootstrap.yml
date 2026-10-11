@@ -196,6 +196,9 @@
   vars:
     kubeconfig: /tmp/bedrock-kubeconfig
     repo_root: "{{ playbook_dir }}/.."
+    nats_enabled: true
+    redis_enabled: true
+    kafka_enabled: true
   environment:
     PATH: "/var/lib/rancher/rke2/bin:/usr/local/bin:{{ lookup('env', 'PATH') }}"
   tasks:
@@ -494,6 +497,70 @@
         redis_sts.resources | default([]) | length > 0 and
         (redis_sts.resources[0].status.readyReplicas | default(0)) >= 3
       retries: 40
+      delay: 15
+
+
+    - name: Download Strimzi 1.2.0 (checksum verified)
+      when: kafka_enabled | bool
+      ansible.builtin.get_url:
+        url: https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-cluster-operator-1.2.0.yaml
+        dest: /tmp/strimzi-cluster-operator.yaml
+        checksum: "sha256:a0b1ae3e375a7da0674eb3894df8aa955bc50abe8190bc9344e30b83bbee4775"
+
+    - name: Point Strimzi at the kafka namespace
+      when: kafka_enabled | bool
+      ansible.builtin.replace:
+        path: /tmp/strimzi-cluster-operator.yaml
+        regexp: 'namespace: myproject'
+        replace: 'namespace: kafka'
+
+    - name: Install Strimzi operator
+      when: kafka_enabled | bool
+      ansible.builtin.command: kubectl apply --server-side -n kafka -f /tmp/strimzi-cluster-operator.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Strimzi creates restricted pods
+      when: kafka_enabled | bool
+      ansible.builtin.command: kubectl -n kafka set env deployment/strimzi-cluster-operator STRIMZI_POD_SECURITY_PROVIDER_CLASS=restricted
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Strimzi operator
+      when: kafka_enabled | bool
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: kafka
+        name: strimzi-cluster-operator
+      register: strimzi
+      until: >
+        strimzi.resources | default([]) | length > 0 and
+        (strimzi.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    - name: Apply Kafka
+      when: kafka_enabled | bool
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/kafka.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for Kafka Ready
+      when: kafka_enabled | bool
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: kafka.strimzi.io/v1
+        kind: Kafka
+        namespace: kafka
+        name: kafka
+      register: kafka_cr
+      until: >
+        kafka_cr.resources | default([]) | length > 0 and
+        (kafka_cr.resources[0].status.conditions | default([])
+         | selectattr('type', 'equalto', 'Ready')
+         | selectattr('status', 'equalto', 'True') | list | length) > 0
+      retries: 60
       delay: 15
 
     - name: Apply Loki stack
