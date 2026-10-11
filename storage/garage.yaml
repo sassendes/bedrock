@@ -73,6 +73,7 @@ spec:
         app: garage
     spec:
       serviceAccountName: garage
+      priorityClassName: bedrock-storage
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
