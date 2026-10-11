@@ -1,0 +1,219 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: nats
+data:
+  nats.conf: |
+    server_name: $POD_NAME
+    port: 4222
+    http_port: 8222
+    pid_file: /var/run/nats/nats.pid
+    max_payload: 1MB
+    lame_duck_grace_period: 10s
+    lame_duck_duration: 30s
+
+    jetstream {
+      store_dir: /data
+      max_memory_store: 512MB
+      max_file_store: 18GB
+    }
+
+    cluster {
+      name: bedrock
+      port: 6222
+      routes: [
+        nats://nats-0.nats-headless.nats.svc.cluster.local:6222
+        nats://nats-1.nats-headless.nats.svc.cluster.local:6222
+        nats://nats-2.nats-headless.nats.svc.cluster.local:6222
+      ]
+      connect_retries: 120
+      authorization {
+        user: route
+        password: $ROUTE_PASSWORD
+      }
+    }
+
+    accounts {
+      SYS {
+        users: [ { user: sys, password: $SYS_PASSWORD } ]
+      }
+      APP {
+        jetstream: enabled
+        users: [ { user: app, password: $APP_PASSWORD } ]
+      }
+    }
+    system_account: SYS
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  namespace: nats
+  labels:
+    app: nats
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+    - name: cluster
+      port: 6222
+    - name: monitor
+      port: 8222
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: nats
+  labels:
+    app: nats
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+    - name: monitor
+      port: 8222
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: nats
+  labels:
+    app: nats
+spec:
+  serviceName: nats-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      priorityClassName: bedrock-workload
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: nats
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: nats
+          image: nats:2.14.7-alpine
+          args: ["--config", "/etc/nats/nats.conf"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: GOMEMLIMIT
+              value: "1800MiB"
+            - name: ROUTE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-auth
+                  key: route_password
+            - name: SYS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-auth
+                  key: sys_password
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nats-auth
+                  key: app_password
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: cluster
+              containerPort: 6222
+            - name: monitor
+              containerPort: 8222
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: monitor
+            periodSeconds: 10
+            failureThreshold: 90
+          livenessProbe:
+            httpGet:
+              path: /healthz?js-enabled-only=true
+              port: monitor
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz?js-server-only=true
+              port: monitor
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["nats-server", "-sl=ldm=/var/run/nats/nats.pid"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: data
+              mountPath: /data
+            - name: run
+              mountPath: /var/run/nats
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+        - name: run
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nats
+  namespace: nats
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: nats
