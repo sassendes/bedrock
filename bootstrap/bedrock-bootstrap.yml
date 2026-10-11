@@ -464,11 +464,13 @@
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
 
     - name: Apply NATS JetStream
+      when: nats_enabled | bool
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/buses/nats.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for NATS ready
+      when: nats_enabled | bool
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: StatefulSet
@@ -482,11 +484,13 @@
       delay: 15
 
     - name: Apply Redis
+      when: redis_enabled | bool
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/redis.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for Redis ready
+      when: redis_enabled | bool
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: StatefulSet
