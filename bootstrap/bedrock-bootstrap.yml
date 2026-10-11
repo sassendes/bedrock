@@ -272,6 +272,7 @@
         - "{{ repo_root }}/secrets/super-secret-3.yaml"
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
+        - "{{repo_root }}/secrets/nats-auth.yaml"
 
     - name: Apply Longhorn v1.7.3
       kubernetes.core.k8s:
@@ -457,6 +458,26 @@
         - "{{ repo_root }}/database/pooler.yaml"
         - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
+
+    - name: Apply NATS JetStream
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/buses/nats.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for NATS ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: StatefulSet
+        namespace: nats
+        name: nats
+      register: nats_sts
+      until: >
+        nats_sts.resources | default([]) | length > 0 and
+        (nats_sts.resources[0].status.readyReplicas | default(0)) >= 3
+      retries: 40
+      delay: 15
+
+      
 
     - name: Apply Loki stack
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/loki/
