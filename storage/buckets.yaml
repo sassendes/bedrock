@@ -86,7 +86,7 @@ data:
       V=$(api "$A/GetClusterLayout" | jq -r '.version')
       api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null
     fi
-    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:application; do
+    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:application tempo-data:application; do
       B=${pair%%:*}
       NS=${pair##*:}
       if kubectl -n "$NS" get secret "$B" >/dev/null 2>&1; then continue; fi
