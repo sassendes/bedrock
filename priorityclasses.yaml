@@ -1,0 +1,31 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bedrock-storage
+value: 90000000
+globalDefault: false
+description: "object storage. garage"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bedrock-data
+value: 80000000
+globalDefault: false
+description: "databases and poolers. cnpg"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bedrock-workload
+value: 50000000
+globalDefault: false
+description: "tenant apps and buses"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: bedrock-default
+value: 10000000
+globalDefault: true
+description: "everything without a class. observ, cost, dboards"
