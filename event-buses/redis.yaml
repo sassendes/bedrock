@@ -1,0 +1,259 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-init
+  namespace: redis
+data:
+  init.sh: |
+    set -eu
+    DOMAIN="redis-headless.redis.svc.cluster.local"
+    SELF="${POD_NAME}.${DOMAIN}"
+    MASTER=""
+    for i in 0 1 2; do
+      PEER="redis-${i}.${DOMAIN}"
+      if [ "$PEER" = "$SELF" ]; then continue; fi
+      FOUND=$(timeout 3 redis-cli -h "$PEER" -p 26379 --no-auth-warning -a "$REDIS_PASSWORD" sentinel get-master-addr-by-name bedrock 2>/dev/null | head -n 1 || true)
+      if [ -n "$FOUND" ]; then MASTER="$FOUND"; break; fi
+    done
+    if [ -z "$MASTER" ]; then MASTER="redis-0.${DOMAIN}"; fi
+
+    cat > /etc/redis/redis.conf <<CONF
+    port 6379
+    bind 0.0.0.0
+    protected-mode no
+    dir /data
+    appendonly yes
+    appendfsync everysec
+    maxmemory 768mb
+    maxmemory-policy volatile-lru
+    requirepass ${REDIS_PASSWORD}
+    masterauth ${REDIS_PASSWORD}
+    replica-announce-ip ${SELF}
+    CONF
+    if [ "$MASTER" != "$SELF" ]; then
+      echo "replicaof ${MASTER} 6379" >> /etc/redis/redis.conf
+    fi
+
+    cat > /etc/redis/sentinel.conf <<CONF
+    port 26379
+    sentinel resolve-hostnames yes
+    sentinel announce-hostnames yes
+    sentinel announce-ip ${SELF}
+    requirepass ${REDIS_PASSWORD}
+    sentinel sentinel-pass ${REDIS_PASSWORD}
+    sentinel monitor bedrock ${MASTER} 6379 2
+    sentinel auth-pass bedrock ${REDIS_PASSWORD}
+    sentinel down-after-milliseconds bedrock 5000
+    sentinel failover-timeout bedrock 60000
+    sentinel parallel-syncs bedrock 1
+    CONF
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: redis
+  labels:
+    app: redis
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+    - name: sentinel
+      port: 26379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: sentinel
+      port: 26379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: redis
+  labels:
+    app: redis
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      priorityClassName: bedrock-workload
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: redis
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: config
+          image: redis:8.8.3-alpine
+          command: ["sh", "/init/init.sh"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: init
+              mountPath: /init
+            - name: conf
+              mountPath: /etc/redis
+      containers:
+        - name: redis
+          image: redis:8.8.3-alpine
+          command: ["redis-server", "/etc/redis/redis.conf"]
+          env:
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
+          ports:
+            - name: redis
+              containerPort: 6379
+          startupProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/redis
+            - name: data
+              mountPath: /data
+        - name: sentinel
+          image: redis:8.8.3-alpine
+          command: ["redis-sentinel", "/etc/redis/sentinel.conf"]
+          env:
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
+          ports:
+            - name: sentinel
+              containerPort: 26379
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/redis
+      volumes:
+        - name: init
+          configMap:
+            name: redis-init
+        - name: conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  namespace: redis
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: redis
