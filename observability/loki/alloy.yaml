@@ -82,6 +82,33 @@ data:
         url = "http://loki.application.svc:3100/loki/api/v1/push"
       }
     }
+
+    otelcol.receiver.otlp "default" {
+      grpc {
+        endpoint = "0.0.0.0:4317"
+      }
+      http {
+        endpoint = "0.0.0.0:4318"
+      }
+      output {
+        traces = [otelcol.processor.batch.default.input]
+      }
+    }
+
+    otelcol.processor.batch "default" {
+      output {
+        traces = [otelcol.exporter.otlp.tempo.input]
+      }
+    }
+
+    otelcol.exporter.otlp "tempo" {
+      client {
+        endpoint = "tempo.application.svc:4317"
+        tls {
+          insecure = true
+        }
+      }
+    }
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -118,6 +145,10 @@ spec:
           ports:
             - containerPort: 12345
               name: http
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
           resources:
             requests:
               memory: 128Mi
@@ -150,3 +181,21 @@ spec:
         - name: rke2-logs
           hostPath:
             path: /var/lib/rancher/rke2/server/logs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alloy
+  namespace: application
+  labels:
+    app: alloy
+spec:
+  selector:
+    app: alloy
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+    - name: otlp-http
+      port: 4318
+      targetPort: 4318
