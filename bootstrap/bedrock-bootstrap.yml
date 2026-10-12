@@ -77,6 +77,20 @@
         dest: /etc/rancher/rke2/bedrock-audit.yaml
         mode: "0600"
 
+
+    - name: Create RKE2 server manifests directory
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/server/manifests
+        state: directory
+        mode: "0755"
+
+    - name: Cilium config (Hubble)
+      ansible.builtin.copy:
+        src: rke2-cilium-config.yaml
+        dest: /var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml
+        mode: "0600"
+
+        
 - name: Bring up RKE2 control-plane (first server)
   hosts: server_init
   become: true
@@ -327,10 +341,23 @@
       retries: 30
       delay: 10
 
-    - name: Apply Prometheus operator v0.93.1 (via kubectl - bundle YAML breaks ansible parser)
+    - name: Download Prometheus operator v0.93.1 bundle
+      ansible.builtin.get_url:
+        url: https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
+        dest: /tmp/prometheus-operator-0.93.1.yaml
+        checksum: sha256:1d38ea4ab904545f3203862c1a793b18fd53ab1e571fdbf47afb4dc9e33a98b8
+        mode: "0644"
+
+    - name: Move Prometheus operator out of default
+      ansible.builtin.replace:
+        path: /tmp/prometheus-operator-0.93.1.yaml
+        regexp: 'namespace: default$'
+        replace: 'namespace: prometheus-operator'
+
+    - name: Apply Prometheus operator v0.93.1
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts
-        -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
+        -f /tmp/prometheus-operator-0.93.1.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: prom_install
@@ -342,7 +369,7 @@
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Deployment
-        namespace: default
+        namespace: prometheus-operator
         name: prometheus-operator
       register: promop
       until: >
