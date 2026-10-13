@@ -4,6 +4,9 @@ metadata:
   name: cluster-1
   namespace: cluster-1
 spec:
+  postgresql:
+    parameters:
+      log_statement: "ddl"
   monitoring:
     enablePodMonitor: true
   instances: 2
