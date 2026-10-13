@@ -53,7 +53,7 @@ spec:
         name: alertmanager-operated
         port: web
   serviceAccountName: prometheus
-  replicas: 1
+  replicas: 2
   retention: 15d
   resources:
     requests:
