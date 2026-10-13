@@ -10,7 +10,7 @@ metadata:
   name: kube-state-metrics
 rules:
   - apiGroups: [""]
-    resources: ["pods","services","nodes","endpoints","persistentvolumeclaims","persistentvolumes","namespaces","configmaps","secrets","replicationcontrollers","limitranges","resourcequotas"]
+    resources: ["pods","services","nodes","endpoints","persistentvolumeclaims","persistentvolumes","namespaces","configmaps","replicationcontrollers","limitranges","resourcequotas"]
     verbs: ["list","watch"]
   - apiGroups: ["apps"]
     resources: ["deployments","replicasets","statefulsets","daemonsets"]
