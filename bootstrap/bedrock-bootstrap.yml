@@ -107,6 +107,11 @@
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
           disable:
             - rke2-traefik
+          kube-apiserver-arg:
+            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
+          kubelet-arg:
+            - "pod-max-pids=4096"
+            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -168,6 +173,11 @@
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
           disable:
             - rke2-traefik
+          kube-apiserver-arg:
+            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
+          kubelet-arg:
+            - "pod-max-pids=4096"
+            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -202,6 +212,16 @@
         content: |
           export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
           export CRI_CONFIG_FILE=/var/lib/rancher/rke2/agent/etc/crictl.yaml
+
+    - name: etcd config owned by root (CIS 1.1.8)
+      ansible.builtin.file:
+        path: /var/lib/rancher/rke2/server/db/etcd/config
+        owner: root
+        group: root
+
+    - name: PKI certificates mode 600 (CIS 1.1.20)
+      ansible.builtin.shell: chmod 600 /var/lib/rancher/rke2/server/tls/*.crt
+      changed_when: false
 
 - name: Deploy bedrock platform stack (ordered, gated)
   hosts: localhost
