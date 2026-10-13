@@ -681,6 +681,15 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
+
+    - name: Disable token automount on default service accounts
+  ansible.builtin.shell: |
+    for ns in $(kubectl get ns -o jsonpath='{.items[*].metadata.name}'); do
+      kubectl patch serviceaccount default -n "$ns" \
+        -p '{"automountServiceAccountToken": false}'
+    done
+  changed_when: false
+
     - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts -f "{{ item }}"
