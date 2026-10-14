@@ -186,7 +186,6 @@ spec:
           persistentVolumeClaim:
             claimName: grafana-data
 ---
-apiVersion: v1
 kind: Service
 metadata:
   name: grafana
@@ -194,11 +193,10 @@ metadata:
   labels:
     app: grafana
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: grafana
   ports:
     - name: http
       port: 3000
       targetPort: http
-      nodePort: 30030
