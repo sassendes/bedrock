@@ -1,6 +1,6 @@
 ---
 - name: Node prerequisites (all nodes)
-  hosts: k3s_servers
+  hosts: rke2_servers
   become: true
   vars:
     rke2_version: v1.36.4+rke2r1
@@ -191,7 +191,7 @@
         timeout: 900
 
 - name: kubectl on every node
-  hosts: k3s_servers
+  hosts: rke2_servers
   become: true
   tasks:
     - name: Link RKE2 tools into PATH
