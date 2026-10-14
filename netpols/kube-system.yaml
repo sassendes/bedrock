@@ -38,10 +38,3 @@ specs:
           - ports:
               - port: "53"
                 protocol: ANY
-    egress:
-      - toEntities:
-          - world
-        toPorts:
-          - ports:
-              - port: "53"
-                protocol: ANY
