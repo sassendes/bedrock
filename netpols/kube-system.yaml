@@ -1,0 +1,47 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kube-system
+  namespace: kube-system
+specs:
+  - description: every pod in kube-system
+    endpointSelector: {}
+    ingress:
+      - fromEndpoints:
+          - {}
+      - fromEntities:
+          - host
+          - remote-node
+          - kube-apiserver
+    egress:
+      - toEndpoints:
+          - {}
+      - toEntities:
+          - kube-apiserver
+      - toEntities:
+          - host
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "10250"
+                protocol: TCP
+              - port: "4244"
+                protocol: TCP
+  - description: coredns answers every pod in the cluster
+    endpointSelector:
+      matchLabels:
+        k8s-app: kube-dns
+    ingress:
+      - fromEntities:
+          - cluster
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: ANY
+    egress:
+      - toEntities:
+          - world
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: ANY
