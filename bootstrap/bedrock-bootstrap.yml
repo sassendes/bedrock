@@ -700,6 +700,22 @@
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
 
+    - name: Apply lan cidr group from the first server's facts
+      vars:
+        lan_net: "{{ hostvars[groups['server_init'][0]].ansible_default_ipv4 }}"
+      ansible.builtin.command: kubectl apply -f -
+      args:
+        stdin: |
+          apiVersion: cilium.io/v2alpha1
+          kind: CiliumCIDRGroup
+          metadata:
+            name: lan
+          spec:
+            externalCIDRs:
+              - "{{ (lan_net.network ~ '/' ~ lan_net.prefix) }}"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
     - name: Apply network policies
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/netpols/
       environment:
