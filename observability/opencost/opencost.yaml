@@ -184,14 +184,13 @@ metadata:
   labels:
     app: opencost-ui
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: opencost
   ports:
     - name: http-ui
       port: 9090
       targetPort: 9090
-      nodePort: 30091
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
