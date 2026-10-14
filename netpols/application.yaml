@@ -1,0 +1,164 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: application
+  namespace: application
+specs:
+  - description: every pod in the namespace
+    endpointSelector: {}
+    ingress:
+      - fromEndpoints:
+          - {}
+      - fromEntities:
+          - host
+    egress:
+      - toEndpoints:
+          - {}
+      - toEntities:
+          - kube-apiserver
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: kube-system
+              k8s:k8s-app: kube-dns
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: ANY
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: garage
+        toPorts:
+          - ports:
+              - port: "3900"
+                protocol: TCP
+              - port: "3903"
+                protocol: TCP
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-1
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-2
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-3
+        toPorts:
+          - ports:
+              - port: "5432"
+                protocol: TCP
+              - port: "9187"
+                protocol: TCP
+              - port: "9127"
+                protocol: TCP
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: falco
+        toPorts:
+          - ports:
+              - port: "8765"
+                protocol: TCP
+      - toEntities:
+          - host
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "10250"
+                protocol: TCP
+              - port: "9100"
+                protocol: TCP
+  - description: grafana from the lan only
+    endpointSelector:
+      matchLabels:
+        app: grafana
+    ingress:
+      - fromCIDR:
+          - 192.168.100.0/24
+        toPorts:
+          - ports:
+              - port: "3000"
+                protocol: TCP
+      - fromEntities:
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "3000"
+                protocol: TCP
+  - description: opencost ui from the lan only
+    endpointSelector:
+      matchLabels:
+        app: opencost
+    ingress:
+      - fromCIDR:
+          - 192.168.100.0/24
+        toPorts:
+          - ports:
+              - port: "9090"
+                protocol: TCP
+      - fromEntities:
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "9090"
+                protocol: TCP
+  - description: prometheus ui from the lan only
+    endpointSelector:
+      matchLabels:
+        operator.prometheus.io/name: prometheus
+    ingress:
+      - fromCIDR:
+          - 192.168.100.0/24
+        toPorts:
+          - ports:
+              - port: "9090"
+                protocol: TCP
+      - fromEntities:
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "9090"
+                protocol: TCP
+  - description: alertmanager ui from the lan only
+    endpointSelector:
+      matchLabels:
+        alertmanager: alertmanager
+    ingress:
+      - fromCIDR:
+          - 192.168.100.0/24
+        toPorts:
+          - ports:
+              - port: "9093"
+                protocol: TCP
+      - fromEntities:
+          - remote-node
+        toPorts:
+          - ports:
+              - port: "9093"
+                protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-nodeport
+  namespace: application
+spec:
+  type: NodePort
+  selector:
+    operator.prometheus.io/name: prometheus
+  ports:
+    - name: web
+      port: 9090
+      targetPort: 9090
+      nodePort: 30090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-nodeport
+  namespace: application
+spec:
+  type: NodePort
+  selector:
+    alertmanager: alertmanager
+  ports:
+    - name: web
+      port: 9093
+      targetPort: 9093
+      nodePort: 30093
