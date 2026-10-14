@@ -1,0 +1,98 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: nats
+  namespace: nats
+spec:
+  endpointSelector: {}
+  ingress:
+  - fromEndpoints:
+    - {}
+  - fromEntities:
+    - host
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+    toPorts:
+    - ports:
+      - port: '4222'
+        protocol: TCP
+      - port: '8222'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - {}
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: redis
+  namespace: redis
+spec:
+  endpointSelector: {}
+  ingress:
+  - fromEndpoints:
+    - {}
+  - fromEntities:
+    - host
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+    toPorts:
+    - ports:
+      - port: '6379'
+        protocol: TCP
+      - port: '26379'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - {}
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: kafka
+  namespace: kafka
+spec:
+  endpointSelector: {}
+  ingress:
+  - fromEndpoints:
+    - {}
+  - fromEntities:
+    - host
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - {}
+  - toEntities:
+    - kube-apiserver
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: '53'
+        protocol: ANY
