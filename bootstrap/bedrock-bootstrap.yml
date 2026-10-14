@@ -699,3 +699,8 @@
       loop:
         - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
         - "{{ repo_root }}/observability/grafana/dash-node.yaml"
+
+    - name: Apply network policies
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/netpols/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
