@@ -1,6 +1,6 @@
 ---
 - name: Tear down bedrock cleanly on all nodes
-  hosts: k3s_servers
+  hosts: rke2_servers
   become: true
   tasks:
     - name: Uninstall RKE2
@@ -41,4 +41,3 @@
         path: /var/lib/longhorn
         state: directory
         mode: "0755"
-
