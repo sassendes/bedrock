@@ -102,6 +102,7 @@
         content: |
           profile: cis
           cni: cilium
+          disable-kube-proxy: true
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
@@ -168,6 +169,7 @@
           token: {{ hostvars[groups['server_init'][0]].rke2_token }}
           profile: cis
           cni: cilium
+          disable-kube-proxy: true
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
