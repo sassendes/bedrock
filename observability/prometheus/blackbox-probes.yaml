@@ -13,7 +13,6 @@ spec:
       labels:
         probe_group: http
       static:
-        - http://ntfy.application.svc/v1/health
         - http://grafana.application.svc:3000/api/health
         - http://loki.application.svc:3100/ready
         - http://alertmanager-operated.application.svc:9093/-/healthy
