@@ -186,6 +186,7 @@ spec:
           persistentVolumeClaim:
             claimName: grafana-data
 ---
+apiVersion: v1
 kind: Service
 metadata:
   name: grafana
