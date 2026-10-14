@@ -87,69 +87,49 @@ specs:
     - ports:
       - port: '9093'
         protocol: TCP
-- description: grafana from the lan only
+- description: grafana nodeport
   endpointSelector:
     matchLabels:
       app: grafana
   ingress:
-  - fromCIDR:
-    - 192.168.100.0/24
-    toPorts:
-    - ports:
-      - port: '3000'
-        protocol: TCP
   - fromEntities:
+    - host
     - remote-node
     toPorts:
     - ports:
       - port: '3000'
         protocol: TCP
-- description: opencost ui from the lan only
+- description: opencost ui nodeport
   endpointSelector:
     matchLabels:
       app: opencost
   ingress:
-  - fromCIDR:
-    - 192.168.100.0/24
-    toPorts:
-    - ports:
-      - port: '9090'
-        protocol: TCP
   - fromEntities:
+    - host
     - remote-node
     toPorts:
     - ports:
       - port: '9090'
         protocol: TCP
-- description: prometheus ui from the lan only
+- description: prometheus ui nodeport
   endpointSelector:
     matchLabels:
       operator.prometheus.io/name: prometheus
   ingress:
-  - fromCIDR:
-    - 192.168.100.0/24
-    toPorts:
-    - ports:
-      - port: '9090'
-        protocol: TCP
   - fromEntities:
+    - host
     - remote-node
     toPorts:
     - ports:
       - port: '9090'
         protocol: TCP
-- description: alertmanager ui from the lan only
+- description: alertmanager ui nodeport
   endpointSelector:
     matchLabels:
       alertmanager: alertmanager
   ingress:
-  - fromCIDR:
-    - 192.168.100.0/24
-    toPorts:
-    - ports:
-      - port: '9093'
-        protocol: TCP
   - fromEntities:
+    - host
     - remote-node
     toPorts:
     - ports:
