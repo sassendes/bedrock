@@ -99,6 +99,12 @@ specs:
     - ports:
       - port: '3000'
         protocol: TCP
+  - fromCIDRSet:
+    - cidrGroupRef: lan
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP
 - description: opencost ui nodeport
   endpointSelector:
     matchLabels:
@@ -107,6 +113,12 @@ specs:
   - fromEntities:
     - host
     - remote-node
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+  - fromCIDRSet:
+    - cidrGroupRef: lan
     toPorts:
     - ports:
       - port: '9090'
@@ -123,6 +135,12 @@ specs:
     - ports:
       - port: '9090'
         protocol: TCP
+  - fromCIDRSet:
+    - cidrGroupRef: lan
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
 - description: alertmanager ui nodeport
   endpointSelector:
     matchLabels:
@@ -131,6 +149,12 @@ specs:
   - fromEntities:
     - host
     - remote-node
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+  - fromCIDRSet:
+    - cidrGroupRef: lan
     toPorts:
     - ports:
       - port: '9093'
