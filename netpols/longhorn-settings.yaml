@@ -1,0 +1,27 @@
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: node-down-pod-deletion-policy
+  namespace: longhorn-system
+value: delete-both-statefulset-and-deployment-pod
+---
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: storage-over-provisioning-percentage
+  namespace: longhorn-system
+value: "300"
+---
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: upgrade-checker
+  namespace: longhorn-system
+value: "false"
+---
+apiVersion: longhorn.io/v1beta2
+kind: Setting
+metadata:
+  name: allow-collecting-longhorn-usage-metrics
+  namespace: longhorn-system
+value: "false"
