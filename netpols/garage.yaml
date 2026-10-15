@@ -3,57 +3,83 @@ kind: CiliumNetworkPolicy
 metadata:
   name: garage
   namespace: garage
-spec:
-  endpointSelector: {}
-  ingress:
-    - fromEndpoints:
-        - {}
-    - fromEntities:
-        - host
-      toPorts:
-        - ports:
-            - port: "3900"
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: application
-            app: loki
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: application
-            app: tempo
-      toPorts:
-        - ports:
-            - port: "3900"
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: application
-            app: blackbox-exporter
-      toPorts:
-        - ports:
-            - port: "3903"
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-1
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-2
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-3
-      toPorts:
-        - ports:
-            - port: "3900"
-              protocol: TCP
-  egress:
-    - toEndpoints:
-        - {}
-    - toEntities:
-        - kube-apiserver
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: kube-system
-            k8s:k8s-app: kube-dns
-      toPorts:
-        - ports:
-            - port: "53"
-              protocol: ANY
+specs:
+  - description: every pod in garage, deny by default
+    endpointSelector: {}
+    ingress:
+      - fromEntities:
+          - host
+        toPorts:
+          - ports:
+              - port: "3900"
+                protocol: TCP
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: kube-system
+              k8s:k8s-app: kube-dns
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: ANY
+      - toEntities:
+          - kube-apiserver
+  - description: garage nodes
+    endpointSelector:
+      matchLabels:
+        app: garage
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              app: garage
+        toPorts:
+          - ports:
+              - port: "3901"
+                protocol: TCP
+      - fromEndpoints:
+          - matchLabels:
+              app: garage-init
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: application
+              app: blackbox-exporter
+        toPorts:
+          - ports:
+              - port: "3903"
+                protocol: TCP
+      - fromEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: application
+              app: loki
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: application
+              app: tempo
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-1
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-2
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-3
+        toPorts:
+          - ports:
+              - port: "3900"
+                protocol: TCP
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              app: garage
+        toPorts:
+          - ports:
+              - port: "3901"
+                protocol: TCP
+  - description: garage-init job
+    endpointSelector:
+      matchLabels:
+        app: garage-init
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              app: garage
+        toPorts:
+          - ports:
+              - port: "3903"
+                protocol: TCP
