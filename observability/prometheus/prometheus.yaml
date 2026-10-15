@@ -55,6 +55,7 @@ spec:
   serviceAccountName: prometheus
   replicas: 2
   retention: 15d
+  retentionSize: 16GB
   resources:
     requests:
       memory: 400Mi
