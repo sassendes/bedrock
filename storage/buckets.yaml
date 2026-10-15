@@ -14,7 +14,7 @@ rules:
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["cluster-1-backups", "cluster-2-backups", "cluster-3-backups", "loki-data", "tempo-data"]
+    resourceNames: ["cluster-1-backups", "cluster-2-backups", "cluster-3-backups", "loki-data", "tempo-data", "cluster-1-backups-ro"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -104,6 +104,20 @@ data:
       api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":false}}" >/dev/null
       kubectl -n "$NS" create secret generic "$B" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
     done
+    MISSING=""
+    for NS in cluster-2 cluster-3; do
+      if ! kubectl -n "$NS" get secret cluster-1-backups-ro >/dev/null 2>&1; then MISSING="$MISSING $NS"; fi
+    done
+    if [ -n "$MISSING" ]; then
+      BID=$(api "$A/GetBucketInfo?globalAlias=cluster-1-backups" | jq -r '.id')
+      K=$(api -X POST "$A/CreateKey" -d '{"name":"cluster-1-backups-ro"}')
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" >/dev/null
+      for NS in $MISSING; do
+        kubectl -n "$NS" create secret generic cluster-1-backups-ro --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+      done
+    fi
 ---
 apiVersion: batch/v1
 kind: Job
