@@ -103,6 +103,7 @@
           profile: cis
           cni: cilium
           disable-kube-proxy: true
+          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
@@ -143,17 +144,25 @@
         path: /etc/rancher/rke2/rke2.yaml
         timeout: 900
 
+    - name: Private kubeconfig directory on the controller
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.bedrock"
+        state: directory
+        mode: "0700"
+
     - name: Fetch kubeconfig to the controller
       ansible.builtin.fetch:
         src: /etc/rancher/rke2/rke2.yaml
-        dest: /tmp/bedrock-kubeconfig
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
         flat: true
 
     - name: Rewrite kubeconfig 127.0.0.1 -> real IP
       delegate_to: localhost
       become: false
       ansible.builtin.replace:
-        path: /tmp/bedrock-kubeconfig
+        path: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
         regexp: 'https://127\.0\.0\.1:6443'
         replace: "{{ rke2_api_url }}"
 
@@ -161,7 +170,7 @@
       delegate_to: localhost
       become: false
       ansible.builtin.file:
-        path: /tmp/bedrock-kubeconfig
+        path: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
         mode: "0600"
 
 - name: Join remaining servers to HA control plane (one at a time)
@@ -180,6 +189,7 @@
           profile: cis
           cni: cilium
           disable-kube-proxy: true
+          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
           write-kubeconfig-mode: "0600"
           secrets-encryption: true
           audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
@@ -240,11 +250,11 @@
   become: false
   gather_facts: false
   vars:
-    kubeconfig: /tmp/bedrock-kubeconfig
+    kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
     repo_root: "{{ playbook_dir }}/.."
-    nats_enabled: true
-    redis_enabled: true
-    kafka_enabled: true
+    nats_enabled: false
+    redis_enabled: false
+    kafka_enabled: false
   environment:
     PATH: "/var/lib/rancher/rke2/bin:/usr/local/bin:{{ lookup('env', 'PATH') }}"
   tasks:
@@ -507,6 +517,16 @@
       retries: 40
       delay: 15
 
+    - name: Revoke garage-init's secret access once its job is done
+      ansible.builtin.command: kubectl -n {{ item }} delete rolebinding garage-init --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop:
+        - cluster-1
+        - cluster-2
+        - cluster-3
+        - application
+
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -753,3 +773,21 @@
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/netpols/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Verify the cluster-wide default deny landed
+      ansible.builtin.command: kubectl get ciliumclusterwidenetworkpolicy cluster-default-deny
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+
+    - name: Verify every namespace running pods has its own network policy
+      ansible.builtin.shell: |
+        set -eu
+        missing=""
+        for ns in $(kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{"\n"}{end}' | sort -u); do
+          if [ "$(kubectl get cnp -n "$ns" --no-headers 2>/dev/null | wc -l)" -eq 0 ]; then missing="$missing $ns"; fi
+        done
+        if [ -n "$missing" ]; then echo "namespaces without a network policy:$missing"; exit 1; fi
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
