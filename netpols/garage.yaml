@@ -17,10 +17,20 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: application
+            app: loki
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: application
+            app: tempo
       toPorts:
         - ports:
             - port: "3900"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: application
+            app: blackbox-exporter
+      toPorts:
+        - ports:
             - port: "3903"
               protocol: TCP
     - fromEndpoints:
