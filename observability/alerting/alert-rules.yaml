@@ -99,6 +99,38 @@ spec:
           annotations:
             summary: "CRITICAL PVC: {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }}"
             description: "PVC above 92%, postgres write failure risk ({{ $value | humanize }}%)."
+        - alert: PodFailed
+          expr: sum by (namespace, pod) (kube_pod_status_phase{phase="Failed"}) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "pod failed: {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "pod is in phase Failed for 5 minutes."
+        - alert: JobFailed
+          expr: kube_job_status_failed > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "job failed: {{ $labels.namespace }}/{{ $labels.job_name }}"
+            description: "{{ $value }} failed pod(s) for this job."
+        - alert: DaemonSetIncomplete
+          expr: kube_daemonset_status_number_unavailable{daemonset!="falco"} > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "daemonset incomplete: {{ $labels.namespace }}/{{ $labels.daemonset }}"
+            description: "{{ $value }} node(s) without a ready pod for 10 minutes."
+        - alert: StatefulSetNotReady
+          expr: kube_statefulset_status_replicas_ready < kube_statefulset_replicas
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "statefulset short: {{ $labels.namespace }}/{{ $labels.statefulset }}"
+            description: "fewer ready replicas than desired for 15 minutes."
     - name: cnpg.rules
       rules:
         - alert: CNPGReplicationLagHigh
@@ -140,8 +172,56 @@ spec:
           annotations:
             summary: "wal archiving failing: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "archiving to s3 failed in the last 10 minutes, point-in-time recovery is at risk."
+        - alert: CNPGRowsDeletedSpike
+          expr: |
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m])) > 100
+            and
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m]))
+              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[6h] offset 5m))
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "mass delete on {{ $labels.namespace }}"
+            description: "{{ $value | humanize }} rows/s deleted, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
+        - alert: CNPGRowsUpdatedSpike
+          expr: |
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m])) > 100
+            and
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m]))
+              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[6h] offset 5m))
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "mass update on {{ $labels.namespace }}"
+            description: "{{ $value | humanize }} rows/s updated, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
+        - alert: CNPGStackedInstances
+          expr: count by (namespace, node) (kube_pod_info{namespace=~"cluster-[123]", created_by_kind="Cluster"}) > 1
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "two instances of {{ $labels.namespace }} on {{ $labels.node }}"
+            description: "one node failure would take both instances of this cluster. they never move back on their own."
+        - alert: CNPGBackupTooOld
+          expr: time() - max by (namespace) (cnpg_collector_last_available_backup_timestamp) > 8 * 3600
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "no recent base backup for {{ $labels.namespace }}"
+            description: "last base backup is {{ $value | humanizeDuration }} old, expected every 6 hours."
     - name: platform.rules
       rules:
+        - alert: ScrapeTargetDown
+          expr: up{job!="node-exporter"} == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "prometheus cannot scrape {{ $labels.job }} on {{ $labels.instance }}"
+            description: "target down for 5 minutes. after a netpol change, check for dropped flows first."
         - alert: EndpointDown
           expr: probe_success == 0
           for: 2m
