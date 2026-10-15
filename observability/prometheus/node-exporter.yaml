@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: node-exporter
-  namespace: application
+  namespace: node-agents
   labels:
     app: node-exporter
 spec:
@@ -58,7 +58,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: node-exporter
-  namespace: application
+  namespace: node-agents
   labels:
     app: node-exporter
 spec:
@@ -78,6 +78,9 @@ metadata:
   labels:
     app: node-exporter
 spec:
+  namespaceSelector:
+    matchNames:
+      - node-agents
   selector:
     matchLabels:
       app: node-exporter
