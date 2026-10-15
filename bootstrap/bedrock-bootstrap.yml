@@ -307,6 +307,26 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
+    - name: Kyverno admission controller on top priority, one replica per node
+      ansible.builtin.command: >
+        kubectl -n kyverno patch deployment kyverno-admission-controller --type merge
+        -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical","affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"app.kubernetes.io/component":"admission-controller","app.kubernetes.io/instance":"kyverno"}},"topologyKey":"kubernetes.io/hostname"}]}}}}}}'
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Kyverno background controller on top priority (keeps cloned secrets in sync)
+      ansible.builtin.command: >
+        kubectl -n kyverno patch deployment kyverno-background-controller --type merge
+        -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical"}}}}'
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for the kyverno admission controller rollout
+      ansible.builtin.command: kubectl -n kyverno rollout status deployment/kyverno-admission-controller --timeout=600s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+
 
     - name: Apply Kyverno policies
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/
