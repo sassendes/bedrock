@@ -353,9 +353,6 @@
         state: present
         src: "{{ item }}"
       loop:
-        - "{{ repo_root }}/secrets/super-secret-1.yaml"
-        - "{{ repo_root }}/secrets/super-secret-2.yaml"
-        - "{{ repo_root }}/secrets/super-secret-3.yaml"
         - "{{ repo_root }}/secrets/user-secret-1.yaml"
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
         - "{{repo_root }}/secrets/nats-auth.yaml"
