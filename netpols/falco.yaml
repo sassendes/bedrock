@@ -13,6 +13,7 @@ spec:
   - fromEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: application
+        app.kubernetes.io/name: prometheus
     toPorts:
     - ports:
       - port: '8765'
