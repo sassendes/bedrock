@@ -21,10 +21,15 @@ spec:
               namespaces:
                 - application
       validate:
-        message: "cpu and memory limits are required on every container"
+        message: "cpu and memory limits are required on every container and init container"
         pattern:
           spec:
             containers:
+              - resources:
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"
+            =(initContainers):
               - resources:
                   limits:
                     memory: "?*"
