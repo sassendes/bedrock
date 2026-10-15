@@ -85,13 +85,17 @@ spec:
     acls:
       - resource:
           type: topic
-          name: "*"
-          patternType: literal
+          name: "app."
+          patternType: prefix
         operations:
-          - All
+          - Read
+          - Write
+          - Describe
+          - DescribeConfigs
       - resource:
           type: group
-          name: "*"
-          patternType: literal
+          name: "app."
+          patternType: prefix
         operations:
-          - All
+          - Read
+          - Describe
