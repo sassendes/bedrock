@@ -85,13 +85,17 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: loki
-          image: grafana/loki:3.2.1
+          image: grafana/loki:3.7.8
           args: ["-config.file=/etc/loki/loki.yaml", "-config.expand-env=true"]
           env:
             - name: POD_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+            - name: AWS_REQUEST_CHECKSUM_CALCULATION
+              value: when_required
+            - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+              value: when_required
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
