@@ -18,6 +18,14 @@ kind: Namespace
 metadata:
   name: application
   labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-agents
+  labels:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -95,6 +103,13 @@ kind: ServiceAccount
 metadata:
   name: default
   namespace: application
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default
+  namespace: node-agents
 automountServiceAccountToken: false
 ---
 apiVersion: v1
