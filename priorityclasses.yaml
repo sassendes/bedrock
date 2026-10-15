@@ -29,3 +29,31 @@ metadata:
 value: 10000000
 globalDefault: true
 description: "everything without a class. observ, cost, dboards"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bedrock-reserved-priority-classes
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["pods"]
+  validations:
+    - expression: "!has(object.spec.priorityClassName) || object.spec.priorityClassName != 'bedrock-storage' || namespaceObject.metadata.name == 'garage'"
+      message: "bedrock-storage is reserved for garage"
+    - expression: "!has(object.spec.priorityClassName) || object.spec.priorityClassName != 'bedrock-data' || namespaceObject.metadata.name in ['cluster-1', 'cluster-2', 'cluster-3', 'falco']"
+      message: "bedrock-data is reserved for the database clusters, their poolers and falco"
+    - expression: "!has(object.spec.priorityClassName) || !(object.spec.priorityClassName in ['system-cluster-critical', 'system-node-critical']) || namespaceObject.metadata.name in ['kube-system', 'kyverno']"
+      message: "system-cluster-critical and system-node-critical are reserved for kube-system and kyverno"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bedrock-reserved-priority-classes
+spec:
+  policyName: bedrock-reserved-priority-classes
+  validationActions: ["Deny"]
