@@ -10,15 +10,6 @@ spec:
     - {}
   - fromEntities:
     - host
-  - fromEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
-    toPorts:
-    - ports:
-      - port: '4222'
-        protocol: TCP
-      - port: '8222'
-        protocol: TCP
   egress:
   - toEndpoints:
     - {}
@@ -43,15 +34,6 @@ spec:
     - {}
   - fromEntities:
     - host
-  - fromEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
-    toPorts:
-    - ports:
-      - port: '6379'
-        protocol: TCP
-      - port: '26379'
-        protocol: TCP
   egress:
   - toEndpoints:
     - {}
@@ -76,13 +58,6 @@ spec:
     - {}
   - fromEntities:
     - host
-  - fromEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
-    toPorts:
-    - ports:
-      - port: '9093'
-        protocol: TCP
   egress:
   - toEndpoints:
     - {}
