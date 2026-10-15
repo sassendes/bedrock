@@ -11,6 +11,15 @@ specs:
     - {}
   - fromEntities:
     - host
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: node-agents
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      - port: '4317'
+        protocol: TCP
   egress:
   - toEndpoints:
     - {}
