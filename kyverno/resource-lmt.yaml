@@ -7,8 +7,8 @@ spec:
     failurePolicy: Fail
     timeoutSeconds: 10
     matchConditions:
-      - name: application-only
-        expression: 'request.namespace == "application"'
+      - name: application-and-node-agents
+        expression: 'request.namespace in ["application", "node-agents"]'
   validationFailureAction: Enforce
   background: true
   rules:
@@ -20,6 +20,7 @@ spec:
                 - Pod
               namespaces:
                 - application
+                - node-agents
       validate:
         message: "cpu and memory limits are required on every container and init container"
         pattern:
