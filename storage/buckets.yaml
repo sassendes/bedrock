@@ -126,6 +126,7 @@ metadata:
   namespace: garage
 spec:
   backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
   template:
     metadata:
       labels:
