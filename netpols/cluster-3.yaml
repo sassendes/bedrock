@@ -26,10 +26,17 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: application
+            app: blackbox-exporter
       toPorts:
         - ports:
             - port: "5432"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: application
+            app.kubernetes.io/name: prometheus
+      toPorts:
+        - ports:
             - port: "9187"
               protocol: TCP
             - port: "9127"
