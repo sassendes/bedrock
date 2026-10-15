@@ -1,147 +1,153 @@
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: garagenodes.deuxfleurs.fr
-spec:
-  group: deuxfleurs.fr
-  names:
-    kind: GarageNode
-    plural: garagenodes
-    singular: garagenode
-  scope: Namespaced
-  versions:
-    - name: v1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: ["spec"]
-          properties:
-            spec:
-              type: object
-              required: ["address", "hostname", "port"]
-              properties:
-                address:
-                  type: string
-                hostname:
-                  type: string
-                port:
-                  type: integer
-                  minimum: 0
-                  maximum: 65535
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: garage-config
-  namespace: garage
-data:
-  garage.toml: |
-    metadata_dir = "/var/lib/garage/meta"
-    data_dir = "/var/lib/garage/data"
-    db_engine = "lmdb"
-    replication_factor = 3
-    consistency_mode = "consistent"
-    rpc_bind_addr = "[::]:3901"
-
-    [kubernetes_discovery]
-    namespace = "garage"
-    service_name = "garage"
-    skip_crd = true
-
-    [s3_api]
-    s3_region = "garage"
-    api_bind_addr = "[::]:3900"
-
-    [admin]
-    api_bind_addr = "[::]:3903"
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: garage
+  name: garage-init
   namespace: garage
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: garage-discovery
+  name: garage-init-secrets
 rules:
-  - apiGroups: ["deuxfleurs.fr"]
-    resources: ["garagenodes"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["cluster-1-backups", "cluster-2-backups", "cluster-3-backups", "loki-data", "tempo-data", "cluster-1-backups-ro"]
+    verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: garage-discovery
+  name: garage-init
+  namespace: cluster-1
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: garage-discovery
+  name: garage-init-secrets
 subjects:
   - kind: ServiceAccount
-    name: garage
+    name: garage-init
     namespace: garage
 ---
-apiVersion: apps/v1
-kind: StatefulSet
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
 metadata:
-  name: garage
+  name: garage-init
+  namespace: cluster-2
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: cluster-3
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init
+  namespace: application
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: garage-init-secrets
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-init
+  namespace: garage
+data:
+  init.sh: |
+    set -euo pipefail
+    A="http://garage.garage.svc:3903/v2"
+    api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
+    until [ "$(api "$A/GetClusterStatus" | jq '[.nodes[] | select(.isUp)] | length')" = "3" ]; do sleep 5; done
+    if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
+      ROLES=$(api "$A/GetClusterStatus" | jq -c '[.nodes[] | {id: .id, zone: "dc1", capacity: 35000000000, tags: []}]')
+      api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":$ROLES}" >/dev/null
+      V=$(api "$A/GetClusterLayout" | jq -r '.version')
+      api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null
+    fi
+    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:application tempo-data:application; do
+      B=${pair%%:*}
+      NS=${pair##*:}
+      if kubectl -n "$NS" get secret "$B" >/dev/null 2>&1; then continue; fi
+      BID=$(api "$A/GetBucketInfo?globalAlias=$B" 2>/dev/null | jq -r '.id' || true)
+      if [ -z "$BID" ] || [ "$BID" = "null" ]; then
+        BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$B\"}" | jq -r '.id')
+      fi
+      K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$B\"}")
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":false}}" >/dev/null
+      kubectl -n "$NS" create secret generic "$B" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+    done
+    MISSING=""
+    for NS in cluster-2 cluster-3; do
+      if ! kubectl -n "$NS" get secret cluster-1-backups-ro >/dev/null 2>&1; then MISSING="$MISSING $NS"; fi
+    done
+    if [ -n "$MISSING" ]; then
+      BID=$(api "$A/GetBucketInfo?globalAlias=cluster-1-backups" | jq -r '.id')
+      K=$(api -X POST "$A/CreateKey" -d '{"name":"cluster-1-backups-ro"}')
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" >/dev/null
+      for NS in $MISSING; do
+        kubectl -n "$NS" create secret generic cluster-1-backups-ro --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+      done
+    fi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-init
   namespace: garage
 spec:
-  serviceName: garage
-  replicas: 3
-  podManagementPolicy: Parallel
-  selector:
-    matchLabels:
-      app: garage
+  backoffLimit: 6
   template:
-    metadata:
-      labels:
-        app: garage
     spec:
-      serviceAccountName: garage
-      priorityClassName: bedrock-storage
+      serviceAccountName: garage-init
+      restartPolicy: OnFailure
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsUser: 65534
+        runAsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: garage
-              topologyKey: kubernetes.io/hostname
       containers:
-        - name: garage
-          image: dxflrs/garage:v2.4.1
+        - name: init
+          image: alpine/k8s:1.36.4
+          command: ["bash", "/script/init.sh"]
           env:
-            - name: GARAGE_RPC_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: garage-secrets
-                  key: rpc_secret
-            - name: GARAGE_ADMIN_TOKEN
+            - name: HOME
+              value: /tmp
+            - name: ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: garage-secrets
                   key: admin_token
-          ports:
-            - name: s3
-              containerPort: 3900
-            - name: rpc
-              containerPort: 3901
-            - name: admin
-              containerPort: 3903
-          readinessProbe:
-            tcpSocket:
-              port: s3
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -149,41 +155,19 @@ spec:
               drop: ["ALL"]
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: "1"
-              memory: 1Gi
+              cpu: 500m
+              memory: 256Mi
           volumeMounts:
-            - name: config
-              mountPath: /etc/garage.toml
-              subPath: garage.toml
-            - name: data
-              mountPath: /var/lib/garage
+            - name: script
+              mountPath: /script
+            - name: tmp
+              mountPath: /tmp
       volumes:
-        - name: config
+        - name: script
           configMap:
-            name: garage-config
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: ["ReadWriteOnce"]
-        storageClassName: longhorn-local
-        resources:
-          requests:
-            storage: 40Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: garage
-  namespace: garage
-spec:
-  selector:
-    app: garage
-  ports:
-    - name: s3
-      port: 3900
-    - name: admin
-      port: 3903
+            name: garage-init
+        - name: tmp
+          emptyDir: {}
