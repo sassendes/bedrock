@@ -5,21 +5,23 @@ metadata:
   namespace: application
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: grafana-sidecar
+  namespace: application
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
     verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: grafana-sidecar
+  namespace: application
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
+  kind: Role
   name: grafana-sidecar
 subjects:
   - kind: ServiceAccount
@@ -179,7 +181,7 @@ spec:
             - name: FOLDER
               value: /tmp/dashboards
             - name: NAMESPACE
-              value: ALL
+              value: application
             - name: RESOURCE
               value: configmap
           resources:
