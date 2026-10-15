@@ -50,3 +50,25 @@ spec:
               - key: "{{ request.object.spec.priorityClassName || '' }}"
                 operator: Equals
                 value: bedrock-data
+    - name: system-classes-system-namespaces-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+      validate:
+        message: "system-cluster-critical and system-node-critical are reserved for kube-system and kyverno"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.priorityClassName || '' }}"
+                operator: AnyIn
+                value:
+                  - system-cluster-critical
+                  - system-node-critical
