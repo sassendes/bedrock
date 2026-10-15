@@ -12,7 +12,7 @@ spec:
   validationFailureAction: Enforce
   background: true
   rules:
-    - name: require-image-tag
+    - name: require-pinned-tag
       match:
         any:
           - resources:
@@ -22,23 +22,15 @@ spec:
                 - application
                 - node-agents
       validate:
-        message: "an image tag is required (pin a version, no untagged images)"
-        pattern:
-          spec:
-            containers:
-              - image: "*:*"
-    - name: validate-image-tag
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-                - node-agents
-      validate:
-        message: "using a mutable ':latest' tag is not allowed"
-        pattern:
-          spec:
-            containers:
-              - image: "!*:latest"
+        message: "every container, init container and ephemeral container needs an explicit tag that is not latest (a registry port is not a tag)"
+        foreach:
+          - list: "request.object.spec.[ephemeralContainers, initContainers, containers][]"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('^(.*/)?[^/:@]+:[^/:@]+(@sha256:[0-9a-f]{64})?$', element.image) }}"
+                    operator: Equals
+                    value: false
+                  - key: "{{ regex_match(':latest(@|$)', element.image) }}"
+                    operator: Equals
+                    value: true
