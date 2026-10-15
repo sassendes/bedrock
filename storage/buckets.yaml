@@ -127,6 +127,9 @@ metadata:
 spec:
   backoffLimit: 6
   template:
+    metadata:
+      labels:
+        app: garage-init
     spec:
       serviceAccountName: garage-init
       restartPolicy: OnFailure
