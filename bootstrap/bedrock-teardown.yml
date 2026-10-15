@@ -51,3 +51,13 @@
         path: /var/lib/longhorn
         state: directory
         mode: "0755"
+
+- name: Remove the admin kubeconfig from the controller
+  hosts: localhost
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Delete the private kubeconfig directory
+      ansible.builtin.file:
+        path: "{{ lookup('env', 'HOME') }}/.bedrock"
+        state: absent
