@@ -1,3 +1,36 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: garagenodes.deuxfleurs.fr
+spec:
+  group: deuxfleurs.fr
+  names:
+    kind: GarageNode
+    plural: garagenodes
+    singular: garagenode
+  scope: Namespaced
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["address", "hostname", "port"]
+              properties:
+                address:
+                  type: string
+                hostname:
+                  type: string
+                port:
+                  type: integer
+                  minimum: 0
+                  maximum: 65535
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,7 +48,7 @@ data:
     [kubernetes_discovery]
     namespace = "garage"
     service_name = "garage"
-    skip_crd = false
+    skip_crd = true
 
     [s3_api]
     s3_region = "garage"
@@ -35,9 +68,6 @@ kind: ClusterRole
 metadata:
   name: garage-discovery
 rules:
-  - apiGroups: ["apiextensions.k8s.io"]
-    resources: ["customresourcedefinitions"]
-    verbs: ["get", "list", "watch", "create", "patch"]
   - apiGroups: ["deuxfleurs.fr"]
     resources: ["garagenodes"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
