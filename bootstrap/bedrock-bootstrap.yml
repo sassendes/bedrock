@@ -362,36 +362,41 @@
         - "{{repo_root }}/secrets/redis-auth.yaml"
         - "{{ repo_root }}/secrets/grafana-admin.yaml"
 
-    - name: Download Longhorn v1.7.3 (checksum verified)
+    - name: Download Longhorn v1.13.0 (checksum verified)
       ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/longhorn/longhorn/v1.7.3/deploy/longhorn.yaml
-        dest: /tmp/longhorn-1.7.3.yaml
-        checksum: sha256:3f14ab19b7f961f11757474fc154d05f9d63aa0b46d4f23455350e7c21e2a47f
+        url: https://raw.githubusercontent.com/longhorn/longhorn/v1.13.0/deploy/longhorn.yaml
+        dest: /tmp/longhorn-1.13.0.yaml
+        checksum: sha256:d0f99488e7b2789312d45b0127ce7388df71a971e6fca2085e88635303cc0a1f
         mode: "0644"
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), RBAC rule keeps bind and escalate
       ansible.builtin.replace:
-        path: /tmp/longhorn-1.7.3.yaml
-        regexp: 'resources: \["roles", "rolebindings", "clusterrolebindings", "clusterroles"\]\n  verbs: \["\*"\]'
-        replace: 'resources: ["roles", "rolebindings", "clusterrolebindings", "clusterroles"]\n  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "bind", "escalate"]'
+        path: /tmp/longhorn-1.13.0.yaml
+        regexp: 'resources: \["clusterrolebindings", "clusterroles"\]\n  verbs: \["\*"\]'
+        replace: 'resources: ["clusterrolebindings", "clusterroles"]\n  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "bind", "escalate"]'
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), remaining rules
       ansible.builtin.replace:
-        path: /tmp/longhorn-1.7.3.yaml
+        path: /tmp/longhorn-1.13.0.yaml
         regexp: 'verbs: \["\*"\]'
         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), CRD rule
       ansible.builtin.replace:
-        path: /tmp/longhorn-1.7.3.yaml
+        path: /tmp/longhorn-1.13.0.yaml
         regexp: 'verbs:\n  - "\*"'
         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
 
-    - name: Apply Longhorn v1.7.3
+    - name: Apply Longhorn v1.13.0
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: /tmp/longhorn-1.7.3.yaml
+        src: /tmp/longhorn-1.13.0.yaml
+
+    - name: Remove the Longhorn CSI cluster-wide Secret read (opt-out documented by Longhorn)
+      ansible.builtin.command: kubectl delete clusterrolebinding longhorn-csi-secret-bind --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for longhorn-driver-deployer Available
       kubernetes.core.k8s_info:
