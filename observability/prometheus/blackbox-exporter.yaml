@@ -35,7 +35,7 @@ spec:
     spec:
       containers:
         - name: blackbox-exporter
-          image: quay.io/prometheus/blackbox-exporter:v0.25.0
+          image: quay.io/prometheus/blackbox-exporter:v0.29.0
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
