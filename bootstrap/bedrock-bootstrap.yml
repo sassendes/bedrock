@@ -129,12 +129,14 @@
       ansible.builtin.slurp:
         src: /var/lib/rancher/rke2/server/node-token
       register: rke2_token_raw
+      no_log: true
 
     - name: Stash token + URLs as facts
       ansible.builtin.set_fact:
         rke2_token: "{{ rke2_token_raw.content | b64decode | trim }}"
         rke2_join_url: "https://{{ ansible_host }}:9345"
         rke2_api_url: "https://{{ ansible_host }}:6443"
+      no_log: true
 
     - name: Wait for kubeconfig
       ansible.builtin.wait_for:
@@ -155,12 +157,20 @@
         regexp: 'https://127\.0\.0\.1:6443'
         replace: "{{ rke2_api_url }}"
 
+    - name: Kubeconfig readable by its owner only
+      delegate_to: localhost
+      become: false
+      ansible.builtin.file:
+        path: /tmp/bedrock-kubeconfig
+        mode: "0600"
+
 - name: Join remaining servers to HA control plane (one at a time)
   hosts: server_join
   become: true
   serial: 1
   tasks:
     - name: Write RKE2 config (joining server)
+      no_log: true
       ansible.builtin.copy:
         dest: /etc/rancher/rke2/config.yaml
         mode: "0600"
@@ -313,6 +323,7 @@
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
         - "{{repo_root }}/secrets/nats-auth.yaml"
         - "{{repo_root }}/secrets/redis-auth.yaml"
+        - "{{ repo_root }}/secrets/grafana-admin.yaml"
 
     - name: Download Longhorn v1.7.3 (checksum verified)
       ansible.builtin.get_url:
@@ -502,7 +513,7 @@
       retries: 40
       delay: 15
 
-    - name: Apply kyverno secret sync (clones cluster-1 ca / replication / bucket creds into cluster-2 and cluster-3)
+    - name: Apply kyverno secret sync (clones cluster-1 ca / replication into cluster-2 and cluster-3)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
@@ -522,7 +533,7 @@
       until: cloned.resources | default([]) | length > 0
       retries: 30
       delay: 10
-      loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca', 'cluster-1-replication', 'cluster-1-backups']) | list }}"
+      loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca', 'cluster-1-replication', 'cluster-1-backups-ro']) | list }}"
 
     - name: Apply replica clusters 2 and 3
       kubernetes.core.k8s:
