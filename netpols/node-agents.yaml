@@ -26,9 +26,16 @@ spec:
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: application
+        app: loki
     toPorts:
     - ports:
       - port: '3100'
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+        app: tempo
+    toPorts:
+    - ports:
       - port: '4317'
         protocol: TCP
