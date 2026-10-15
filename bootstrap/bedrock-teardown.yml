@@ -2,7 +2,17 @@
 - name: Tear down bedrock cleanly on all nodes
   hosts: rke2_servers
   become: true
+  vars_prompt:
+    - name: confirm_teardown
+      prompt: "this wipes RKE2, etcd and every Longhorn volume on all nodes. type the word destroy to continue"
+      private: false
   tasks:
+    - name: Refuse to continue without explicit confirmation
+      ansible.builtin.assert:
+        that: confirm_teardown == "destroy"
+        fail_msg: "teardown cancelled, nothing was touched"
+      run_once: true
+
     - name: Uninstall RKE2
       ansible.builtin.command: /usr/local/bin/rke2-uninstall.sh
       args:
