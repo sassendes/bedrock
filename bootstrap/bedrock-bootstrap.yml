@@ -271,10 +271,17 @@
         state: present
         src: "{{ repo_root }}/priorityclasses.yaml"
 
+    - name: Download Kyverno v1.19.1 (checksum verified)
+      ansible.builtin.get_url:
+        url: https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
+        dest: /tmp/kyverno-1.19.1.yaml
+        checksum: sha256:d3322cb346d3d42dd0f41e230b0d1d7bc5619960e1c36fdac4d9151d724b88e6
+        mode: "0644"
+
     - name: Install Kyverno v1.19.1 (policy admission must exist before validated workloads)
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts
-        -f https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
+        -f /tmp/kyverno-1.19.1.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_install
@@ -378,13 +385,20 @@
       retries: 10
       delay: 10
 
+    - name: Download CNPG operator v1.27.0 (checksum verified)
+      ansible.builtin.get_url:
+        url: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.27.0/cnpg-1.27.0.yaml
+        dest: /tmp/cnpg-1.27.0.yaml
+        checksum: sha256:7be449085a4c5941ff05d2c4aca47d4f1c4c87698181fe2c19c47a9f6a43b268
+        mode: "0644"
+
     - name: Apply CNPG operator v1.27.0
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
         server_side_apply:
           field_manager: bedrock-ansible
-        src: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.27/releases/cnpg-1.27.0.yaml"
+        src: /tmp/cnpg-1.27.0.yaml
 
     - name: Wait for CNPG controller Available
       kubernetes.core.k8s_info:
@@ -601,6 +615,7 @@
         url: https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-cluster-operator-1.2.0.yaml
         dest: /tmp/strimzi-cluster-operator.yaml
         checksum: "sha256:a0b1ae3e375a7da0674eb3894df8aa955bc50abe8190bc9344e30b83bbee4775"
+        mode: "0644"
 
     - name: Point Strimzi at the kafka namespace
       when: kafka_enabled | bool
