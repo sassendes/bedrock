@@ -150,6 +150,24 @@ spec:
           annotations:
             summary: "endpoint down: {{ $labels.instance }}"
             description: "blackbox probe failing for 2 minutes."
+    - name: kyverno.rules
+      rules:
+        - alert: KyvernoAdmissionDegraded
+          expr: kube_deployment_status_replicas_available{namespace="kyverno", deployment="kyverno-admission-controller"} < 2
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kyverno admission controller has fewer than 2 ready replicas"
+            description: "policies fail closed: if the last replica goes, no new pod can be admitted. {{ $value }} available."
+        - alert: KyvernoAdmissionDown
+          expr: absent(kube_deployment_status_replicas_available{namespace="kyverno", deployment="kyverno-admission-controller"}) or kube_deployment_status_replicas_available{namespace="kyverno", deployment="kyverno-admission-controller"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kyverno admission controller is down"
+            description: "no ready replicas: pods in application and node-agents, and pods using reserved priority classes, cannot be admitted until it returns."
     - name: meta.rules
       rules:
         - alert: Watchdog
