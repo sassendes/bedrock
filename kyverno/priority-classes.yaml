@@ -3,6 +3,9 @@ kind: ClusterPolicy
 metadata:
   name: restrict-priority-classes
 spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
+    timeoutSeconds: 10
   validationFailureAction: Enforce
   background: true
   rules:
