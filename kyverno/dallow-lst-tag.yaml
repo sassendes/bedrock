@@ -7,8 +7,8 @@ spec:
     failurePolicy: Fail
     timeoutSeconds: 10
     matchConditions:
-      - name: application-only
-        expression: 'request.namespace == "application"'
+      - name: application-and-node-agents
+        expression: 'request.namespace in ["application", "node-agents"]'
   validationFailureAction: Enforce
   background: true
   rules:
@@ -20,6 +20,7 @@ spec:
                 - Pod
               namespaces:
                 - application
+                - node-agents
       validate:
         message: "an image tag is required (pin a version, no untagged images)"
         pattern:
@@ -34,6 +35,7 @@ spec:
                 - Pod
               namespaces:
                 - application
+                - node-agents
       validate:
         message: "using a mutable ':latest' tag is not allowed"
         pattern:
