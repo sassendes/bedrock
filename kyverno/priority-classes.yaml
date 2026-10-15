@@ -1,0 +1,49 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-priority-classes
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: storage-class-garage-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - garage
+      validate:
+        message: "bedrock-storage is reserved for garage"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.priorityClassName || '' }}"
+                operator: Equals
+                value: bedrock-storage
+    - name: data-class-databases-and-falco-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - cluster-1
+                - cluster-2
+                - cluster-3
+                - falco
+      validate:
+        message: "bedrock-data is reserved for the database clusters, their poolers and falco"
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.priorityClassName || '' }}"
+                operator: Equals
+                value: bedrock-data
