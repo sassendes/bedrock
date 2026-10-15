@@ -10,6 +10,15 @@ rules:
       - /livez*
       - /version
       - /metrics
+  - level: Metadata
+    verbs:
+      - watch
+    resources:
+      - group: ""
+        resources:
+          - secrets
+          - serviceaccounts
+      - group: rbac.authorization.k8s.io
   - level: None
     verbs:
       - watch
