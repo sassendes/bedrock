@@ -64,10 +64,10 @@ spec:
         endpointURL: http://garage.garage.svc:3900
         s3Credentials:
           accessKeyId:
-            name: cluster-1-backups
+            name: cluster-1-backups-ro
             key: AWS_ACCESS_KEY_ID
           secretAccessKey:
-            name: cluster-1-backups
+            name: cluster-1-backups-ro
             key: AWS_SECRET_ACCESS_KEY
   affinity:
     enablePodAntiAffinity: true
