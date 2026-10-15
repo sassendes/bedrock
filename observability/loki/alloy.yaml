@@ -148,6 +148,7 @@ spec:
             - run
             - /etc/alloy/config.alloy
             - --server.http.listen-addr=0.0.0.0:12345
+            - --storage.path=/var/lib/alloy/data
           env:
             - name: NODE_NAME
               valueFrom:
@@ -179,6 +180,8 @@ spec:
             - name: rke2-logs
               mountPath: /var/lib/rancher/rke2/server/logs
               readOnly: true
+            - name: alloy-data
+              mountPath: /var/lib/alloy/data
       volumes:
         - name: config
           configMap:
@@ -192,6 +195,10 @@ spec:
         - name: rke2-logs
           hostPath:
             path: /var/lib/rancher/rke2/server/logs
+        - name: alloy-data
+          hostPath:
+            path: /var/lib/alloy/data
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service
