@@ -4,27 +4,12 @@ metadata:
   name: application
   namespace: application
 specs:
-- description: every pod in the namespace
+- description: every pod in application, deny by default
   endpointSelector: {}
   ingress:
-  - fromEndpoints:
-    - {}
   - fromEntities:
     - host
-  - fromEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: node-agents
-    toPorts:
-    - ports:
-      - port: '3100'
-        protocol: TCP
-      - port: '4317'
-        protocol: TCP
   egress:
-  - toEndpoints:
-    - {}
-  - toEntities:
-    - kube-apiserver
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: kube-system
@@ -33,6 +18,181 @@ specs:
     - ports:
       - port: '53'
         protocol: ANY
+- description: prometheus
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: grafana
+    - matchLabels:
+        app: opencost
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+  egress:
+  - &id001
+    toEntities:
+    - kube-apiserver
+  - toEndpoints:
+    - matchLabels:
+        app: kube-state-metrics
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: opencost
+    toPorts:
+    - ports:
+      - port: '9003'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '9115'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: alertmanager
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: falco
+    toPorts:
+    - ports:
+      - port: '8765'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-1
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-2
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-3
+    toPorts:
+    - ports:
+      - port: '9187'
+        protocol: TCP
+      - port: '9127'
+        protocol: TCP
+  - toEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: '10250'
+        protocol: TCP
+      - port: '9100'
+        protocol: TCP
+- description: alertmanager
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    - matchLabels:
+        app: loki
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+- description: grafana
+  endpointSelector:
+    matchLabels:
+      app: grafana
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP
+  egress:
+  - *id001
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: loki
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: tempo
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+- description: loki
+  endpointSelector:
+    matchLabels:
+      app: loki
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: loki
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      - port: '9095'
+        protocol: TCP
+      - port: '7946'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: grafana
+    - matchLabels:
+        app: blackbox-exporter
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: node-agents
+        app: alloy
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: loki
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      - port: '9095'
+        protocol: TCP
+      - port: '7946'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: alertmanager
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: garage
@@ -40,6 +200,124 @@ specs:
     - ports:
       - port: '3900'
         protocol: TCP
+- description: tempo
+  endpointSelector:
+    matchLabels:
+      app: tempo
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: grafana
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: node-agents
+        app: alloy
+    toPorts:
+    - ports:
+      - port: '4317'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: garage
+    toPorts:
+    - ports:
+      - port: '3900'
+        protocol: TCP
+- description: opencost
+  endpointSelector:
+    matchLabels:
+      app: opencost
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9003'
+        protocol: TCP
+  egress:
+  - *id001
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+- description: kube-state-metrics
+  endpointSelector:
+    matchLabels:
+      app: kube-state-metrics
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
+  egress:
+  - *id001
+- description: blackbox-exporter
+  endpointSelector:
+    matchLabels:
+      app: blackbox-exporter
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9115'
+        protocol: TCP
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: grafana
+    toPorts:
+    - ports:
+      - port: '3000'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: loki
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: alertmanager
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: tempo
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: garage
+    toPorts:
+    - ports:
       - port: '3903'
         protocol: TCP
   - toEndpoints:
@@ -52,47 +330,4 @@ specs:
     toPorts:
     - ports:
       - port: '5432'
-        protocol: TCP
-      - port: '9187'
-        protocol: TCP
-      - port: '9127'
-        protocol: TCP
-  - toEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: falco
-    toPorts:
-    - ports:
-      - port: '8765'
-        protocol: TCP
-  - toEntities:
-    - host
-    - remote-node
-    toPorts:
-    - ports:
-      - port: '10250'
-        protocol: TCP
-      - port: '9100'
-        protocol: TCP
-  - toEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: nats
-    toPorts:
-    - ports:
-      - port: '4222'
-        protocol: TCP
-  - toEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: redis
-    toPorts:
-    - ports:
-      - port: '6379'
-        protocol: TCP
-      - port: '26379'
-        protocol: TCP
-  - toEndpoints:
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: kafka
-    toPorts:
-    - ports:
-      - port: '9093'
         protocol: TCP
