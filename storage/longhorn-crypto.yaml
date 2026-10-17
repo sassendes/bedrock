@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: longhorn-crypto
+  namespace: longhorn-system
+type: Opaque
+stringData:
+  CRYPTO_KEY_VALUE: "bedrock-longhorn-crypto-placeholder"
+  CRYPTO_KEY_PROVIDER: "secret"
+  CRYPTO_KEY_CIPHER: "aes-xts-plain64"
+  CRYPTO_KEY_HASH: "sha256"
+  CRYPTO_KEY_SIZE: "256"
+  CRYPTO_PBKDF: "argon2i"
