@@ -10,3 +10,10 @@ parameters:
   numberOfReplicas: "1"
   dataLocality: strict-local
   staleReplicaTimeout: "30"
+  encrypted: "true"
+  csi.storage.k8s.io/node-publish-secret-name: longhorn-crypto
+  csi.storage.k8s.io/node-publish-secret-namespace: longhorn-system
+  csi.storage.k8s.io/node-stage-secret-name: longhorn-crypto
+  csi.storage.k8s.io/node-stage-secret-namespace: longhorn-system
+  csi.storage.k8s.io/node-expand-secret-name: longhorn-crypto
+  csi.storage.k8s.io/node-expand-secret-namespace: longhorn-system
