@@ -13,8 +13,19 @@
           - curl
           - jq
           - lvm2
+          - cryptsetup
         update_cache: true
         state: present
+
+    - name: Load dm_crypt on boot for Longhorn volume encryption
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/dm_crypt.conf
+        content: "dm_crypt\n"
+        mode: "0644"
+
+    - name: Load dm_crypt now
+      ansible.builtin.command: modprobe dm_crypt
+      changed_when: false
 
     - name: Enable and start iscsid
       ansible.builtin.systemd:
@@ -513,11 +524,14 @@
       retries: 30
       delay: 10
 
-    - name: Apply longhorn-local storage class
+    - name: Apply Longhorn encryption key and longhorn-local storage class
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/storage/longhorn-local.yaml"
+        src: "{{ item }}"
+      loop:
+        - "{{ repo_root }}/secrets/longhorn-crypto.yaml"
+        - "{{ repo_root }}/storage/longhorn-local.yaml"
       
     - name: Apply garage
       kubernetes.core.k8s:
