@@ -95,6 +95,53 @@ specs:
         protocol: TCP
       - port: '9100'
         protocol: TCP
+      - port: '2381'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: loki
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: tempo
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kyverno
+    toPorts:
+    - ports:
+      - port: '8000'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: longhorn-system
+        app: longhorn-manager
+    toPorts:
+    - ports:
+      - port: '9500'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: garage
+        app: garage
+    toPorts:
+    - ports:
+      - port: '3903'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cnpg-system
+        app.kubernetes.io/name: cloudnative-pg
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
 - description: alertmanager
   endpointSelector:
     matchLabels:
@@ -170,6 +217,8 @@ specs:
     - matchLabels:
         app: blackbox-exporter
     - matchLabels:
+        app.kubernetes.io/name: prometheus
+    - matchLabels:
         k8s:io.kubernetes.pod.namespace: node-agents
         app: alloy
     toPorts:
@@ -214,6 +263,8 @@ specs:
         app: grafana
     - matchLabels:
         app: blackbox-exporter
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
     toPorts:
     - ports:
       - port: '3200'
@@ -334,4 +385,17 @@ specs:
     toPorts:
     - ports:
       - port: '5432'
+        protocol: TCP
+  - toEntities:
+    - kube-apiserver
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kyverno
+        app.kubernetes.io/component: admission-controller
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cnpg-system
+        app.kubernetes.io/name: cloudnative-pg
+    toPorts:
+    - ports:
+      - port: '9443'
         protocol: TCP
