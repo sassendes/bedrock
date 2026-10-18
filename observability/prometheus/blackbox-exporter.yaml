@@ -15,6 +15,13 @@ data:
       tcp_connect:
         prober: tcp
         timeout: 5s
+      tls_connect:
+        prober: tcp
+        timeout: 5s
+        tcp:
+          tls: true
+          tls_config:
+            insecure_skip_verify: true
 ---
 apiVersion: apps/v1
 kind: Deployment
