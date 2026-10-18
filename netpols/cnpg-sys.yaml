@@ -18,6 +18,22 @@ spec:
     - ports:
       - port: '9443'
         protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '9443'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '8080'
+        protocol: TCP
   egress:
   - toEndpoints:
     - {}
