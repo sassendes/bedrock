@@ -1,0 +1,9 @@
+<div class="hero{{ if .IsHome }} hero-home{{ end }}">
+  <div class="hero-inner">
+    {{ if .IsHome }}
+      <h1>bedrock documentation</h1>
+    {{ else }}
+      <h1>{{ .Title }}</h1>
+    {{ end }}
+  </div>
+</div>
