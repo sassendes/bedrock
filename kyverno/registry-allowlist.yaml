@@ -72,4 +72,4 @@ spec:
                 any:
                   - key: "{{ regex_match('^((docker\\.io/(library/)?(nats|redis)|docker\\.io/dxflrs/garage|docker\\.io/alpine/k8s|ghcr\\.io/stakater/reloader|quay\\.io/kiwigrid/k8s-sidecar|registry\\.k8s\\.io/kube-state-metrics/kube-state-metrics)|(docker\\.io/(grafana|falcosecurity)|ghcr\\.io/(cloudnative-pg|opencost)|quay\\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)[:@]', image_normalize(element.image)) }}"
                     operator: Equals
-                    value: falsev
+                    value: false
