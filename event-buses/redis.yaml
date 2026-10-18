@@ -150,7 +150,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       initContainers:
         - name: config
-          image: redis:8.8.3-alpine
+          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
           command: ["sh", "/init/init.sh"]
           env:
             - name: POD_NAME
@@ -183,7 +183,7 @@ spec:
               mountPath: /data
       containers:
         - name: redis
-          image: redis:8.8.3-alpine
+          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
           command: ["redis-server", "/etc/redis/redis.conf"]
           lifecycle:
             preStop:
@@ -238,7 +238,7 @@ spec:
             - name: data
               mountPath: /data
         - name: sentinel
-          image: redis:8.8.3-alpine
+          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
           command: ["redis-sentinel", "/data/sentinel.conf"]
           lifecycle:
             preStop:
