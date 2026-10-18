@@ -119,6 +119,8 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: alloy
+  annotations:
+    configmap.reloader.stakater.com/reload: "alloy-config"
   namespace: node-agents
   labels:
     app: alloy
