@@ -42,3 +42,22 @@ spec:
         - cluster-1-rw.cluster-1.svc:5432
         - cluster-2-rw.cluster-2.svc:5432
         - cluster-3-rw.cluster-3.svc:5432
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: bedrock-tls
+  namespace: application
+spec:
+  interval: 5m
+  module: tls_connect
+  prober:
+    url: blackbox-exporter.application.svc:9115
+  targets:
+    staticConfig:
+      labels:
+        probe_group: tls
+      static:
+        - kubernetes.default.svc:443
+        - kyverno-svc.kyverno.svc:443
+        - cnpg-webhook-service.cnpg-system.svc:443
