@@ -20,6 +20,8 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: blackbox-exporter
+  annotations:
+    configmap.reloader.stakater.com/reload: "blackbox-exporter"
   namespace: application
   labels:
     app: blackbox-exporter
