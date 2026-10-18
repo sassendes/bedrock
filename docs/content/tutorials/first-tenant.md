@@ -115,8 +115,6 @@ kubectl -n application port-forward svc/grafana 3000:3000
 
 Open `http://localhost:3000` and log in with the user and password from `secrets/grafana-admin.yaml`. The node and database dashboards are already loaded.
 
-{{< screenshot "grafana-cnpg.png" "The database dashboard showing the three PostgreSQL clusters" >}}
-
 ## What you built
 
 You now have a tenant cluster where:
