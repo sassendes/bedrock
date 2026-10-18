@@ -256,3 +256,85 @@ spec:
             severity: none
           annotations:
             summary: "alerting pipeline is alive"
+    - name: platform-monitoring.rules
+      rules:
+        - alert: LonghornVolumeDegraded
+          expr: longhorn_volume_robustness == 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "longhorn volume {{ $labels.volume }} degraded"
+            description: "volume {{ $labels.volume }} ({{ $labels.pvc_namespace }}/{{ $labels.pvc }}) has lost replicas and is rebuilding or running with fewer copies than configured."
+        - alert: LonghornVolumeFaulted
+          expr: longhorn_volume_robustness == 3
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "longhorn volume {{ $labels.volume }} faulted"
+            description: "volume {{ $labels.volume }} ({{ $labels.pvc_namespace }}/{{ $labels.pvc }}) has no healthy replica left. the pod using it cannot read or write."
+        - alert: GarageDiskLow
+          expr: garage_local_disk_avail{volume="data"} / garage_local_disk_total{volume="data"} < 0.15
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "garage disk low on {{ $labels.pod }}"
+            description: "only {{ $value | humanizePercentage }} of garage's data disk is free. backups, logs and traces all land here."
+        - alert: GarageDiskCritical
+          expr: garage_local_disk_avail{volume="data"} / garage_local_disk_total{volume="data"} < 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "garage disk almost full on {{ $labels.pod }}"
+            description: "only {{ $value | humanizePercentage }} of garage's data disk is free. WAL archiving fails once it is full."
+        - alert: CertificateExpiringSoon
+          expr: probe_ssl_earliest_cert_expiry - time() < 30 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "certificate on {{ $labels.instance }} expires soon"
+            description: "the certificate served by {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+        - alert: CertificateExpiryCritical
+          expr: probe_ssl_earliest_cert_expiry - time() < 7 * 86400
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "certificate on {{ $labels.instance }} expires within a week"
+            description: "the certificate served by {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+        - alert: EtcdNoLeader
+          expr: etcd_server_has_leader == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "etcd member on {{ $labels.instance }} has no leader"
+            description: "this etcd member cannot reach a leader. without quorum the API server cannot write anything."
+        - alert: EtcdFrequentLeaderChanges
+          expr: increase(etcd_server_leader_changes_seen_total[1h]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "etcd leader keeps changing"
+            description: "{{ $value | humanize }} leader changes in the last hour on {{ $labels.instance }}. usually slow disks or a flaky network between nodes."
+        - alert: EtcdDatabaseNearQuota
+          expr: etcd_mvcc_db_total_size_in_bytes / etcd_server_quota_backend_bytes > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "etcd database near its size limit on {{ $labels.instance }}"
+            description: "the etcd database uses {{ $value | humanizePercentage }} of its quota. at 100% etcd goes read-only."
+        - alert: EtcdSlowDisk
+          expr: histogram_quantile(0.99, sum by (instance, le) (rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m]))) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "etcd disk is slow on {{ $labels.instance }}"
+            description: "99th percentile WAL fsync is {{ $value | humanizeDuration }}. etcd wants under 10ms; this causes leader elections."
