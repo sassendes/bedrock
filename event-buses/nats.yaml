@@ -119,7 +119,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: nats
-          image: nats:2.14.7-alpine
+          image: nats:2.14.7-alpine@sha256:4063edae0717ba5f7501bfde75f97fd9b57f5b93597b92c70b6a6fbbf6a74e06
           args: ["--config", "/etc/nats/nats.conf"]
           env:
             - name: POD_NAME
