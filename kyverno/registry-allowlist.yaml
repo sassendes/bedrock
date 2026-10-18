@@ -1,0 +1,75 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: registry-allowlist-strict
+spec:
+  webhookConfiguration:
+    failurePolicy: Fail
+    timeoutSeconds: 10
+    matchConditions:
+      - name: strict-namespaces
+        expression: 'request.namespace in ["application", "node-agents", "reloader"]'
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: allowed-images-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - application
+                - node-agents
+                - reloader
+      validate:
+        message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"
+        foreach:
+          - list: "request.object.spec.[ephemeralContainers, initContainers, containers][]"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('^((docker\\.io/(library/)?(nats|redis)|docker\\.io/dxflrs/garage|docker\\.io/alpine/k8s|ghcr\\.io/stakater/reloader|quay\\.io/kiwigrid/k8s-sidecar|registry\\.k8s\\.io/kube-state-metrics/kube-state-metrics)|(docker\\.io/(grafana|falcosecurity)|ghcr\\.io/(cloudnative-pg|opencost)|quay\\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)[:@]', image_normalize(element.image)) }}"
+                    operator: Equals
+                    value: false
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: registry-allowlist-data
+spec:
+  webhookConfiguration:
+    failurePolicy: Ignore
+    timeoutSeconds: 10
+    matchConditions:
+      - name: data-namespaces
+        expression: 'request.namespace in ["garage", "falco", "nats", "redis", "kafka", "cluster-1", "cluster-2", "cluster-3", "prometheus-operator"]'
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: allowed-images-only
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - garage
+                - falco
+                - nats
+                - redis
+                - kafka
+                - cluster-1
+                - cluster-2
+                - cluster-3
+                - prometheus-operator
+      validate:
+        message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"
+        foreach:
+          - list: "request.object.spec.[ephemeralContainers, initContainers, containers][]"
+            deny:
+              conditions:
+                any:
+                  - key: "{{ regex_match('^((docker\\.io/(library/)?(nats|redis)|docker\\.io/dxflrs/garage|docker\\.io/alpine/k8s|ghcr\\.io/stakater/reloader|quay\\.io/kiwigrid/k8s-sidecar|registry\\.k8s\\.io/kube-state-metrics/kube-state-metrics)|(docker\\.io/(grafana|falcosecurity)|ghcr\\.io/(cloudnative-pg|opencost)|quay\\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)[:@]', image_normalize(element.image)) }}"
+                    operator: Equals
+                    value: falsev
