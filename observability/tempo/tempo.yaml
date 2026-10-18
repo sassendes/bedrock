@@ -51,6 +51,8 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: tempo
+  annotations:
+    configmap.reloader.stakater.com/reload: "tempo-config"
   namespace: application
   labels:
     app: tempo
