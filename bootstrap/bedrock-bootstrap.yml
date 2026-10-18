@@ -288,14 +288,14 @@
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/namespace.yaml"
+        src: "{{ repo_root }}/platform/namespace.yaml"
 
 
     - name: Apply priority classes
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/priorityclasses.yaml"
+        src: "{{ repo_root }}/platform/priorityclasses.yaml"
 
     - name: Download Kyverno v1.19.1 (checksum verified)
       ansible.builtin.get_url:
@@ -791,9 +791,28 @@
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Apply Falco
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/falco/
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/falco/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Apply Reloader
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/platform/reloader.yaml"
+
+    - name: Wait for Reloader Available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        namespace: reloader
+        name: reloader
+      register: reloader_dep
+      until: >
+        reloader_dep.resources | default([]) | length > 0 and
+        (reloader_dep.resources[0].status.availableReplicas | default(0)) >= 1
+      retries: 60
+      delay: 10
 
     - name: Disable token automount on default service accounts
       ansible.builtin.shell: |
