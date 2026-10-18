@@ -58,7 +58,7 @@ spec:
         - operator: Exists
       containers:
         - name: falco
-          image: docker.io/falcosecurity/falco:0.44.1
+          image: docker.io/falcosecurity/falco:0.44.1@sha256:d0cfe422d6ac0e0f20857798f46c7d7273210e1b064b22821e4e6e7f843cde6b
           args:
             - /usr/bin/falco
           env:
