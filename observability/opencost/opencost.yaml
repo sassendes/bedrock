@@ -87,7 +87,7 @@ spec:
         fsGroup: 1001
       containers:
         - name: opencost
-          image: ghcr.io/opencost/opencost:1.121.3
+          image: ghcr.io/opencost/opencost:1.121.3@sha256:4cdd173253e5abba048dfe2cfa968707a5b59d774157d5356940d0d923a6c281
           ports:
             - name: http
               containerPort: 9003
