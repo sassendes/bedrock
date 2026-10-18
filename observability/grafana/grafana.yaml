@@ -126,7 +126,7 @@ spec:
         runAsGroup: 472
       containers:
         - name: grafana
-          image: grafana/grafana:13.2.4
+          image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
           env:
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
