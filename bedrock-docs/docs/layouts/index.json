@@ -1,8 +1,0 @@
-{{- $items := slice -}}
-{{- range site.RegularPages -}}
-{{- $items = $items | append (dict "title" .Title "section" (.Parent.Title) "url" .RelPermalink "description" .Description "content" (.Content | replaceRE "(?s)<svg.*?</svg>" "" | plainify | htmlUnescape | truncate 4000)) -}}
-{{- end -}}
-{{- range site.Sections -}}
-{{- $items = $items | append (dict "title" .Title "section" "Documentation" "url" .RelPermalink "description" .Description "content" (.Content | replaceRE "(?s)<svg.*?</svg>" "" | plainify | htmlUnescape | truncate 1500)) -}}
-{{- end -}}
-{{- $items | jsonify -}}
