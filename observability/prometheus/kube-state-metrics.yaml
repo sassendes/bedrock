@@ -10,7 +10,10 @@ metadata:
   name: kube-state-metrics
 rules:
   - apiGroups: [""]
-    resources: ["pods","services","nodes","endpoints","persistentvolumeclaims","persistentvolumes","namespaces","configmaps","replicationcontrollers","limitranges","resourcequotas"]
+    resources: ["pods","services","nodes","persistentvolumeclaims","persistentvolumes","namespaces","configmaps","replicationcontrollers","limitranges","resourcequotas"]
+    verbs: ["list","watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
     verbs: ["list","watch"]
   - apiGroups: ["apps"]
     resources: ["deployments","replicasets","statefulsets","daemonsets"]
@@ -55,7 +58,9 @@ spec:
       serviceAccountName: kube-state-metrics
       containers:
         - name: kube-state-metrics
-          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.20.0
+          args:
+            - --resources=pods,services,nodes,endpointslices,persistentvolumeclaims,persistentvolumes,namespaces,configmaps,replicationcontrollers,limitranges,resourcequotas,deployments,replicasets,statefulsets,daemonsets,jobs,cronjobs,poddisruptionbudgets
           securityContext:
             runAsNonRoot: true
             runAsUser: 65534
