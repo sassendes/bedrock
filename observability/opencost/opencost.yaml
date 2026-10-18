@@ -133,7 +133,7 @@ spec:
             - name: custom-configs
               mountPath: /tmp/custom-config
         - name: opencost-ui
-          image: ghcr.io/opencost/opencost-ui:1.121.3
+          image: ghcr.io/opencost/opencost-ui:1.121.3@sha256:65dca449aef1fd8fdacca5988ffdbdea015663d3f710a4c3f3af30abb3630fe1
           ports:
             - name: http-ui
               containerPort: 9090
