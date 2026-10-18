@@ -12,6 +12,14 @@ spec:
     - host
     - remote-node
     - kube-apiserver
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9500'
+        protocol: TCP
   egress:
   - toEndpoints:
     - {}
