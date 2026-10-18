@@ -1,0 +1,6 @@
+{{ define "main" }}
+<article class="prose">
+  {{ with .Params.lead }}<p class="lead">{{ . | markdownify }}</p>{{ end }}
+  {{ .Content }}
+</article>
+{{ end }}
