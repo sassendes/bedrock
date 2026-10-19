@@ -445,25 +445,21 @@
       retries: 10
       delay: 10
 
-    - name: Download CNPG operator v1.27.0 (checksum verified)
+    - name: Download CNPG operator v1.30.1 (checksum verified)
       ansible.builtin.get_url:
-        url: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.27.0/cnpg-1.27.0.yaml
-        dest: /tmp/cnpg-1.27.0.yaml
-        checksum: sha256:7be449085a4c5941ff05d2c4aca47d4f1c4c87698181fe2c19c47a9f6a43b268
-        mode: "0644"
-        timeout: 120
-      register: cnpg_dl
-      until: cnpg_dl is succeeded
-      retries: 5
-      delay: 10
+        url: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
+        dest: /tmp/cnpg-1.30.1.yaml
+        checksum: sha256:37237f145d8138256ea25ae830f87759255665ff08f8d552fdd8224a5ec032fb
 
-    - name: Apply CNPG operator v1.27.0
+
+  
+    - name: Apply CNPG operator v1.30.1
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
         server_side_apply:
           field_manager: bedrock-ansible
-        src: /tmp/cnpg-1.27.0.yaml
+        src: /tmp/cnpg-1.30.1.yaml
 
     - name: Wait for CNPG controller Available
       kubernetes.core.k8s_info:
