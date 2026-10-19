@@ -8,6 +8,18 @@ spec:
   ingress:
   - fromEntities:
     - host
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: application
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '12345'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - toEntities:
     - kube-apiserver
