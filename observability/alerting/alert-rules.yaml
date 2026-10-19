@@ -256,6 +256,63 @@ spec:
             severity: none
           annotations:
             summary: "alerting pipeline is alive"
+        - alert: RuleEvaluationFailing
+          expr: sum by (job, rule_group) (increase({__name__=~"(loki_)?prometheus_rule_evaluation_failures_total"}[10m])) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "rules in {{ $labels.rule_group }} are failing to evaluate on {{ $labels.job }}"
+            description: "an alert rule that cannot evaluate can never fire. covers Prometheus and Loki's ruler."
+        - alert: AlertSendingFailing
+          expr: sum by (job) (rate({__name__=~"(loki_)?prometheus_notifications_errors_total"}[5m])) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.job }} cannot deliver alerts to Alertmanager"
+            description: "alerts are firing into nothing. check the Alertmanager pod and the L7 rule on 9093."
+        - alert: PrometheusConfigReloadFailed
+          expr: max by (pod) (prometheus_config_last_reload_successful) == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus {{ $labels.pod }} rejected its last configuration"
+            description: "it keeps running the previous configuration, so new monitors and rules are ignored."
+        - alert: AlertmanagerConfigReloadFailed
+          expr: max by (pod) (alertmanager_config_last_reload_successful) == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alertmanager {{ $labels.pod }} rejected its last configuration"
+            description: "it keeps running the previous routes and receivers."
+        - alert: AlertmanagerNotificationsFailing
+          expr: sum by (integration) (rate(alertmanager_notifications_failed_total[5m])) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Alertmanager cannot deliver through {{ $labels.integration }}"
+            description: "alerts reach Alertmanager but never leave it."
+    - name: log-pipeline.rules
+      rules:
+        - alert: AlloyDroppingLogs
+          expr: sum by (node, reason) (increase(loki_write_dropped_entries_total[10m])) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "Alloy on {{ $labels.node }} dropped log lines ({{ $labels.reason }})"
+            description: "{{ $value }} lines gave up after every retry and are gone. audit lines and Postgres DDL may be among them."
+        - alert: AlloyPushFailing
+          expr: sum by (node, status_code) (rate(loki_write_request_duration_seconds_count{status_code!~"2.."}[5m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Alloy on {{ $labels.node }} gets {{ $labels.status_code }} from Loki"
+            description: "pushes are failing and being retried. a 403 means a Cilium L7 rule is refusing the push; drops follow once retries run out."
     - name: platform-monitoring.rules
       rules:
         - alert: LonghornVolumeDegraded
