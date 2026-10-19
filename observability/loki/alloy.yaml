@@ -219,3 +219,6 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: 4318
+    - name: http-metrics
+      port: 12345
+      targetPort: 12345
