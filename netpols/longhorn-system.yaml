@@ -20,6 +20,10 @@ spec:
     - ports:
       - port: '9500'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - toEndpoints:
     - {}
