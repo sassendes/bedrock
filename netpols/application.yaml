@@ -33,7 +33,13 @@ specs:
       rules:
         http:
         - method: GET|POST
-          path: '/api/v1/(query|query_range|query_exemplars|series|labels|label/[^/?]+/values|metadata|search/[a-z_]+)(\?.*)?'
+          path: '/api/v1/(query|query_range|query_exemplars)(\?.*)?'
+        - method: GET|POST
+          path: '/api/v1/(series|labels|metadata)(\?.*)?'
+        - method: GET|POST
+          path: '/api/v1/label/[^/?]+/values(\?.*)?'
+        - method: GET|POST
+          path: '/api/v1/search/[a-z_]+(\?.*)?'
         - method: GET
           path: '/api/v1/(rules|alerts|status/buildinfo)(\?.*)?'
   - fromEndpoints:
@@ -264,7 +270,13 @@ specs:
       rules:
         http:
         - method: GET|POST
-          path: '/loki/api/v1/(query|query_range|series|labels|label/[^/?]+/values|index/stats|detected_fields|detected_field/[^/?]+/values)(\?.*)?'
+          path: '/loki/api/v1/(query|query_range|series|labels)(\?.*)?'
+        - method: GET|POST
+          path: '/loki/api/v1/label/[^/?]+/values(\?.*)?'
+        - method: GET|POST
+          path: '/loki/api/v1/(index/stats|detected_fields)(\?.*)?'
+        - method: GET|POST
+          path: '/loki/api/v1/detected_field/[^/?]+/values(\?.*)?'
         - method: GET
           path: '/loki/api/v1/tail(\?.*)?'
         - method: GET
@@ -348,7 +360,13 @@ specs:
       rules:
         http:
         - method: GET
-          path: '/api/(search|echo|v2/search/tags|v2/search/tag/[^/?]+/values|traces/[^/?]+|v2/traces/[^/?]+|metrics/(query_range|query))(\?.*)?'
+          path: '/api/(search|echo|v2/search/tags)(\?.*)?'
+        - method: GET
+          path: '/api/v2/search/tag/[^/?]+/values(\?.*)?'
+        - method: GET
+          path: '/api/(v2/)?traces/[^/?]+(\?.*)?'
+        - method: GET
+          path: '/api/metrics/(query_range|query)(\?.*)?'
         - method: POST
           path: '/tempopb\.StreamingQuerier/[A-Za-z0-9]+'
   - fromEndpoints:
