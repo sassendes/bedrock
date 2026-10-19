@@ -43,6 +43,7 @@ data:
     db_engine = "lmdb"
     replication_factor = 3
     consistency_mode = "consistent"
+    metadata_auto_snapshot_interval = "6h"
     rpc_bind_addr = "[::]:3901"
 
     [kubernetes_discovery]
