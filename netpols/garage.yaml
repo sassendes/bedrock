@@ -39,9 +39,29 @@ specs:
       - fromEndpoints:
           - matchLabels:
               app: garage-init
+        toPorts:
+          - ports:
+              - port: "3903"
+                protocol: TCP
+            rules:
+              http:
+                - method: GET
+                  path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo)(\\?.*)?"
+                - method: POST
+                  path: "/v2/(UpdateClusterLayout|ApplyClusterLayout|CreateBucket|CreateKey|AllowBucketKey)"
+      - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
               app: blackbox-exporter
+        toPorts:
+          - ports:
+              - port: "3903"
+                protocol: TCP
+            rules:
+              http:
+                - method: GET
+                  path: "/health"
+      - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
               app.kubernetes.io/name: prometheus
@@ -49,6 +69,10 @@ specs:
           - ports:
               - port: "3903"
                 protocol: TCP
+            rules:
+              http:
+                - method: GET
+                  path: "/metrics"
       - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
