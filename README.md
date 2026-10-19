@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/static/logo.png" alt="bedrock" width="96">
+  <img src="docs/static/images/logo.png" alt="bedrock" width="96">
 </p>
 
 <h1 align="center">bedrock</h1>
