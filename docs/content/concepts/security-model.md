@@ -60,4 +60,4 @@ Some findings are left in place on purpose. Each has a reason.
 
 ## Compliance
 
-The cluster is checked with kube-bench against the RKE2 CIS 1.9 benchmark. The current result is 85 checks passed and 1 failed, the failure being 5.1.6 above. Check 4.3.1 is skipped because it tests kube-proxy, which Cilium replaces.
+The cluster is checked with kube-bench against the RKE2 CIS 1.9 benchmark. Every check passes except 5.1.6, the exception above. The full self-assessment is in the repository at [reports/cis-1.9.pdf](https://github.com/sassendes/bedrock/blob/main/reports/cis-1.9.pdf).
