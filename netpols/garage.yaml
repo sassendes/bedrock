@@ -48,7 +48,9 @@ specs:
                 - method: GET
                   path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo)(\\?.*)?"
                 - method: POST
-                  path: "/v2/(UpdateClusterLayout|ApplyClusterLayout|CreateBucket|CreateKey|AllowBucketKey)"
+                  path: "/v2/(UpdateClusterLayout|ApplyClusterLayout)"
+                - method: POST
+                  path: "/v2/(CreateBucket|CreateKey|AllowBucketKey)"
       - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
