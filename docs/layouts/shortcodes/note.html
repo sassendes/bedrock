@@ -1,5 +1,0 @@
-{{ $kind := .Get 0 | default "note" }}
-<div class="callout callout-{{ $kind }}">
-  <div class="callout-title">{{ if eq $kind "warning" }}Warning{{ else if eq $kind "planned" }}Planned{{ else }}Note{{ end }}</div>
-  {{ .Inner | markdownify }}
-</div>
