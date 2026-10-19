@@ -165,14 +165,14 @@ spec:
     - name: falco
       rules:
         - alert: FalcoCriticalEvent
-          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m])) > 0
+          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"0|1|2"}[5m]) or increase(falcosecurity_falco_rules_matches_total{rule_name="Redirect STDOUT/STDIN to Network Connection in Container"}[5m])) > 0
           labels:
             severity: critical
           annotations:
             summary: "falco: {{ $labels.rule_name }}"
             description: "critical falco rule fired. search {namespace=\"falco\"} in loki for the full event."
         - alert: FalcoWarningEvent
-          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"3|4"}[15m])) > 0
+          expr: sum by (rule_name) (increase(falcosecurity_falco_rules_matches_total{priority=~"3|4|5", rule_name!~"Contact K8S API Server From Container|Redirect STDOUT/STDIN to Network Connection in Container"}[15m])) > 0
           labels:
             severity: warning
           annotations:
