@@ -197,6 +197,8 @@ data:
               severity: critical
             annotations:
               summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, cluster-3 replays it within 5 minutes"
+  log-pipeline.yaml: |
+    groups:
       - name: log-pipeline
         rules:
           - alert: AuditLogSilent
