@@ -1,0 +1,5 @@
+{{ $name := .Get 0 }}
+<figure class="diagram">
+  {{ partial (printf "diagrams/%s.html" $name) . }}
+  {{ with .Get 1 }}<figcaption>{{ . | markdownify }}</figcaption>{{ end }}
+</figure>

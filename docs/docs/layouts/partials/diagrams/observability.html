@@ -1,0 +1,32 @@
+<svg viewBox="0 0 960 380" role="img" aria-label="Collection of logs, traces and metrics">
+<defs>
+<marker id="ob-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow-a"/></marker>
+<marker id="ob-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow"/></marker>
+</defs>
+<text x="30" y="26" class="d-lab">sources</text><text x="290" y="26" class="d-lab">collect</text><text x="520" y="26" class="d-lab">store</text><text x="760" y="26" class="d-lab">use</text>
+<rect x="30" y="40" width="200" height="54" rx="6" class="d-box"/><text x="46" y="63" class="d-title">pod logs</text><text x="46" y="82" class="d-sub">every container</text>
+<rect x="30" y="106" width="200" height="54" rx="6" class="d-box"/><text x="46" y="129" class="d-title">audit log</text><text x="46" y="148" class="d-sub">Kubernetes API, per node</text>
+<rect x="30" y="172" width="200" height="54" rx="6" class="d-box"/><text x="46" y="195" class="d-title">app traces</text><text x="46" y="214" class="d-sub">OpenTelemetry</text>
+<rect x="30" y="250" width="200" height="104" rx="6" class="d-box"/><text x="46" y="273" class="d-title">metrics endpoints</text>
+<text x="46" y="293" class="d-sub">nodes, kubelet, databases</text><text x="46" y="311" class="d-sub">Kyverno, Longhorn, Garage</text><text x="46" y="329" class="d-sub">etcd, Falco, probes</text>
+<rect x="290" y="80" width="170" height="90" rx="6" class="d-accent"/><text x="306" y="106" class="d-title">Alloy</text><text x="306" y="126" class="d-sub">DaemonSet</text><text x="306" y="144" class="d-sub">node-agents</text>
+<rect x="290" y="270" width="170" height="64" rx="6" class="d-accent"/><text x="306" y="296" class="d-title">Prometheus</text><text x="306" y="316" class="d-sub">scrapes, 15 days</text>
+<path d="M230 67 L288 108" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M230 133 L288 128" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M230 199 L288 150" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M230 302 L288 302" class="d-flow" marker-end="url(#ob-a)"/>
+<rect x="520" y="50" width="180" height="64" rx="6" class="d-box"/><text x="536" y="76" class="d-title">Loki</text><text x="536" y="96" class="d-sub">rf 3, 30 days</text>
+<rect x="520" y="136" width="180" height="64" rx="6" class="d-box"/><text x="536" y="162" class="d-title">Tempo</text><text x="536" y="182" class="d-sub">traces</text>
+<rect x="520" y="222" width="180" height="40" rx="6" class="d-soft"/><text x="536" y="247" class="d-text">Garage S3 under both</text>
+<rect x="520" y="282" width="180" height="64" rx="6" class="d-box"/><text x="536" y="308" class="d-title">Alertmanager</text><text x="536" y="328" class="d-sub">routes alerts</text>
+<path d="M460 110 L518 86" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M460 142 L518 166" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M460 312 L518 312" class="d-flow" marker-end="url(#ob-a)"/>
+<path d="M610 114 V134" class="d-wire"/><path d="M610 200 V220" class="d-wire"/>
+<rect x="760" y="120" width="170" height="90" rx="6" class="d-box"/><text x="776" y="146" class="d-title">Grafana</text><text x="776" y="166" class="d-sub">metrics, logs, traces</text><text x="776" y="184" class="d-sub">side by side</text>
+<rect x="760" y="282" width="170" height="64" rx="6" class="d-planned"/><text x="776" y="308" class="d-title">v2 delivery</text><text x="776" y="328" class="d-sub">planned</text>
+<path d="M700 82 L758 140" class="d-wire" marker-end="url(#ob-n)"/>
+<path d="M700 168 L758 166" class="d-wire" marker-end="url(#ob-n)"/>
+<path d="M460 286 C 490 272, 500 272, 530 272 L 720 272 C 760 272, 790 250, 815 212" class="d-wire" marker-end="url(#ob-n)"/>
+<path d="M700 314 L758 314" class="d-wire" stroke-dasharray="5 4" marker-end="url(#ob-n)"/>
+</svg>
