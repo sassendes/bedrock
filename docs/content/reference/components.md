@@ -27,7 +27,7 @@ All images are pinned by digest in the repository. Upstream bundles are checked 
 |---|---|---|
 | Longhorn | v1.13.0 | `longhorn-system` |
 | Garage | v2.4.1 | `garage` |
-| CloudNativePG operator | 1.27.0 | `cnpg-system` |
+| CloudNativePG operator | 1.30.1 | `cnpg-system` |
 | PostgreSQL | 17.4 | `cluster-1`, `cluster-2`, `cluster-3` |
 
 ## Observability
