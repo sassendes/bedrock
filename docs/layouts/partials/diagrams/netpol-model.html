@@ -1,0 +1,25 @@
+<svg viewBox="0 0 960 300" role="img" aria-label="Cluster-wide deny plus per-namespace allows">
+<defs><marker id="np-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow-a"/></marker>
+<marker id="np-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow-w"/></marker></defs>
+<rect x="20" y="20" width="920" height="260" rx="8" class="d-soft"/>
+<text x="40" y="46" class="d-lab">cluster-default-deny: every pod, every namespace</text>
+<text x="40" y="66" class="d-sub">allows only kubelet probes in and DNS out</text>
+<rect x="40" y="90" width="260" height="160" rx="6" class="d-box"/>
+<text x="58" y="116" class="d-title">application</text>
+<text x="58" y="136" class="d-sub">CiliumNetworkPolicy</text>
+<rect x="58" y="154" width="100" height="30" rx="4" class="d-chip"/><text x="70" y="174" class="d-chip-t">loki</text>
+<rect x="58" y="198" width="100" height="30" rx="4" class="d-chip"/><text x="70" y="218" class="d-chip-t">grafana</text>
+<rect x="350" y="90" width="260" height="160" rx="6" class="d-box"/>
+<text x="368" y="116" class="d-title">garage</text>
+<text x="368" y="136" class="d-sub">CiliumNetworkPolicy</text>
+<rect x="368" y="154" width="100" height="30" rx="4" class="d-chip"/><text x="380" y="174" class="d-chip-t">garage</text>
+<rect x="660" y="90" width="260" height="160" rx="6" class="d-planned"/>
+<text x="678" y="116" class="d-title">new namespace</text>
+<text x="678" y="136" class="d-sub">no policy of its own yet</text>
+<text x="678" y="190" class="d-warn-t">closed by the cluster-wide policy</text>
+<text x="678" y="210" class="d-sub">bootstrap check fails until it has one</text>
+<path d="M158 169 H366" class="d-flow" marker-end="url(#np-a)"/>
+<text x="256" y="160" class="d-acc-t">3900</text>
+<path d="M158 213 C 250 213 300 240 366 186" class="d-block" marker-end="url(#np-w)"/>
+<text x="210" y="243" class="d-warn-t">dropped</text>
+</svg>

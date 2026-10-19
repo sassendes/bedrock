@@ -1,0 +1,28 @@
+<header class="topbar">
+  <a class="brand" href="{{ "/" | relURL }}">
+    <img class="logo logo-dark" src="{{ "images/logo-dark.png" | relURL }}" width="30" height="30" alt="">
+    <span>bedrock</span>
+  </a>
+  <nav class="topnav" aria-label="Main">
+    {{ $cur := . }}
+    {{ range site.Menus.main }}
+      {{ $active := false }}
+      {{ if eq .URL "/" }}{{ if not (eq $cur.RelPermalink ("/roadmap/" | relURL)) }}{{ $active = true }}{{ end }}{{ else if eq ($cur.RelPermalink) (.URL | relURL) }}{{ $active = true }}{{ end }}
+      <a href="{{ if hasPrefix .URL "http" }}{{ .URL }}{{ else }}{{ .URL | relURL }}{{ end }}"{{ if $active }} class="active"{{ end }}>{{ .Name }}</a>
+    {{ end }}
+  </nav>
+  <div class="topbar-right">
+    <span class="version">{{ site.Params.version }}</span>
+    <button class="theme-toggle" type="button" aria-label="Switch theme" title="Switch theme">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z" fill="currentColor"/></svg>
+    </button>
+    <div class="search search-top">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input type="search" placeholder="Search this site" aria-label="Search this site" autocomplete="off" data-search>
+      <div class="search-results" hidden></div>
+    </div>
+    <button class="menu-toggle" type="button" aria-label="Open navigation">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
