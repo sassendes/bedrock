@@ -178,9 +178,9 @@ spec:
           annotations:
             summary: "falco: {{ $labels.rule_name }}"
         - alert: FalcoDown
-          expr: up{job="falco"} == 0
+          expr: kube_daemonset_status_number_unavailable{namespace="falco", daemonset="falco"} > 0 or up{job="falco"} == 0
           for: 5m
           labels:
             severity: critical
           annotations:
-            summary: "falco is down on {{ $labels.instance }}"
+            summary: "falco is not running on every node"
