@@ -192,7 +192,7 @@ data:
       - name: postgres-ddl
         rules:
           - alert: PostgresDropStatement
-            expr: sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ "(?i)statement: drop " [1m])) > 0
+            expr: sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0
             labels:
               severity: critical
             annotations:
