@@ -66,6 +66,17 @@ specs:
         http:
         - method: GET
           path: '/-/healthy'
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - &id001
     toEntities:
@@ -174,6 +185,21 @@ specs:
     - ports:
       - port: '8080'
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: node-agents
+        app: alloy
+    toPorts:
+    - ports:
+      - port: '12345'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
 - description: alertmanager
   endpointSelector:
     matchLabels:
@@ -182,6 +208,17 @@ specs:
   - fromEndpoints:
     - matchLabels:
         app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: '/api/v2/alerts'
+        - method: GET
+          path: '/metrics'
+  - fromEndpoints:
     - matchLabels:
         app: loki
     toPorts:
