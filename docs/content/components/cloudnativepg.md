@@ -4,7 +4,7 @@ weight: 5
 description: "The PostgreSQL operator: clusters, poolers, backups and the settings that harden them."
 ---
 
-CloudNativePG 1.27.0 runs PostgreSQL 17.4. The operator lives in `cnpg-system` and manages one `Cluster` resource per database namespace.
+CloudNativePG 1.30.1 runs PostgreSQL 17.4. The operator lives in `cnpg-system` and manages one `Cluster` resource per database namespace.
 
 ## The clusters
 
