@@ -62,7 +62,7 @@ flowchart TB
 - Least-privilege RBAC: no wildcards, no component reading secrets it does not own, replicas read the primary's backups with a read-only key.
 - Postgres superuser login is off and every client connection must use TLS.
 - Every image is pinned by digest and every upstream bundle is checksum-verified before it is applied.
-- kube-bench (`rke2-cis-1.9`): every check passes except one accepted by design (operators need API tokens), plus one not applicable (kube-proxy is replaced by Cilium).
+- kube-bench (`rke2-cis-1.9`): every check passes except one accepted by design (operators need API tokens). Full report: [reports/cis-1.9.pdf](reports/cis-1.9.pdf)
 
 ## Repository layout
 
