@@ -58,7 +58,7 @@ spec:
         name: cluster-1-replication
         key: tls.crt
       sslRootCert:
-        name: cluster-1-ca
+        name: cluster-1-ca-crt
         key: ca.crt
       barmanObjectStore:
         destinationPath: s3://cluster-1-backups/wals
