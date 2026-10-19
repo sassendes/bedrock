@@ -26,14 +26,40 @@ specs:
   - fromEndpoints:
     - matchLabels:
         app: grafana
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET|POST
+          path: '/api/v1/(query|query_range|query_exemplars|series|labels|label/[^/?]+/values|metadata|search/[a-z_]+)(\?.*)?'
+        - method: GET
+          path: '/api/v1/(rules|alerts|status/buildinfo)(\?.*)?'
+  - fromEndpoints:
     - matchLabels:
         app: opencost
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET|POST
+          path: '/api/v1/(query|query_range)(\?.*)?'
+        - method: GET
+          path: '/api/v1/status/(buildinfo|config)(\?.*)?'
+  - fromEndpoints:
     - matchLabels:
         app: blackbox-exporter
     toPorts:
     - ports:
       - port: '9090'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/-/healthy'
   egress:
   - &id001
     toEntities:
@@ -152,12 +178,25 @@ specs:
         app.kubernetes.io/name: prometheus
     - matchLabels:
         app: loki
+    toPorts:
+    - ports:
+      - port: '9093'
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: '/api/v2/alerts'
+  - fromEndpoints:
     - matchLabels:
         app: blackbox-exporter
     toPorts:
     - ports:
       - port: '9093'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/-/healthy'
 - description: grafana
   endpointSelector:
     matchLabels:
@@ -170,6 +209,10 @@ specs:
     - ports:
       - port: '3000'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/api/health'
   egress:
   - *id001
   - toEndpoints:
@@ -214,10 +257,21 @@ specs:
   - fromEndpoints:
     - matchLabels:
         app: grafana
-    - matchLabels:
-        app: blackbox-exporter
-    - matchLabels:
-        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET|POST
+          path: '/loki/api/v1/(query|query_range|series|labels|label/[^/?]+/values|index/stats|detected_fields|detected_field/[^/?]+/values)(\?.*)?'
+        - method: GET
+          path: '/loki/api/v1/tail(\?.*)?'
+        - method: GET
+          path: '/prometheus/api/v1/(rules|alerts)(\?.*)?'
+        - method: GET
+          path: '/api/prom/rules(/[^?]*)?(\?.*)?'
+  - fromEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: node-agents
         app: alloy
@@ -225,6 +279,32 @@ specs:
     - ports:
       - port: '3100'
         protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: '/loki/api/v1/push'
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: prometheus
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
+  - fromEndpoints:
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '3100'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/ready'
   egress:
   - toEndpoints:
     - matchLabels:
@@ -261,14 +341,38 @@ specs:
   - fromEndpoints:
     - matchLabels:
         app: grafana
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/api/(search|echo|v2/search/tags|v2/search/tag/[^/?]+/values|traces/[^/?]+|v2/traces/[^/?]+|metrics/(query_range|query))(\?.*)?'
+        - method: POST
+          path: '/tempopb\.StreamingQuerier/[A-Za-z0-9]+'
+  - fromEndpoints:
     - matchLabels:
         app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '3200'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/ready'
+  - fromEndpoints:
     - matchLabels:
         app.kubernetes.io/name: prometheus
     toPorts:
     - ports:
       - port: '3200'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   - fromEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: node-agents
@@ -277,6 +381,10 @@ specs:
     - ports:
       - port: '4317'
         protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: '/opentelemetry\.proto\.collector\.trace\.v1\.TraceService/Export'
   egress:
   - toEndpoints:
     - matchLabels:
@@ -297,6 +405,10 @@ specs:
     - ports:
       - port: '9003'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - *id001
   - toEndpoints:
@@ -318,6 +430,10 @@ specs:
     - ports:
       - port: '8080'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - *id001
 - description: blackbox-exporter
@@ -332,6 +448,10 @@ specs:
     - ports:
       - port: '9115'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/probe\?.*'
   egress:
   - toEndpoints:
     - matchLabels:
