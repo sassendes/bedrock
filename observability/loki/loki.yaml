@@ -192,8 +192,18 @@ data:
       - name: postgres-ddl
         rules:
           - alert: PostgresDropStatement
-            expr: sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0
+            expr: 'sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0'
             labels:
               severity: critical
             annotations:
               summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, cluster-3 replays it within 5 minutes"
+      - name: log-pipeline
+        rules:
+          - alert: AuditLogSilent
+            expr: 'absent_over_time({job="kube-audit"}[15m])'
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "no API audit log has reached Loki for 20 minutes"
+              description: "the audit log never goes quiet on a live cluster, so the log pipeline is broken somewhere between Alloy and Loki. PostgresDropStatement cannot fire while this is firing."
