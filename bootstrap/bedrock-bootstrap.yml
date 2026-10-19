@@ -630,7 +630,7 @@
       until: cloned.resources | default([]) | length > 0
       retries: 30
       delay: 10
-      loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca', 'cluster-1-replication', 'cluster-1-backups-ro']) | list }}"
+      loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca-crt', 'cluster-1-replication', 'cluster-1-backups-ro']) | list }}"
 
     - name: Apply replica clusters 2 and 3
       kubernetes.core.k8s:
