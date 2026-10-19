@@ -41,6 +41,10 @@ spec:
               protocol: TCP
             - port: "9127"
               protocol: TCP
+          rules:
+            http:
+              - method: GET
+                path: "/metrics"
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: cluster-2
