@@ -18,6 +18,10 @@ spec:
     - ports:
       - port: '8765'
         protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: '/metrics'
   egress:
   - toEndpoints:
     - {}
