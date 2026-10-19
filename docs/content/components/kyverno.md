@@ -37,7 +37,7 @@ Where each one applies and how it fails are in the [policies reference]({{< relr
 
 ## The certificate sync
 
-`bedrock-replica-secret-sync` clones `cluster-1-replication` into both replica namespaces with `synchronize` on. The CA goes through its own policy, `bedrock-replica-ca-sync`: it fires on `cluster-1-ca` itself and writes only `ca.crt` into `cluster-1-ca-crt` in cluster-2 and cluster-3, so the CA private key never leaves cluster-1. Because the source secret is the trigger, every CloudNativePG rotation updates the copies. The policy fails open, so a dead Kyverno never blocks CloudNativePG from writing its own secrets.
+cluster-2 and cluster-3 stream from cluster-1 over TLS and need cluster-1's CA and replication client certificate. `bedrock-replica-secret-sync` clones `cluster-1-replication` into both replica namespaces with `synchronize` on. The CA goes through its own policy, `bedrock-replica-ca-sync`: it fires on `cluster-1-ca` itself and writes only `ca.crt` into `cluster-1-ca-crt` in cluster-2 and cluster-3, so the CA private key never leaves cluster-1. Because the source secret is the trigger, every CloudNativePG rotation updates the copies. The policy fails open, so a dead Kyverno never blocks CloudNativePG from writing its own secrets. To do this, the background controller has write access to Secrets, which is listed as an accepted exception in the [security model]({{< relref "/concepts/security-model#accepted-exceptions" >}}).
 
 ## Alerts
 
