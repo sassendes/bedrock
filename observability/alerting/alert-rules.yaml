@@ -68,13 +68,16 @@ spec:
             summary: "Pod crashlooping: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "Restarted more than 3 times in 15 minutes."
         - alert: PodNotReady
-          expr: sum by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown"}) > 0
+          expr: |
+            sum by (namespace, pod) (kube_pod_status_phase{phase=~"Pending|Unknown"}) > 0
+            or
+            sum by (namespace, pod) ((kube_pod_status_ready{condition="false"} == 1) unless on (namespace, pod) (kube_pod_status_phase{phase=~"Succeeded|Failed"} == 1)) > 0
           for: 15m
           labels:
             severity: warning
           annotations:
             summary: "Pod stuck: {{ $labels.namespace }}/{{ $labels.pod }}"
-            description: "Pod not Ready (Pending/Unknown) for 15 minutes."
+            description: "Pod pending, unknown, or running without passing readiness for 15 minutes."
         - alert: ContainerNearMemoryLimit
           expr: (container_memory_working_set_bytes{container!=""} / on(namespace,pod,container) kube_pod_container_resource_limits{resource="memory"}) * 100 > 90
           for: 5m
