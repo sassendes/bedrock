@@ -90,7 +90,7 @@ spec:
     volumeClaimTemplate:
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: longhorn
+        storageClassName: longhorn-encrypted
         resources:
           requests:
             storage: 20Gi
