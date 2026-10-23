@@ -4,6 +4,7 @@
   become: true
   vars:
     rke2_version: v1.36.4+rke2r1
+    rke2_sha256: __RKE2_SHA256__
   tasks:
     - name: Install open-iscsi + nfs-common
       ansible.builtin.apt:
@@ -45,7 +46,7 @@
       ansible.builtin.get_url:
         url: "https://github.com/rancher/rke2/releases/download/{{ rke2_version | urlencode }}/rke2.linux-amd64.tar.gz"
         dest: /tmp/rke2.linux-amd64.tar.gz
-        checksum: "sha256:https://github.com/rancher/rke2/releases/download/{{ rke2_version | urlencode }}/sha256sum-amd64.txt"
+        checksum: "sha256:{{ rke2_sha256 }}"
         mode: "0644"
         timeout: 120
       register: rke2_dl
@@ -273,8 +274,6 @@
     nats_enabled: false
     redis_enabled: false
     kafka_enabled: false
-  environment:
-    PATH: "/var/lib/rancher/rke2/bin:/usr/local/bin:{{ lookup('env', 'PATH') }}"
   tasks:
     - name: Wait for Kubernetes API to answer
       ansible.builtin.command: kubectl get --raw=/readyz
@@ -534,6 +533,7 @@
       loop:
         - "{{ repo_root }}/secrets/longhorn-crypto.yaml"
         - "{{ repo_root }}/storage/longhorn-local.yaml"
+        - "{{ repo_root }}/storage/longhorn-encrypted.yaml"
       
     - name: Apply garage
       kubernetes.core.k8s:
@@ -648,7 +648,7 @@
         src: "{{ item }}"
       loop:
         - "{{ repo_root }}/database/pooler.yaml"
-        - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup-.yaml"
+        - "{{ repo_root }}/database/backups/cluster-1-scheduled-backup.yaml"
         - "{{ repo_root }}/database/backups/replicas-scheduled-backups.yaml"
 
     - name: Apply NATS JetStream
