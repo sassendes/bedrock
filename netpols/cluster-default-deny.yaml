@@ -4,7 +4,15 @@ metadata:
   name: cluster-default-deny
 spec:
   description: every pod in every namespace is deny by default, so a namespace without its own policy gets kubelet probes in and dns out and nothing else
-  endpointSelector: {}
+  endpointSelector:
+    matchExpressions:
+      - key: k8s:io.kubernetes.pod.namespace
+        operator: NotIn
+        values:
+          - application
+          - falco
+          - node-agents
+          - reloader
   ingress:
     - fromEntities:
         - host
