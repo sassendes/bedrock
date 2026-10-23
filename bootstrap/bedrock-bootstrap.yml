@@ -4,7 +4,7 @@
   become: true
   vars:
     rke2_version: v1.36.4+rke2r1
-    rke2_sha256: __RKE2_SHA256__
+    rke2_sha256: 7bcbd3167d6947e1d79cdf722acdc740b28021fefb50dd5b974a1980776d4079
   tasks:
     - name: Install open-iscsi + nfs-common
       ansible.builtin.apt:
