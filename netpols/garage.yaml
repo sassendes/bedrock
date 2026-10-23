@@ -50,7 +50,7 @@ specs:
                 - method: POST
                   path: "/v2/(UpdateClusterLayout|ApplyClusterLayout)"
                 - method: POST
-                  path: "/v2/(CreateBucket|CreateKey|AllowBucketKey)"
+                  path: "/v2/(CreateBucket|CreateKey|AllowBucketKey|DeleteKey)"
       - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
