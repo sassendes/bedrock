@@ -112,6 +112,7 @@ specs:
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: falco
+        app: falco
     toPorts:
     - ports:
       - port: '8765'
@@ -119,14 +120,29 @@ specs:
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-1
+        cnpg.io/podRole: instance
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-2
+        cnpg.io/podRole: instance
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-3
+        cnpg.io/podRole: instance
     toPorts:
     - ports:
       - port: '9187'
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-1
+        cnpg.io/podRole: pooler
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-2
+        cnpg.io/podRole: pooler
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-3
+        cnpg.io/podRole: pooler
+    toPorts:
+    - ports:
       - port: '9127'
         protocol: TCP
   - toEntities:
@@ -553,10 +569,22 @@ specs:
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-1
+        cnpg.io/podRole: instance
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-2
+        cnpg.io/podRole: instance
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: cluster-3
+        cnpg.io/podRole: instance
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-1
+        cnpg.io/podRole: pooler
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-2
+        cnpg.io/podRole: pooler
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: cluster-3
+        cnpg.io/podRole: pooler
     toPorts:
     - ports:
       - port: '5432'
