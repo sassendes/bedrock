@@ -19,6 +19,7 @@ spec:
     - fromEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: cnpg-system
+            app.kubernetes.io/name: cloudnative-pg
       toPorts:
         - ports:
             - port: "8000"
@@ -53,6 +54,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: garage
+            app: garage
       toPorts:
         - ports:
             - port: "3900"
@@ -60,6 +62,7 @@ spec:
     - toEndpoints:
         - matchLabels:
             k8s:io.kubernetes.pod.namespace: cluster-1
+            cnpg.io/podRole: instance
       toPorts:
         - ports:
             - port: "5432"
