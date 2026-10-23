@@ -56,6 +56,13 @@ spec:
         port: web
   serviceAccountName: prometheus
   replicas: 2
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              operator.prometheus.io/name: prometheus
+          topologyKey: kubernetes.io/hostname
   retention: 15d
   retentionSize: 16GB
   resources:
