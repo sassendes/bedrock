@@ -98,10 +98,9 @@ data:
       if [ -z "$BID" ] || [ "$BID" = "null" ]; then
         BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$B\"}" | jq -r '.id')
       fi
-      K=$(api "$A/GetKeyInfo?search=$B&showSecretKey=true" 2>/dev/null || true)
-      if [ -z "$K" ] || [ "$(echo "$K" | jq -r '.name')" != "$B" ]; then
-        K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$B\"}")
-      fi
+      OLD=$(api "$A/GetKeyInfo?search=$B" 2>/dev/null | jq -r 'select(.name=="'"$B"'") | .accessKeyId' || true)
+      if [ -n "$OLD" ]; then api -X POST "$A/DeleteKey?id=$OLD" >/dev/null; fi
+      K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$B\"}")
       KID=$(echo "$K" | jq -r '.accessKeyId')
       KS=$(echo "$K" | jq -r '.secretAccessKey')
       api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":true,\"owner\":false}}" >/dev/null
@@ -113,10 +112,9 @@ data:
     done
     if [ -n "$MISSING" ]; then
       BID=$(api "$A/GetBucketInfo?globalAlias=cluster-1-backups" | jq -r '.id')
-      K=$(api "$A/GetKeyInfo?search=cluster-1-backups-ro&showSecretKey=true" 2>/dev/null || true)
-      if [ -z "$K" ] || [ "$(echo "$K" | jq -r '.name')" != "cluster-1-backups-ro" ]; then
-        K=$(api -X POST "$A/CreateKey" -d '{"name":"cluster-1-backups-ro"}')
-      fi
+      OLD=$(api "$A/GetKeyInfo?search=cluster-1-backups-ro" 2>/dev/null | jq -r 'select(.name=="cluster-1-backups-ro") | .accessKeyId' || true)
+      if [ -n "$OLD" ]; then api -X POST "$A/DeleteKey?id=$OLD" >/dev/null; fi
+      K=$(api -X POST "$A/CreateKey" -d '{"name":"cluster-1-backups-ro"}')
       KID=$(echo "$K" | jq -r '.accessKeyId')
       KS=$(echo "$K" | jq -r '.secretAccessKey')
       api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" >/dev/null
