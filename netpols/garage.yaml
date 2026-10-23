@@ -46,7 +46,7 @@ specs:
             rules:
               http:
                 - method: GET
-                  path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo)(\\?.*)?"
+                  path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo|GetKeyInfo)(\\?.*)?"
                 - method: POST
                   path: "/v2/(UpdateClusterLayout|ApplyClusterLayout)"
                 - method: POST
