@@ -6,8 +6,6 @@ metadata:
 spec:
   endpointSelector: {}
   ingress:
-  - fromEntities:
-    - host
   - fromEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: application
