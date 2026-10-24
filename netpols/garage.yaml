@@ -46,11 +46,11 @@ specs:
             rules:
               http:
                 - method: GET
-                  path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo|GetKeyInfo)(\\?.*)?"
+                  path: "/v2/(GetClusterStatus|GetClusterLayout|GetBucketInfo|ListKeys)(\\?.*)?"
                 - method: POST
                   path: "/v2/(UpdateClusterLayout|ApplyClusterLayout)"
                 - method: POST
-                  path: "/v2/(CreateBucket|CreateKey|AllowBucketKey|DeleteKey)"
+                  path: "/v2/(CreateBucket|CreateKey|AllowBucketKey|DeleteKey)(\\?.*)?"
       - fromEndpoints:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: application
