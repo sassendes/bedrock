@@ -197,6 +197,17 @@ data:
               severity: critical
             annotations:
               summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, cluster-3 replays it within 5 minutes"
+  falco.yaml: |
+    groups:
+      - name: falco
+        rules:
+          - alert: FalcoCriticalEventLog
+            expr: 'sum by (rule) (count_over_time({namespace="falco"} | json | priority=~"Emergency|Alert|Critical" or rule="Redirect STDOUT/STDIN to Network Connection in Container" [5m])) > 0'
+            labels:
+              severity: critical
+            annotations:
+              summary: "falco: {{ $labels.rule }} (from the event log)"
+              description: "backup path for FalcoCriticalEvent. it fires on the first event too, since it reads the event itself instead of a counter."
   log-pipeline.yaml: |
     groups:
       - name: log-pipeline
