@@ -15,7 +15,6 @@ spec:
         app: node-exporter
     spec:
       hostNetwork: true
-      hostPID: true
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
