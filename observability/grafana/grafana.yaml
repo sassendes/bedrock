@@ -146,6 +146,8 @@ spec:
               value: "false"
             - name: GF_NEWS_NEWS_FEED_ENABLED
               value: "false"
+            - name: GF_DATABASE_WAL
+              value: "true"
           ports:
             - name: http
               containerPort: 3000
@@ -162,6 +164,8 @@ spec:
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
