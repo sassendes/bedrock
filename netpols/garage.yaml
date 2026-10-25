@@ -91,6 +91,21 @@ specs:
           - matchLabels:
               k8s:io.kubernetes.pod.namespace: cluster-3
               cnpg.io/podRole: instance
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-1
+            matchExpressions:
+              - key: cnpg.io/jobRole
+                operator: Exists
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-2
+            matchExpressions:
+              - key: cnpg.io/jobRole
+                operator: Exists
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: cluster-3
+            matchExpressions:
+              - key: cnpg.io/jobRole
+                operator: Exists
         toPorts:
           - ports:
               - port: "3900"
