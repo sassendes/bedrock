@@ -94,3 +94,14 @@ spec:
         resources:
           requests:
             storage: 20Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: prometheus
+  namespace: application
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      operator.prometheus.io/name: prometheus
