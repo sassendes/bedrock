@@ -826,14 +826,12 @@
         KUBECONFIG: "{{ kubeconfig }}"
       changed_when: false
 
-    - name: Apply Grafana dashboards (via kubectl - large JSON blobs, server-side)
+    - name: Apply Grafana dashboards (large JSON blobs, server-side)
       ansible.builtin.command: >
-        kubectl apply --server-side --force-conflicts -f "{{ item }}"
+        kubectl apply --server-side --force-conflicts
+        -f {{ repo_root }}/observability/grafana/dashboards/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-      loop:
-        - "{{ repo_root }}/observability/grafana/dash-cnpg.yaml"
-        - "{{ repo_root }}/observability/grafana/dash-node.yaml"
 
 
     - name: Apply network policies
