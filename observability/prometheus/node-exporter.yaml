@@ -53,6 +53,7 @@ spec:
             - name: root
               mountPath: /host/root
               readOnly: true
+              mountPropagation: HostToContainer
       volumes:
         - name: proc
           hostPath:
