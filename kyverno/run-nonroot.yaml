@@ -1,75 +1,70 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
 metadata:
   name: harden-run-as-nonroot
 spec:
+  failurePolicy: Fail
   webhookConfiguration:
-    failurePolicy: Fail
     timeoutSeconds: 10
-    matchConditions:
-      - name: application-only
-        expression: 'request.namespace == "application"'
-  background: true
-  rules:
-    - name: inject-pod-security-context
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-      mutate:
-        patchStrategicMerge:
-          spec:
-            securityContext:
-              +(runAsNonRoot): true
-              +(fsGroup): 1000
-              +(fsGroupChangePolicy): OnRootMismatch
-              +(seccompProfile):
-                type: RuntimeDefault
-    - name: inject-container-security-context
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-      mutate:
-        foreach:
-          - list: "request.object.spec.containers"
-            patchStrategicMerge:
-              spec:
-                containers:
-                  - name: "{{ element.name }}"
-                    securityContext:
-                      +(allowPrivilegeEscalation): false
-                      capabilities:
-                        +(drop):
-                          - ALL
-    - name: inject-init-container-security-context
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-      preconditions:
-        all:
-          - key: "{{ length(request.object.spec.initContainers || `[]`) }}"
-            operator: GreaterThan
-            value: 0
-      mutate:
-        foreach:
-          - list: "request.object.spec.initContainers"
-            patchStrategicMerge:
-              spec:
-                initContainers:
-                  - name: "{{ element.name }}"
-                    securityContext:
-                      +(allowPrivilegeEscalation): false
-                      capabilities:
-                        +(drop):
-                          - ALL
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - application
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: |-
+          Object{
+            spec: Object.spec{
+              securityContext: Object.spec.securityContext{
+                runAsNonRoot: object.spec.?securityContext.?runAsNonRoot.orValue(true),
+                fsGroup: object.spec.?securityContext.?fsGroup.orValue(1000),
+                fsGroupChangePolicy: object.spec.?securityContext.?fsGroupChangePolicy.orValue("OnRootMismatch"),
+                seccompProfile: Object.spec.securityContext.seccompProfile{
+                  type: object.spec.?securityContext.?seccompProfile.?type.orValue("RuntimeDefault")
+                }
+              }
+            }
+          }
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: |-
+          Object{
+            spec: Object.spec{
+              containers: object.spec.containers.map(c, Object.spec.containers{
+                name: c.name,
+                securityContext: Object.spec.containers.securityContext{
+                  allowPrivilegeEscalation: c.?securityContext.?allowPrivilegeEscalation.orValue(false),
+                  capabilities: Object.spec.containers.securityContext.capabilities{
+                    drop: c.?securityContext.?capabilities.?drop.orValue(["ALL"])
+                  }
+                }
+              })
+            }
+          }
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: |-
+          has(object.spec.initContainers) ?
+          Object{
+            spec: Object.spec{
+              initContainers: object.spec.initContainers.map(c, Object.spec.initContainers{
+                name: c.name,
+                securityContext: Object.spec.initContainers.securityContext{
+                  allowPrivilegeEscalation: c.?securityContext.?allowPrivilegeEscalation.orValue(false),
+                  capabilities: Object.spec.initContainers.securityContext.capabilities{
+                    drop: c.?securityContext.?capabilities.?drop.orValue(["ALL"])
+                  }
+                }
+              })
+            }
+          } :
+          Object{}
