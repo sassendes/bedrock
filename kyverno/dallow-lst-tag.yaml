@@ -1,36 +1,39 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: disallow-latest-tag
 spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
   webhookConfiguration:
-    failurePolicy: Fail
     timeoutSeconds: 10
-    matchConditions:
-      - name: application-and-node-agents
-        expression: 'request.namespace in ["application", "node-agents"]'
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    - name: require-pinned-tag
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-                - node-agents
-      validate:
-        message: "every container, init container and ephemeral container needs an explicit tag that is not latest (a registry port is not a tag)"
-        foreach:
-          - list: "request.object.spec.[ephemeralContainers, initContainers, containers][]"
-            deny:
-              conditions:
-                any:
-                  - key: "{{ regex_match('^(.*/)?[^/:@]+:[^/:@]+(@sha256:[0-9a-f]{64})?$', element.image) }}"
-                    operator: Equals
-                    value: false
-                  - key: "{{ regex_match(':latest(@|$)', element.image) }}"
-                    operator: Equals
-                    value: true
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - application
+            - node-agents
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: images
+      expression: |-
+        object.spec.?ephemeralContainers.orValue([]).map(c, c.image) +
+        object.spec.?initContainers.orValue([]).map(c, c.image) +
+        object.spec.containers.map(c, c.image)
+  validations:
+    - expression: |-
+        variables.images.all(i,
+          i.matches(r'^(.*/)?[^/:@]+:[^/:@]+(@sha256:[0-9a-f]{64})?$') &&
+          !i.matches(r':latest(@|$)')
+        )
+      message: "every container, init container and ephemeral container needs an explicit tag that is not latest (a registry port is not a tag)"
