@@ -1,37 +1,33 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: require-resource-limits
 spec:
+  validationActions:
+    - Deny
+  failurePolicy: Fail
   webhookConfiguration:
-    failurePolicy: Fail
     timeoutSeconds: 10
-    matchConditions:
-      - name: application-and-node-agents
-        expression: 'request.namespace in ["application", "node-agents"]'
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    - name: check-limits
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-              namespaces:
-                - application
-                - node-agents
-      validate:
-        message: "cpu and memory limits are required on every container and init container"
-        pattern:
-          spec:
-            containers:
-              - resources:
-                  limits:
-                    memory: "?*"
-                    cpu: "?*"
-            =(initContainers):
-              - resources:
-                  limits:
-                    memory: "?*"
-                    cpu: "?*"
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - application
+            - node-agents
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  validations:
+    - expression: |-
+        (object.spec.containers + object.spec.?initContainers.orValue([])).all(c,
+          'memory' in c.?resources.?limits.orValue({}) &&
+          'cpu' in c.?resources.?limits.orValue({})
+        )
+      message: "cpu and memory limits are required on every container and init container"
