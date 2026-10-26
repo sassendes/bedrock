@@ -1,74 +1,31 @@
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: restrict-priority-classes
 spec:
+  validationActions:
+    - Deny
+  failurePolicy: Ignore
   webhookConfiguration:
-    failurePolicy: Ignore
     timeoutSeconds: 10
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    - name: storage-class-garage-only
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - garage
-      validate:
-        message: "bedrock-storage is reserved for garage"
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.priorityClassName || '' }}"
-                operator: Equals
-                value: bedrock-storage
-    - name: data-class-databases-and-falco-only
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - cluster-1
-                - cluster-2
-                - cluster-3
-                - falco
-      validate:
-        message: "bedrock-data is reserved for the database clusters, their poolers and falco"
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.priorityClassName || '' }}"
-                operator: Equals
-                value: bedrock-data
-    - name: system-classes-system-namespaces-only
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - kube-system
-                - kyverno
-      validate:
-        message: "system-cluster-critical and system-node-critical are reserved for kube-system and kyverno"
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.priorityClassName || '' }}"
-                operator: AnyIn
-                value:
-                  - system-cluster-critical
-                  - system-node-critical
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: priorityClass
+      expression: object.spec.?priorityClassName.orValue("")
+    - name: namespace
+      expression: object.metadata.namespace
+  validations:
+    - expression: variables.priorityClass != "bedrock-storage" || variables.namespace == "garage"
+      message: "bedrock-storage is reserved for garage"
+    - expression: variables.priorityClass != "bedrock-data" || variables.namespace in ["cluster-1", "cluster-2", "cluster-3", "falco"]
+      message: "bedrock-data is reserved for the database clusters, their poolers and falco"
+    - expression: '!(variables.priorityClass in ["system-cluster-critical", "system-node-critical"]) || variables.namespace in ["kube-system", "kyverno"]'
+      message: "system-cluster-critical and system-node-critical are reserved for kube-system and kyverno"
