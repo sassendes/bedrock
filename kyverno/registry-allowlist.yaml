@@ -37,7 +37,7 @@ spec:
         )
   validations:
     - expression: |-
-        variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|quay\.io/kiwigrid/k8s-sidecar|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
+        variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|quay\.io/kiwigrid/k8s-sidecar|quay\.io/openbao/openbao|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
       message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"
 ---
 apiVersion: policies.kyverno.io/v1
@@ -60,6 +60,7 @@ spec:
           operator: In
           values:
             - garage
+            - openbao
             - falco
             - nats
             - redis
@@ -85,5 +86,5 @@ spec:
         )
   validations:
     - expression: |-
-        variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|quay\.io/kiwigrid/k8s-sidecar|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
+        variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|quay\.io/kiwigrid/k8s-sidecar|quay\.io/openbao/openbao|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
       message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"
