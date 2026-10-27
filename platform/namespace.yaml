@@ -57,6 +57,14 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: openbao
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: nats
   labels:
     pod-security.kubernetes.io/enforce: restricted
@@ -134,6 +142,13 @@ kind: ServiceAccount
 metadata:
   name: default
   namespace: garage
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: openbao
+  namespace: openbao
 automountServiceAccountToken: false
 ---
 apiVersion: v1
