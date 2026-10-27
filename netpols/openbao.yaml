@@ -1,0 +1,48 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: openbao
+  namespace: openbao
+specs:
+  - description: every pod in openbao, deny by default
+    endpointSelector: {}
+    ingress:
+      - fromEntities:
+          - host
+        toPorts:
+          - ports:
+              - port: "8200"
+                protocol: TCP
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: kube-system
+              k8s:k8s-app: kube-dns
+        toPorts:
+          - ports:
+              - port: "53"
+                protocol: ANY
+  - description: openbao raft peers, api for join and forwarding, cluster port for raft
+    endpointSelector:
+      matchLabels:
+        app: openbao
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              app: openbao
+        toPorts:
+          - ports:
+              - port: "8200"
+                protocol: TCP
+              - port: "8201"
+                protocol: TCP
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              app: openbao
+        toPorts:
+          - ports:
+              - port: "8200"
+                protocol: TCP
+              - port: "8201"
+                protocol: TCP
