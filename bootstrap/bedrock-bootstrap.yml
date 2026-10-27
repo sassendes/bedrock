@@ -570,6 +570,96 @@
         - cluster-3
         - application
 
+    - name: Apply OpenBao
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/openbao/openbao.yaml"
+
+    - name: Wait for the three OpenBao pods to run
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: openbao
+        label_selectors:
+          - app=openbao
+      register: bao_pods
+      until: >
+        bao_pods.resources | default([])
+        | selectattr('status.phase', 'equalto', 'Running') | list | length == 3
+      retries: 60
+      delay: 10
+
+    - name: Ask openbao-0 whether it is initialized
+      ansible.builtin.command: kubectl -n openbao exec openbao-0 -- bao status -format=json
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: bao_status
+      until: bao_status.rc in [0, 2]
+      retries: 30
+      delay: 10
+      failed_when: bao_status.rc not in [0, 2]
+      changed_when: false
+
+    - name: Initialize OpenBao (5 shares, threshold 3)
+      when: (bao_status.stdout | from_json).initialized == false
+      ansible.builtin.command: kubectl -n openbao exec openbao-0 -- bao operator init -key-shares=5 -key-threshold=3 -format=json
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: bao_init
+      no_log: true
+
+    - name: Keep the unseal shares and root token on the controller only
+      when: bao_init is changed
+      ansible.builtin.copy:
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/openbao-init.json"
+        content: "{{ bao_init.stdout }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Read the unseal shares
+      ansible.builtin.set_fact:
+        bao_keys: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).unseal_keys_b64 }}"
+      no_log: true
+
+    - name: Unseal openbao-0 first, then the followers as they join raft
+      ansible.builtin.shell: |
+        set -u
+        for pod in openbao-0 openbao-1 openbao-2; do
+          done_ok=no
+          for try in $(seq 1 30); do
+            if kubectl -n openbao exec "$pod" -- bao status -format=json 2>/dev/null | grep -q '"sealed": false'; then
+              done_ok=yes
+              break
+            fi
+            for k in "$K1" "$K2" "$K3"; do
+              printf '%s' "$k" | kubectl -n openbao exec -i "$pod" -- bao write -format=json sys/unseal key=- >/dev/null 2>&1 || true
+            done
+            sleep 10
+          done
+          if [ "$done_ok" != yes ]; then echo "$pod is still sealed"; exit 1; fi
+        done
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+        K1: "{{ bao_keys[0] }}"
+        K2: "{{ bao_keys[1] }}"
+        K3: "{{ bao_keys[2] }}"
+      no_log: true
+      changed_when: false
+
+    - name: Wait for all three OpenBao pods ready
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: StatefulSet
+        namespace: openbao
+        name: openbao
+      register: bao_sts
+      until: >
+        bao_sts.resources | default([]) | length > 0 and
+        (bao_sts.resources[0].status.readyReplicas | default(0)) >= 3
+      retries: 30
+      delay: 10
+
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
