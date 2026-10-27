@@ -1,0 +1,185 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-config
+  namespace: openbao
+data:
+  config.hcl: |
+    ui            = true
+    disable_mlock = true
+    cluster_name  = "bedrock"
+    log_format    = "json"
+
+    listener "tcp" {
+      address         = "0.0.0.0:8200"
+      cluster_address = "0.0.0.0:8201"
+      tls_disable     = true
+    }
+
+    storage "raft" {
+      path = "/openbao/data"
+
+      retry_join {
+        leader_api_addr = "http://openbao-0.openbao-internal.openbao.svc:8200"
+      }
+      retry_join {
+        leader_api_addr = "http://openbao-1.openbao-internal.openbao.svc:8200"
+      }
+      retry_join {
+        leader_api_addr = "http://openbao-2.openbao-internal.openbao.svc:8200"
+      }
+    }
+
+    audit "file" "to-stdout" {
+      description = "every request and response, hashed, to stdout for alloy and loki"
+      options {
+        file_path = "stdout"
+      }
+    }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: openbao
+  namespace: openbao
+spec:
+  serviceName: openbao-internal
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: openbao
+  template:
+    metadata:
+      labels:
+        app: openbao
+    spec:
+      serviceAccountName: openbao
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: openbao
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: openbao
+          image: quay.io/openbao/openbao:2.7.2@sha256:5046911075e137e154ce49ab051502f4ec7cf367d484ae4a4dce665d9b90561f
+          command: ["/usr/bin/bao", "server", "-config=/openbao/config/config.hcl"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BAO_RAFT_NODE_ID
+              value: "$(POD_NAME)"
+            - name: BAO_API_ADDR
+              value: "http://$(POD_NAME).openbao-internal.openbao.svc:8200"
+            - name: BAO_CLUSTER_ADDR
+              value: "https://$(POD_NAME).openbao-internal.openbao.svc:8201"
+            - name: BAO_ADDR
+              value: "http://127.0.0.1:8200"
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: api
+              containerPort: 8200
+            - name: cluster
+              containerPort: 8201
+          readinessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true
+              port: api
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /openbao/config
+              readOnly: true
+            - name: data
+              mountPath: /openbao/data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: openbao-config
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-local
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao-internal
+  namespace: openbao
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: openbao
+  ports:
+    - name: api
+      port: 8200
+    - name: cluster
+      port: 8201
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao
+  namespace: openbao
+spec:
+  selector:
+    app: openbao
+  ports:
+    - name: api
+      port: 8200
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: openbao
+  namespace: openbao
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: openbao
