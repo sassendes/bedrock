@@ -361,7 +361,7 @@
 
 
     - name: Apply Kyverno policies
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/admission/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: kyverno_apply
@@ -436,7 +436,7 @@
       delay: 15
 
     - name: Longhorn settings
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/storage/longhorn-settings.yaml
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/storage/longhorn/longhorn-settings.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       register: lh_settings
@@ -532,20 +532,20 @@
         src: "{{ item }}"
       loop:
         - "{{ repo_root }}/secrets/longhorn-crypto.yaml"
-        - "{{ repo_root }}/storage/longhorn-local.yaml"
-        - "{{ repo_root }}/storage/longhorn-encrypted.yaml"
+        - "{{ repo_root }}/storage/longhorn/longhorn-local.yaml"
+        - "{{ repo_root }}/storage/longhorn/longhorn-encrypted.yaml"
       
     - name: Apply garage
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/storage/garage.yaml"
+        src: "{{ repo_root }}/storage/garage/garage.yaml"
 
     - name: Apply garage init job
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/storage/buckets.yaml"
+        src: "{{ repo_root }}/storage/garage/buckets.yaml"
 
     - name: Wait for garage init job complete
       kubernetes.core.k8s_info:
@@ -704,7 +704,7 @@
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ repo_root }}/database/replica-secret-sync.yaml"
+        src: "{{ repo_root }}/kyverno/generate/replica-secret-sync.yaml"
       register: secret_sync
       until: secret_sync is succeeded
       retries: 10
