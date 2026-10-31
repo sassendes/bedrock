@@ -44,6 +44,7 @@ type CheckConfig struct {
 	Password string
 	Timeout  time.Duration
 	TLSMode  string
+	RootCA   string
 }
 
 // Only a primary that can actually write passes; a standby fails as read only.
@@ -79,7 +80,14 @@ func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
 	defer cancel()
 
-	connCfg, err := pgx.ParseConfig("")
+	dsn := ""
+	if cfg.TLSMode != "" {
+		dsn = "sslmode=" + cfg.TLSMode
+	}
+	if cfg.RootCA != "" {
+		dsn += " sslrootcert=" + cfg.RootCA
+	}
+	connCfg, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		p.Reason = "config: " + err.Error()
 		return p
@@ -92,10 +100,7 @@ func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target
 	connCfg.ConnectTimeout = cfg.Timeout
 	connCfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(cfg.Timeout.Milliseconds(), 10)
 	connCfg.RuntimeParams["application_name"] = "bedrock-observer"
-	if cfg.TLSMode == "disable" {
-		connCfg.TLSConfig = nil
-		connCfg.Fallbacks = nil
-	}
+	connCfg.Fallbacks = nil
 
 	start := time.Now()
 	conn, err := pgx.ConnectConfig(ctx, connCfg)
@@ -146,3 +151,5 @@ func newNonce() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+
+func NewNonce() (string, error) { return newNonce() }

@@ -96,6 +96,21 @@ func NewNode(name string, key ed25519.PrivateKey, keys Keyring, peers []string, 
 	}
 }
 
+func (n *Node) Name() string { return n.name }
+
+func (n *Node) SetMembers(peers []string, keys Keyring) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.peers = append([]string{}, peers...)
+	n.keys = keys
+}
+
+func (n *Node) members() ([]string, Keyring) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.peers, n.keys
+}
+
 // Ask sends one signed request carrying a fresh nonce to every peer and collects signed answers until
 // every peer answered or the timeout passes. Only answers that echo this exact nonce are kept.
 func (n *Node) Ask(ctx context.Context, target string, timeout time.Duration) ([]VerifiedAnswer, error) {
@@ -110,7 +125,11 @@ func (n *Node) Ask(ctx context.Context, target string, timeout time.Duration) ([
 	req := Request{ID: id, Origin: n.name, Target: target, Nonce: nonce, Path: []string{n.name}}
 	req.Sig = ed25519.Sign(n.key, requestBytes(req))
 
-	p := &pending{req: req, answers: map[string]VerifiedAnswer{}, want: len(n.peers), done: make(chan struct{})}
+	peers, _ := n.members()
+	if len(peers) == 0 {
+		return nil, nil
+	}
+	p := &pending{req: req, answers: map[string]VerifiedAnswer{}, want: len(peers), done: make(chan struct{})}
 	n.mu.Lock()
 	n.pending[id] = p
 	n.seen[id] = seenRequest{at: n.now(), hops: 0}
@@ -121,7 +140,7 @@ func (n *Node) Ask(ctx context.Context, target string, timeout time.Duration) ([
 		n.mu.Unlock()
 	}()
 
-	for _, peer := range n.peers {
+	for _, peer := range peers {
 		go n.send(ctx, peer, Envelope{Request: &req})
 	}
 
@@ -155,7 +174,8 @@ func (n *Node) Handle(ctx context.Context, env Envelope) {
 // A request is probed and answered at most once per node. A later copy that used fewer hops is
 // forwarded again with its larger remaining budget, never past maxHops.
 func (n *Node) handleRequest(ctx context.Context, r Request) {
-	pub, ok := n.keys[r.Origin]
+	peers, keys := n.members()
+	pub, ok := keys[r.Origin]
 	if !ok || !ed25519.Verify(pub, requestBytes(r), r.Sig) {
 		return
 	}
@@ -175,7 +195,7 @@ func (n *Node) handleRequest(ctx context.Context, r Request) {
 	if len(r.Path) < n.maxHops {
 		fwd := r
 		fwd.Path = append(append([]string{}, r.Path...), n.name)
-		for _, peer := range n.peers {
+		for _, peer := range peers {
 			if !contains(fwd.Path, peer) {
 				go n.send(ctx, peer, Envelope{Request: &fwd})
 			}
@@ -193,7 +213,8 @@ func (n *Node) handleRequest(ctx context.Context, r Request) {
 }
 
 func (n *Node) handleAnswer(ctx context.Context, a Answer) {
-	pub, ok := n.keys[a.Responder]
+	_, keys := n.members()
+	pub, ok := keys[a.Responder]
 	if !ok || !ed25519.Verify(pub, answerBytes(a), a.Sig) {
 		return
 	}
@@ -241,8 +262,9 @@ func (n *Node) route(ctx context.Context, a Answer) {
 	if n.send(ctx, a.Origin, Envelope{Answer: &a}) == nil {
 		return
 	}
+	peers, _ := n.members()
 	if !a.Relayed {
-		for _, peer := range n.peers {
+		for _, peer := range peers {
 			if peer != a.Origin {
 				n.send(ctx, peer, Envelope{Answer: &a})
 			}
@@ -330,10 +352,7 @@ type Judgement struct {
 func Judge(expectedSystemID string, answers []VerifiedAnswer) Judgement {
 	var j Judgement
 	for _, a := range answers {
-		p := a.Proof
-		up := p.Result == ResultUp && p.EchoNonce == p.Nonce && !p.InRecovery && p.LSN != "" && p.SystemID != "" &&
-			(expectedSystemID == "" || p.SystemID == expectedSystemID)
-		if up {
+		if p := a.Proof; Valid(p, expectedSystemID) {
 			j.Ups++
 		} else {
 			j.Downs++

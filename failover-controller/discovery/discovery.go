@@ -338,3 +338,7 @@ func zoneClass(zones []string, drZones map[string]bool) (inDR, mixed bool) {
 func sortMembers(ms []Member) {
 	sort.Slice(ms, func(i, j int) bool { return ms[i].Key() < ms[j].Key() })
 }
+
+func ResolveHost(ctx context.Context, kube kubernetes.Interface, cfg Config, host, defaultNamespace string) (key, reason string, err error) {
+	return resolveSource(ctx, kube, cfg, host, defaultNamespace)
+}
