@@ -64,16 +64,17 @@ FROM hb`
 const sqlStateReadOnly = "25006"
 const sqlStateQueryCanceled = "57014"
 
-// A hung instance that still accepts connections times out and is voted down.
 func strongCheck(ctx context.Context, cfg CheckConfig, observer, target string) Proof {
-	p := Proof{Observer: observer, Target: target, Result: ResultDown}
-
 	nonce, err := newNonce()
 	if err != nil {
-		p.Reason = "nonce: " + err.Error()
-		return p
+		return Proof{Observer: observer, Target: target, Result: ResultDown, Reason: "nonce: " + err.Error()}
 	}
-	p.Nonce = nonce
+	return StrongCheckWithNonce(ctx, cfg, observer, target, nonce)
+}
+
+// A hung instance that still accepts connections times out and is voted down.
+func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target, nonce string) Proof {
+	p := Proof{Observer: observer, Target: target, Result: ResultDown, Nonce: nonce}
 
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
 	defer cancel()
