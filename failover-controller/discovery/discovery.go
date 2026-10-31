@@ -1,4 +1,4 @@
-package main
+package discovery
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type Config struct {
 	DRZones          map[string]bool
 }
 
-func defaultConfig() Config {
+func DefaultConfig() Config {
 	return Config{
 		ClusterGVR:       schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: "clusters"},
 		ClusterKind:      "Cluster",
@@ -78,7 +78,7 @@ type Discovery struct {
 	Problems []Problem
 }
 
-func discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interface, cfg Config) (Discovery, error) {
+func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interface, cfg Config) (Discovery, error) {
 	var out Discovery
 
 	list, err := dyn.Resource(cfg.ClusterGVR).Namespace(metav1.NamespaceAll).List(ctx, metav1.ListOptions{})
