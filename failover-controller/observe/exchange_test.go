@@ -22,7 +22,7 @@ type mesh struct {
 	blocked map[link]bool
 	delay   map[link]time.Duration
 	tamper  func(from, to string, env *Envelope)
-	wg      sync.WaitGroup
+	flight  atomic.Int64
 	sent    atomic.Int64
 }
 
@@ -40,13 +40,24 @@ func (m *mesh) Send(ctx context.Context, from, to string, env Envelope) error {
 	if tamper != nil {
 		tamper(from, to, &env)
 	}
-	m.wg.Add(1)
+	m.flight.Add(1)
 	go func() {
-		defer m.wg.Done()
+		defer m.flight.Add(-1)
 		time.Sleep(wait)
 		n.Handle(ctx, env)
 	}()
 	return nil
+}
+
+func (m *mesh) settle() {
+	last := int64(-1)
+	for {
+		if m.flight.Load() == 0 && m.sent.Load() == last {
+			return
+		}
+		last = m.sent.Load()
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func (m *mesh) cut(a, b string) {
@@ -116,7 +127,7 @@ func (c *cluster) ask(t *testing.T, origin string) []VerifiedAnswer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.mesh.wg.Wait()
+	c.mesh.settle()
 	return answers
 }
 
@@ -272,7 +283,7 @@ func TestForgedRequestProbesNothing(t *testing.T) {
 	for _, p := range []string{"b", "c", "d", "e"} {
 		c.nodes[p].Handle(context.Background(), Envelope{Request: &req})
 	}
-	c.mesh.wg.Wait()
+	c.mesh.settle()
 	for name, n := range c.probes {
 		if n.Load() != 0 {
 			t.Fatalf("%s probed the primary for a forged request", name)
