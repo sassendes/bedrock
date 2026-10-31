@@ -49,6 +49,19 @@ spec:
         name: user-secret-1
       postInitApplicationSQL:
         - CREATE EXTENSION IF NOT EXISTS pgcrypto;
+        - CREATE TABLE IF NOT EXISTS bedrock_heartbeat (observer text PRIMARY KEY, nonce text NOT NULL, at timestamptz NOT NULL);
+        - CREATE ROLE bedrock_observer LOGIN;
+        - REVOKE ALL ON bedrock_heartbeat FROM PUBLIC;
+        - GRANT SELECT (observer, nonce), INSERT (observer, nonce, at), UPDATE (nonce, at) ON bedrock_heartbeat TO bedrock_observer;
+        - GRANT EXECUTE ON FUNCTION pg_control_system() TO bedrock_observer;
+        - GRANT EXECUTE ON FUNCTION pg_control_checkpoint() TO bedrock_observer;
+  managed:
+    roles:
+      - name: bedrock_observer
+        login: true
+        ensure: present
+        passwordSecret:
+          name: bedrock-observer
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
