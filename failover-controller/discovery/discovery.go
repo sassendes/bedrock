@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// Config holds every name discovery relies on. Nothing is hardcoded in the logic.
 type Config struct {
 	ClusterGVR       schema.GroupVersionResource
 	ClusterKind      string
@@ -78,6 +79,7 @@ type Discovery struct {
 	Problems []Problem
 }
 
+// A replica is tied to its primary through the owner of the Service it streams from, never by name.
 func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interface, cfg Config) (Discovery, error) {
 	var out Discovery
 
