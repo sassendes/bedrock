@@ -1,4 +1,4 @@
-package main
+package discovery
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func rw(ns, cluster string) *corev1.Service {
 }
 
 func testConfig() Config {
-	cfg := defaultConfig()
+	cfg := DefaultConfig()
 	cfg.DRZones = map[string]bool{"offsite": true}
 	return cfg
 }
@@ -84,7 +84,7 @@ func run(t *testing.T, cfg Config, clusters []runtime.Object, kube []runtime.Obj
 	t.Helper()
 	dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{cfg.ClusterGVR: "ClusterList"}, clusters...)
-	got, err := discover(context.Background(), dyn, kubefake.NewSimpleClientset(kube...), cfg)
+	got, err := Discover(context.Background(), dyn, kubefake.NewSimpleClientset(kube...), cfg)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
