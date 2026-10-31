@@ -7,13 +7,15 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sassendes/bedrock/failover-controller/discovery"
+
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
 func main() {
-	cfg := defaultConfig()
+	cfg := discovery.DefaultConfig()
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "path to a kubeconfig, empty means in-cluster")
 	drZones := flag.String("dr-zones", "", "comma separated zones that hold dr clusters")
 	flag.StringVar(&cfg.ClusterGVR.Group, "cluster-group", cfg.ClusterGVR.Group, "api group of the database cluster resource")
@@ -39,7 +41,7 @@ func main() {
 	dyn := dynamic.NewForConfigOrDie(rc)
 	kube := kubernetes.NewForConfigOrDie(rc)
 
-	d, err := discover(context.Background(), dyn, kube, cfg)
+	d, err := discovery.Discover(context.Background(), dyn, kube, cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -49,7 +51,7 @@ func main() {
 		p := f.Primary
 		fmt.Printf("family %s\n", p.Key())
 		fmt.Printf("  primary  %-28s %d/%d ready  current %s\n", p.Key(), p.ReadyInstances, p.Instances, p.CurrentPrimary)
-		for _, group := range [][]Member{f.Live, f.Delayed, f.DR} {
+		for _, group := range [][]discovery.Member{f.Live, f.Delayed, f.DR} {
 			for _, m := range group {
 				fmt.Printf("  %-8s %-28s %d/%d ready  zones %v  delay %s\n", m.Role, m.Key(), m.ReadyInstances, m.Instances, m.Zones, m.ApplyDelay)
 			}
