@@ -21,18 +21,19 @@ const (
 	ResultNotPrimary Result = "not-primary"
 )
 
+// Proof is the evidence behind a Result. Every field is checked by dumb code, never interpreted.
 type Proof struct {
-	Observer   string
-	Target     string
-	Result     Result
-	Nonce      string
-	EchoNonce  string
-	InRecovery bool
-	LSN        string
-	SystemID   string
-	Timeline   int64
-	Latency    time.Duration
-	Reason     string
+	Observer   string        `json:"observer"`
+	Target     string        `json:"target"`
+	Result     Result        `json:"result"`
+	Nonce      string        `json:"nonce"`
+	EchoNonce  string        `json:"echoNonce"`
+	InRecovery bool          `json:"inRecovery"`
+	LSN        string        `json:"lsn"`
+	SystemID   string        `json:"systemId"`
+	Timeline   int64         `json:"timeline"`
+	Latency    time.Duration `json:"latencyNs"`
+	Reason     string        `json:"reason"`
 }
 
 type CheckConfig struct {
@@ -45,6 +46,7 @@ type CheckConfig struct {
 	TLSMode  string
 }
 
+// Only a primary that can actually write passes; a standby fails as read only.
 const heartbeatSQL = `
 WITH hb AS (
     INSERT INTO bedrock_heartbeat (observer, nonce, at)
@@ -62,6 +64,7 @@ FROM hb`
 const sqlStateReadOnly = "25006"
 const sqlStateQueryCanceled = "57014"
 
+// A hung instance that still accepts connections times out and is voted down.
 func strongCheck(ctx context.Context, cfg CheckConfig, observer, target string) Proof {
 	p := Proof{Observer: observer, Target: target, Result: ResultDown}
 
