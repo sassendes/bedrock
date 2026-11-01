@@ -16,6 +16,7 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/store"
 	"github.com/sassendes/bedrock/failover-controller/testenv"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -73,6 +74,8 @@ type lab struct {
 	approve bool
 	ups     map[string]bool
 	liars   map[string]bool
+	split   map[string]observe.Ballot
+	round   int64
 }
 
 func newLab(t *testing.T) *lab {
@@ -107,17 +110,27 @@ func (l *lab) decider(identity string) *Decider {
 	return d
 }
 
+// vote publishes both observers of every node with the node's ballot; split overrides observer b.
 func (l *lab) vote(ballots map[string]observe.Ballot) {
 	ctx := context.Background()
 	l.ups = map[string]bool{}
 	for node, b := range ballots {
-		if b == observe.BallotUp {
-			l.ups[node] = true
-		}
-		l.seq++
-		v := observe.Vote{Target: target, Ballot: b, Seq: l.seq}
-		if err := l.st.PublishVotes(ctx, node, "", map[string]observe.Vote{target: v}); err != nil {
-			l.t.Fatal(err)
+		for _, slot := range []string{"a", "b"} {
+			cast := b
+			if s, ok := l.split[node]; ok && slot == "b" {
+				cast = s
+			}
+			if cast == "" {
+				continue
+			}
+			if cast == observe.BallotUp {
+				l.ups[observe.ObserverID(node, slot)] = true
+			}
+			l.seq++
+			v := observe.Vote{Target: target, Ballot: cast, Seq: l.seq}
+			if err := l.st.PublishVotes(ctx, node, slot, "", map[string]observe.Vote{target: v}); err != nil {
+				l.t.Fatal(err)
+			}
 		}
 	}
 }
@@ -127,12 +140,13 @@ func (l *lab) vote(ballots map[string]observe.Ballot) {
 func (l *lab) verifier() {
 	ctx := context.Background()
 	var ups []string
-	for n := range l.ups {
-		if !l.liars[n] {
-			ups = append(ups, n)
+	for id := range l.ups {
+		if !l.liars[strings.Split(id, "/")[0]] {
+			ups = append(ups, id)
 		}
 	}
-	if err := l.st.PutRound(ctx, store.Round{Number: 1, Challenge: "c", ValidUps: map[string][]string{target: ups}}); err != nil {
+	l.round++
+	if err := l.st.PutRound(ctx, store.Round{Number: l.round, Challenge: "c", IssuedAt: l.clock, ValidUps: map[string][]string{target: ups}}); err != nil {
 		l.t.Fatal(err)
 	}
 	c := l.claim()
@@ -525,5 +539,138 @@ func TestEveryWriteCarriesTheEpoch(t *testing.T) {
 	}
 	if n < 3 {
 		t.Fatalf("only %d writes seen", n)
+	}
+}
+
+func TestOneObserverOfANodeCannotVoteItDown(t *testing.T) {
+	l := newLab(t)
+	l.split = map[string]observe.Ballot{"n2": observe.BallotAbstain, "n3": observe.BallotAbstain, "n4": observe.BallotAbstain}
+	l.run(l.decider("decider-0"), 45, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("one observer per node voted the target down: %+v", c)
+	}
+}
+
+func TestAMissingObserverMakesItsNodeAbstain(t *testing.T) {
+	l := newLab(t)
+	l.split = map[string]observe.Ballot{"n2": "", "n3": "", "n4": ""}
+	l.run(l.decider("decider-0"), 45, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("a node with one observer counted as down: %+v", c)
+	}
+}
+
+func TestOneProvenUpFromOneObserverVetoes(t *testing.T) {
+	l := newLab(t)
+	l.split = map[string]observe.Ballot{"n5": observe.BallotUp}
+	l.run(l.decider("decider-0"), 45, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("a signed up from one observer did not stop it: %+v", c)
+	}
+}
+
+func (l *lab) halt(on bool) {
+	if err := l.st.PutHalts(context.Background(), map[string]bool{target: on}); err != nil {
+		l.t.Fatal(err)
+	}
+}
+
+func TestCheckerHaltStopsAClaim(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	d := l.decider("decider-0")
+	l.run(d, 32, allDown)
+	if c := l.claim(); c == nil || c.State != store.ClaimOpen {
+		t.Fatalf("expected an open claim, got %+v", c)
+	}
+	l.approve = true
+	l.halt(true)
+	l.run(d, 5, allDown)
+	if c := l.claim(); c.State != store.ClaimClosed || !strings.Contains(c.Reason, "checker") {
+		t.Fatalf("the checker's halt did not stop the claim: %+v", c)
+	}
+	if l.journal.index("patch cluster-1") >= 0 {
+		t.Fatal("fenced while the checker held everything")
+	}
+}
+
+func TestCheckerHaltStopsNewClaims(t *testing.T) {
+	l := newLab(t)
+	l.halt(true)
+	l.run(l.decider("decider-0"), 45, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("claimed while the checker held everything: %+v", c)
+	}
+}
+
+func TestStaleRoundsDoNotFence(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	l.approve = false
+	l.run(d, 32, allDown)
+	l.approve = true
+	l.verifier()
+	l.verify = false
+	l.clock = l.clock.Add(25 * time.Second)
+	l.run(d, 30, allDown)
+	if l.journal.index("patch cluster-1") >= 0 {
+		t.Fatal("fenced on an approval while the verifier had stopped closing rounds")
+	}
+	l.verify = true
+	l.run(d, 20, allDown)
+	if l.journal.index("patch cluster-1") < 0 {
+		t.Fatal("never fenced once the verifier came back")
+	}
+}
+
+func TestTheClaimNamesTheInstanceThatDied(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	l.run(l.decider("decider-0"), 32, allDown)
+	if c := l.claim(); c == nil || c.Instance != "cluster-1-1" {
+		t.Fatalf("claim %+v", c)
+	}
+}
+
+func TestCnpgMovingThePrimaryClosesTheClaimWithoutAFence(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	d := l.decider("decider-0")
+	l.run(d, 32, allDown)
+	obj := l.w.Cluster("cluster-1")
+	_ = unstructured.SetNestedField(obj.Object, "cluster-1-2", "status", "currentPrimary")
+	if _, err := l.w.Dyn.Resource(testenv.Clusters).Namespace("cluster-1").Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	l.approve = true
+	l.run(d, 5, allDown)
+	if c := l.claim(); c.State != store.ClaimClosed || !strings.Contains(c.Reason, "cnpg moved") {
+		t.Fatalf("claim %+v", c)
+	}
+	if l.journal.index("patch cluster-1") >= 0 {
+		t.Fatal("fenced after cnpg had already promoted a standby")
+	}
+}
+
+func TestReadyStandbysGiveCnpgItsMinute(t *testing.T) {
+	l := newLab(t)
+	ctx := context.Background()
+	p, err := l.w.Kube.CoreV1().Pods("cluster-1").Get(ctx, "cluster-1-2", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	if _, err := l.w.Kube.CoreV1().Pods("cluster-1").UpdateStatus(ctx, p, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	l.approve = false
+	d := l.decider("decider-0")
+	l.run(d, 45, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("claimed after 45s with a ready standby: %+v", c)
+	}
+	l.run(d, 20, allDown)
+	if c := l.claim(); c == nil {
+		t.Fatal("never claimed after the cnpg minute")
 	}
 }

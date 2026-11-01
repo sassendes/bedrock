@@ -41,8 +41,9 @@ type noAddrs struct{}
 func (noAddrs) SetAddrs(map[string]string) {}
 
 type reach struct {
-	mu sync.Mutex
-	up map[string]bool
+	mu    sync.Mutex
+	up    map[string]bool
+	stuck bool
 }
 
 func (r *reach) set(node string, up bool) {
@@ -56,6 +57,10 @@ func (r *reach) check(_ context.Context, cfg observe.CheckConfig, observer, tgt,
 	up := r.up[observer]
 	r.mu.Unlock()
 	p := observe.Proof{Observer: observer, Target: tgt, Nonce: nonce, Result: observe.ResultDown, Reason: "connect: refused"}
+	if r.stuck {
+		p.Stuck, p.Reason = true, "statement timeout"
+		return p
+	}
 	if up && cfg.Host != "" {
 		p.Result, p.EchoNonce, p.LSN, p.SystemID, p.Timeline = observe.ResultUp, nonce, "0/3000000", "7400000000000000001", 1
 	}
@@ -73,13 +78,13 @@ func setup(t *testing.T, nodes ...string) (map[string]*Observer, *reach, *store.
 	for _, n := range nodes {
 		_, key, _ := ed25519.GenerateKey(rand.Reader)
 		o := New(w.Kube, w.Dyn, cfg.Discovery, act.New(w.Dyn, w.Kube, cfg), st, Config{
-			Node: n, Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
+			Node: n, Slot: "a", SlotLabel: "bedrock.io/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
 			ExchangePort: 8443, ProbeInterval: time.Second, SuspectInterval: time.Second, AskTimeout: time.Second,
 		}, key, m, noAddrs{}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		o.check = r.check
-		m.nodes[n] = o.Exchange()
+		m.nodes[o.ID()] = o.Exchange()
 		out[n] = o
-		r.set(n, true)
+		r.set(o.ID(), true)
 	}
 	return out, r, st
 }
@@ -120,7 +125,7 @@ func TestUpIsCastWithProof(t *testing.T) {
 func TestBrokenPathAbstainsInsteadOfVotingDown(t *testing.T) {
 	obs, r, st := setup(t, "n3", "n4", "n5")
 	roundAll(obs)
-	r.set("n3", false)
+	r.set("n3/a", false)
 	obs["n3"].Round(context.Background())
 	v := ballot(t, st, "n3")
 	if v.Ballot != observe.BallotAbstain {
@@ -131,8 +136,8 @@ func TestBrokenPathAbstainsInsteadOfVotingDown(t *testing.T) {
 func TestEveryoneDownIsAConfirmedDown(t *testing.T) {
 	obs, r, st := setup(t, "n3", "n4", "n5")
 	roundAll(obs)
-	for n := range obs {
-		r.set(n, false)
+	for _, o := range obs {
+		r.set(o.ID(), false)
 	}
 	obs["n3"].Round(context.Background())
 	if v := ballot(t, st, "n3"); v.Ballot != observe.BallotDown {
@@ -143,7 +148,7 @@ func TestEveryoneDownIsAConfirmedDown(t *testing.T) {
 func TestAloneMeansAbstain(t *testing.T) {
 	obs, r, st := setup(t, "n3")
 	obs["n3"].Round(context.Background())
-	r.set("n3", false)
+	r.set("n3/a", false)
 	obs["n3"].Round(context.Background())
 	if v := ballot(t, st, "n3"); v.Ballot != observe.BallotAbstain {
 		t.Fatalf("an observer with no peers voted %s", v.Ballot)
@@ -178,5 +183,76 @@ func TestObserversSignTheVerifiersChallenge(t *testing.T) {
 	v := ballot(t, st, "n3")
 	if v.Challenge != "round-9-challenge" || v.Proof.Nonce != "round-9-challenge" {
 		t.Fatalf("vote %+v did not use the round's challenge", v)
+	}
+}
+
+func TestTheTwoObserversOfANodeAreSeparatePeers(t *testing.T) {
+	w := testenv.New()
+	testenv.Optimistic(w.Kube, "configmaps")
+	st := store.New(w.Kube, store.DefaultConfig())
+	cfg := act.DefaultConfig()
+	m := &mesh{nodes: map[string]*observe.Node{}}
+	r := &reach{up: map[string]bool{}}
+	var all []*Observer
+	for _, slot := range []string{"a", "b"} {
+		_, key, _ := ed25519.GenerateKey(rand.Reader)
+		o := New(w.Kube, w.Dyn, cfg.Discovery, act.New(w.Dyn, w.Kube, cfg), st, Config{
+			Node: "n3", Slot: slot, SlotLabel: "bedrock.io/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
+			ExchangePort: 8443, ProbeInterval: time.Second, SuspectInterval: time.Second, AskTimeout: time.Second,
+		}, key, m, noAddrs{}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		o.check = r.check
+		m.nodes[o.ID()] = o.Exchange()
+		r.set(o.ID(), true)
+		all = append(all, o)
+	}
+	for pass := 0; pass < 2; pass++ {
+		for _, o := range all {
+			o.Round(context.Background())
+		}
+	}
+	b, err := st.ListBallots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 2 || b[0].ID() != "n3/a" || b[1].ID() != "n3/b" {
+		t.Fatalf("ballots %+v", b)
+	}
+	if got := all[0].Exchange(); got.Name() != "n3/a" {
+		t.Fatalf("exchange name %s", got.Name())
+	}
+}
+
+func TestStuckWritesAreTimedNotVoted(t *testing.T) {
+	obs, r, st := setup(t, "n3", "n4", "n5")
+	roundAll(obs)
+	o := obs["n3"]
+	clock := time.Date(2026, 11, 1, 22, 0, 0, 0, time.UTC)
+	o.now = func() time.Time { return clock }
+	r.mu.Lock()
+	r.stuck = true
+	r.mu.Unlock()
+	o.Round(context.Background())
+	clock = clock.Add(2*time.Minute + time.Second)
+	o.Round(context.Background())
+	if s, _ := o.metrics.Get("bedrock_observer_write_stuck_seconds", map[string]string{"target": target}); s < 120 {
+		t.Fatalf("stuck for %v seconds", s)
+	}
+	if v := ballot(t, st, "n3"); v.Ballot == observe.BallotUp {
+		t.Fatalf("a stuck primary was voted up: %+v", v)
+	}
+	r.mu.Lock()
+	r.stuck = false
+	r.mu.Unlock()
+	o.Round(context.Background())
+	if s, _ := o.metrics.Get("bedrock_observer_write_stuck_seconds", map[string]string{"target": target}); s != 0 {
+		t.Fatalf("still stuck %v after a commit", s)
+	}
+	clock = clock.Add(time.Hour)
+	r.mu.Lock()
+	r.stuck = true
+	r.mu.Unlock()
+	o.Round(context.Background())
+	if s, _ := o.metrics.Get("bedrock_observer_write_stuck_seconds", map[string]string{"target": target}); s != 0 {
+		t.Fatalf("a new stuck spell started at %v seconds", s)
 	}
 }

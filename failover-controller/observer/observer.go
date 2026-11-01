@@ -24,6 +24,8 @@ import (
 
 type Config struct {
 	Node            string
+	Slot            string
+	SlotLabel       string
 	Namespace       string
 	Selector        string
 	ExchangePort    int
@@ -55,7 +57,9 @@ type Observer struct {
 	mu      sync.Mutex
 	targets map[string]string
 	systems map[string]string
+	stuck   map[string]time.Time
 	seq     uint64
+	now     func() time.Time
 }
 
 func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config, actor *act.Actor, st *store.Store, cfg Config, key ed25519.PrivateKey, tr observe.Transport, addrs Addresses, m *metrics.Registry, log *slog.Logger) *Observer {
@@ -66,13 +70,18 @@ func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config
 		nonce:   observe.NewNonce,
 		targets: map[string]string{},
 		systems: map[string]string{},
+		stuck:   map[string]time.Time{},
+		now:     time.Now,
 		seq:     uint64(time.Now().UnixNano()),
 	}
-	o.exch = observe.NewNode(cfg.Node, key, observe.Keyring{}, nil, tr, observe.ProberFunc(o.probe), 2)
+	o.exch = observe.NewNode(o.ID(), key, observe.Keyring{}, nil, tr, observe.ProberFunc(o.probe), 2)
 	return o
 }
 
 func (o *Observer) Exchange() *observe.Node { return o.exch }
+
+// ID is this observer: its node and its slot. Two observers share a node and fold into its one vote.
+func (o *Observer) ID() string { return observe.ObserverID(o.cfg.Node, o.cfg.Slot) }
 
 // probe answers a peer: the same strong check, with the peer's nonce, against the pod I believe is primary.
 func (o *Observer) probe(ctx context.Context, target, nonce string) observe.Proof {
@@ -80,11 +89,11 @@ func (o *Observer) probe(ctx context.Context, target, nonce string) observe.Proo
 	ip := o.targets[target]
 	o.mu.Unlock()
 	if ip == "" {
-		return observe.Proof{Observer: o.cfg.Node, Target: target, Result: observe.ResultDown, Nonce: nonce, Reason: "unknown target"}
+		return observe.Proof{Observer: o.ID(), Target: target, Result: observe.ResultDown, Nonce: nonce, Reason: "unknown target"}
 	}
 	c := o.cfg.Check
 	c.Host = ip
-	return o.check(ctx, c, o.cfg.Node, target, nonce)
+	return o.check(ctx, c, o.ID(), target, nonce)
 }
 
 // Run returns only when ctx ends. One round every probe interval, faster while any target looks down.
@@ -159,8 +168,9 @@ func (o *Observer) Round(ctx context.Context) bool {
 			o.metrics.Set("bedrock_observer_ballot", map[string]string{"target": key, "ballot": string(b)}, val)
 		}
 		o.metrics.Set("bedrock_observer_check_latency_seconds", map[string]string{"target": key}, v.Proof.Latency.Seconds())
+		o.metrics.Set("bedrock_observer_write_stuck_seconds", map[string]string{"target": key}, o.stuckFor(key, v.Proof.Stuck))
 	}
-	err = o.store.PublishVotes(ctx, o.cfg.Node, o.pub, votes)
+	err = o.store.PublishVotes(ctx, o.cfg.Node, o.cfg.Slot, o.pub, votes)
 	o.published = err == nil
 	if err != nil {
 		o.log.Error("publish votes", "err", err)
@@ -204,6 +214,19 @@ func (o *Observer) vote(ctx context.Context, key, challenge string) observe.Vote
 	return v
 }
 
+func (o *Observer) stuckFor(target string, stuck bool) float64 {
+	if !stuck {
+		delete(o.stuck, target)
+		return 0
+	}
+	since, ok := o.stuck[target]
+	if !ok {
+		since = o.now()
+		o.stuck[target] = since
+	}
+	return o.now().Sub(since).Seconds()
+}
+
 func (o *Observer) podIP(ctx context.Context, m discovery.Member) string {
 	if m.CurrentPrimary == "" {
 		return ""
@@ -216,7 +239,7 @@ func (o *Observer) podIP(ctx context.Context, m discovery.Member) string {
 }
 
 // refreshMembers builds the peer list from the running observer pods and their keys from the vote
-// objects, which only the observer on that node can write.
+// objects, which only that observer can write.
 func (o *Observer) refreshMembers(ctx context.Context) error {
 	pods, err := o.kube.CoreV1().Pods(o.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: o.cfg.Selector})
 	if err != nil {
@@ -230,27 +253,28 @@ func (o *Observer) refreshMembers(ctx context.Context) error {
 	for _, b := range ballots {
 		raw, err := base64.StdEncoding.DecodeString(b.PubKey)
 		if err == nil && len(raw) == ed25519.PublicKeySize {
-			pubs[b.Node] = ed25519.PublicKey(raw)
+			pubs[b.ID()] = ed25519.PublicKey(raw)
 		}
 	}
 	addrs := map[string]string{}
 	keys := observe.Keyring{}
 	var peers []string
 	for _, p := range pods.Items {
-		n := p.Spec.NodeName
-		if n == "" || p.Status.PodIP == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
+		slot := p.Labels[o.cfg.SlotLabel]
+		if p.Spec.NodeName == "" || slot == "" || p.Status.PodIP == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
 			continue
 		}
-		pub, ok := pubs[n]
+		id := observe.ObserverID(p.Spec.NodeName, slot)
+		pub, ok := pubs[id]
 		if !ok {
 			continue
 		}
-		keys[n] = pub
-		if n == o.cfg.Node {
+		keys[id] = pub
+		if id == o.ID() {
 			continue
 		}
-		addrs[n] = net.JoinHostPort(p.Status.PodIP, strconv.Itoa(o.cfg.ExchangePort))
-		peers = append(peers, n)
+		addrs[id] = net.JoinHostPort(p.Status.PodIP, strconv.Itoa(o.cfg.ExchangePort))
+		peers = append(peers, id)
 	}
 	o.addrs.SetAddrs(addrs)
 	o.exch.SetMembers(peers, keys)

@@ -20,8 +20,11 @@ import (
 
 	"github.com/sassendes/bedrock/failover-controller/act"
 	"github.com/sassendes/bedrock/failover-controller/metrics"
+	"github.com/sassendes/bedrock/failover-controller/observe"
+	"github.com/sassendes/bedrock/failover-controller/store"
 	"github.com/sassendes/bedrock/failover-controller/testenv"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,14 +44,35 @@ func serverCert(t *testing.T, dns string) (tls.Certificate, *x509.CertPool) {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pool
 }
 
-func run(t *testing.T, dns string, status int) float64 {
-	cert, pool := serverCert(t, dns)
+type setup struct {
+	status   int
+	dns      string
+	round    bool
+	lease    bool
+	votes    bool
+	fencing  bool
+	stallFor time.Duration
+	oneSlot  bool
+	leaseFor int32
+}
+
+type result struct {
+	healthy, halt, active float64
+	pages                 int
+}
+
+func healthyPath() setup {
+	return setup{status: http.StatusOK, dns: "cluster-1-rw.cluster-1.svc", round: true, lease: true, votes: true, leaseFor: 15}
+}
+
+func run(t *testing.T, s setup) result {
+	cert, pool := serverCert(t, s.dns)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
+		if r.URL.Path != "/readyz" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		w.WriteHeader(status)
+		w.WriteHeader(s.status)
 	}))
 	srv.TLS = &tls.Config{Certificates: []tls.Certificate{cert}}
 	srv.StartTLS()
@@ -56,41 +80,153 @@ func run(t *testing.T, dns string, status int) float64 {
 	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 
 	w := testenv.New()
+	testenv.Optimistic(w.Kube, "configmaps")
 	ctx := context.Background()
 	p, _ := w.Kube.CoreV1().Pods("cluster-1").Get(ctx, "cluster-1-1", metav1.GetOptions{})
 	p.Status.PodIP = host
 	if _, err := w.Kube.CoreV1().Pods("cluster-1").Update(ctx, p, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	st := store.New(w.Kube, store.DefaultConfig())
+	if s.round {
+		if err := st.PutRound(ctx, store.Round{Number: 7, Challenge: "c7", IssuedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s.lease {
+		holder, dur := "decider-0", s.leaseFor
+		renew := metav1.NewMicroTime(now)
+		if _, err := w.Kube.CoordinationV1().Leases(testenv.Namespace).Create(ctx, &coordinationv1.Lease{
+			ObjectMeta: metav1.ObjectMeta{Name: "bedrock-decider", Namespace: testenv.Namespace},
+			Spec:       coordinationv1.LeaseSpec{HolderIdentity: &holder, LeaseDurationSeconds: &dur, RenewTime: &renew},
+		}, metav1.CreateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if s.votes {
+		for _, n := range []string{"n2", "n3", "n4", "n5"} {
+			for _, slot := range []string{"a", "b"} {
+				if s.oneSlot && slot == "b" {
+					continue
+				}
+				v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Challenge: "c7", Ballot: observe.BallotUp}}
+				if err := st.PublishVotes(ctx, n, slot, "", v); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	if s.fencing {
+		c := &store.Claim{Target: "cluster-1/cluster-1", Epoch: 1, State: store.ClaimOpen, Step: store.StepFencing, Times: map[string]string{}}
+		if err := st.Open(ctx, c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cfg := DefaultConfig()
 	cfg.Port, _ = strconv.Atoi(port)
 	ac := act.DefaultConfig()
 	m := metrics.New()
-	New(w.Kube, w.Dyn, ac.Discovery, act.New(w.Dyn, w.Kube, ac), cfg, pool, m, slog.New(slog.NewTextHandler(io.Discard, nil))).Round(ctx)
+	c := New(w.Kube, w.Dyn, ac.Discovery, act.New(w.Dyn, w.Kube, ac), st, cfg, pool, m, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	c.now = func() time.Time { return now }
+	c.Round(ctx)
+	if s.stallFor > 0 {
+		now = now.Add(s.stallFor)
+		c.Round(ctx)
+	}
 	if _, ok := m.Get("bedrock_checker_last_round_timestamp_seconds", nil); !ok {
 		t.Fatal("no dead man's switch heartbeat")
 	}
-	v, ok := m.Get("bedrock_checker_primary_healthy", map[string]string{"target": "cluster-1/cluster-1"})
-	if !ok {
-		t.Fatal("no health series")
+	l := map[string]string{"target": "cluster-1/cluster-1"}
+	var r result
+	r.healthy, _ = m.Get("bedrock_checker_primary_healthy", l)
+	r.halt, _ = m.Get("bedrock_checker_halt", l)
+	r.active, _ = m.Get("bedrock_checker_active", l)
+	r.pages = m.Count("bedrock_checker_page")
+	halts, err := st.GetHalts(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	return v
+	if halts["cluster-1.cluster-1"] != (r.halt == 1) {
+		t.Fatalf("object %v disagrees with the metric %v", halts, r.halt)
+	}
+	return r
 }
 
-func TestHealthyPrimary(t *testing.T) {
-	if v := run(t, "cluster-1-rw.cluster-1.svc", http.StatusOK); v != 1 {
-		t.Fatalf("healthy %v", v)
+func TestSleepsWhileTheNormalPathWorks(t *testing.T) {
+	r := run(t, healthyPath())
+	if r.active != 0 || r.halt != 0 || r.pages != 0 || r.healthy != 1 {
+		t.Fatalf("got %+v", r)
 	}
 }
 
-func TestUnhealthyPrimary(t *testing.T) {
-	if v := run(t, "cluster-1-rw.cluster-1.svc", http.StatusInternalServerError); v != 0 {
-		t.Fatalf("healthy %v", v)
+func TestStalledVerifierAndUpDatabaseStopsEverythingWithoutAPage(t *testing.T) {
+	s := healthyPath()
+	s.stallFor = time.Minute
+	r := run(t, s)
+	if r.active != 1 || r.halt != 1 || r.pages != 0 {
+		t.Fatalf("got %+v", r)
 	}
 }
 
-func TestWrongCertificateIsUnhealthy(t *testing.T) {
-	if v := run(t, "someone-else.svc", http.StatusOK); v != 0 {
-		t.Fatalf("a certificate for another name was trusted: %v", v)
+func TestNoRoundAtAllCountsAsStalled(t *testing.T) {
+	s := healthyPath()
+	s.round = false
+	if r := run(t, s); r.active != 1 || r.halt != 1 {
+		t.Fatalf("got %+v", r)
+	}
+}
+
+func TestNoLeaderAndDownDatabasePages(t *testing.T) {
+	s := healthyPath()
+	s.lease = false
+	s.status = http.StatusServiceUnavailable
+	r := run(t, s)
+	if r.active != 1 || r.halt != 0 || r.pages != 1 {
+		t.Fatalf("got %+v", r)
+	}
+}
+
+func TestLostQuorumAndUpDatabaseHalts(t *testing.T) {
+	s := healthyPath()
+	s.votes = false
+	if r := run(t, s); r.active != 1 || r.halt != 1 || r.pages != 0 {
+		t.Fatalf("got %+v", r)
+	}
+}
+
+func TestNeverHaltsAFailoverPastTheFence(t *testing.T) {
+	s := healthyPath()
+	s.stallFor = time.Minute
+	s.fencing = true
+	if r := run(t, s); r.halt != 0 {
+		t.Fatalf("halted a failover that already started fencing: %+v", r)
+	}
+}
+
+func TestWrongCertificateIsDown(t *testing.T) {
+	s := healthyPath()
+	s.dns = "someone-else.svc"
+	s.round = false
+	r := run(t, s)
+	if r.healthy != 0 || r.halt != 0 || r.pages != 1 {
+		t.Fatalf("a certificate for another name was trusted: %+v", r)
+	}
+}
+
+func TestOnlyTheVerifierStallingIsEnough(t *testing.T) {
+	s := healthyPath()
+	s.stallFor = time.Minute
+	s.leaseFor = 3600
+	if r := run(t, s); r.active != 1 || r.halt != 1 {
+		t.Fatalf("a stalled verifier alone did not wake the checker: %+v", r)
+	}
+}
+
+func TestNodesWithOneObserverDoNotMakeQuorum(t *testing.T) {
+	s := healthyPath()
+	s.oneSlot = true
+	if r := run(t, s); r.active != 1 || r.halt != 1 {
+		t.Fatalf("half the observers made quorum: %+v", r)
 	}
 }

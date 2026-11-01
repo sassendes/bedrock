@@ -24,9 +24,11 @@ func main() {
 	st := store.DefaultConfig()
 	cfg := verifier.DefaultConfig()
 	wcfg := witness.DefaultConfig()
-	var interval time.Duration
+	var interval, cnpgGrace time.Duration
 	var keyDir, caDir, passwordFile string
 	fs.DurationVar(&interval, "round", 4*time.Second, "length of a round; every round closes on this timer")
+	fs.DurationVar(&cnpgGrace, "cnpg-grace", time.Minute, "how long cnpg gets to promote inside a cluster that still has ready standbys")
+	fs.IntVar(&cfg.PerNode, "observers-per-node", cfg.PerNode, "observers on every node, folded into the node's one vote")
 	fs.IntVar(&cfg.DeadNeeded, "dead-witnesses", cfg.DeadNeeded, "witnesses that must answer dead to prove a death")
 	fs.StringVar(&cfg.ObserverSelector, "observer-selector", cfg.ObserverSelector, "label selector of the observer pods")
 	fs.StringVar(&keyDir, "key-dir", "/etc/bedrock/proof-keys", "directory of proof keys, one hex file per key id")
@@ -50,6 +52,7 @@ func main() {
 	common.Finish()
 	log := cli.Logger()
 	cfg.ObserverNamespace = common.Namespace
+	cfg.GraceRounds = int64((cnpgGrace + interval - 1) / interval)
 	st.Namespace = common.Namespace
 
 	keys, err := proof.LoadKeys(keyDir)
@@ -82,6 +85,7 @@ func main() {
 		log.Error("config", "err", err)
 		os.Exit(1)
 	}
+	v.ReadReplayWith(wcfg.Check)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

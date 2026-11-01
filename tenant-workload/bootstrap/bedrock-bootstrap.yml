@@ -694,9 +694,11 @@
       ansible.builtin.shell: |
         set -eu
         umask 077
-        openssl rand -hex 32 > "{{ failover_dir }}/proof-keys/k1"
-      args:
-        creates: "{{ failover_dir }}/proof-keys/k1"
+        if ls "{{ failover_dir }}"/proof-keys/k* >/dev/null 2>&1; then echo kept; exit 0; fi
+        openssl rand -hex 32 > "{{ failover_dir }}/proof-keys/k$(date -u +%Y%m%d%H%M%S)"
+        echo made
+      register: proof_key
+      changed_when: "'made' in proof_key.stdout"
 
     - name: Load the bedrock functions and the proof keys into the cluster-1 primary
       ansible.builtin.shell: |
@@ -1057,7 +1059,8 @@
         KUBECONFIG: "{{ kubeconfig }}"
       changed_when: false
       loop:
-        - daemonset/bedrock-observer
+        - daemonset/bedrock-observer-a
+        - daemonset/bedrock-observer-b
         - deployment/bedrock-verifier
         - deployment/bedrock-decider
         - deployment/bedrock-checker

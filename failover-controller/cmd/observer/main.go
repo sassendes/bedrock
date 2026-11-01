@@ -16,7 +16,6 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/act"
 	"github.com/sassendes/bedrock/failover-controller/cli"
 	"github.com/sassendes/bedrock/failover-controller/metrics"
-	"github.com/sassendes/bedrock/failover-controller/observe"
 	"github.com/sassendes/bedrock/failover-controller/observer"
 	"github.com/sassendes/bedrock/failover-controller/store"
 	"github.com/sassendes/bedrock/failover-controller/transport"
@@ -29,6 +28,8 @@ func main() {
 	cfg := observer.Config{}
 	var passwordFile, certFile, keyFile, caFile, serverName, caDir string
 	fs.StringVar(&cfg.Node, "node", cli.Env("NODE_NAME", ""), "name of the node this observer runs on")
+	fs.StringVar(&cfg.Slot, "slot", cli.Env("OBSERVER_SLOT", ""), "which of the node's observers this is")
+	fs.StringVar(&cfg.SlotLabel, "slot-label", "bedrock.io/observer-slot", "pod label holding an observer's slot")
 	fs.StringVar(&cfg.Selector, "observer-selector", "app.kubernetes.io/name=bedrock-observer", "label selector of the observer pods")
 	fs.IntVar(&cfg.ExchangePort, "exchange-port", 8443, "port of the peer exchange")
 	fs.DurationVar(&cfg.ProbeInterval, "probe-interval", 2*time.Second, "time between rounds")
@@ -54,6 +55,10 @@ func main() {
 
 	if cfg.Node == "" {
 		log.Error("node name is empty, set NODE_NAME from spec.nodeName")
+		os.Exit(1)
+	}
+	if cfg.Slot == "" || strings.ContainsAny(cfg.Slot, "-/.") {
+		log.Error("slot must be set and hold no dash, slash or dot", "slot", cfg.Slot)
 		os.Exit(1)
 	}
 	cfg.Namespace = common.Namespace
@@ -110,8 +115,7 @@ func main() {
 			os.Exit(1)
 		}
 	}()
-	log.Info("observer started", "node", cfg.Node)
+	log.Info("observer started", "id", o.ID())
 	o.Run(ctx, health.Mark)
 	_ = srv.Close()
-	_ = observe.BallotUp
 }

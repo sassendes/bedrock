@@ -1,0 +1,83 @@
+- name: Rotate the proof key (postgres signs with the new one, the verifier trusts both for a few minutes)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
+    failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
+    overlap_seconds: 60
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  tasks:
+    - name: The keys there are now
+      ansible.builtin.find:
+        paths: "{{ failover_dir }}/proof-keys"
+        patterns: "k*"
+      register: old_keys
+
+    - name: Refuse without a key to rotate from
+      ansible.builtin.assert:
+        that: old_keys.matched > 0
+        fail_msg: "no proof key in {{ failover_dir }}/proof-keys, run the bootstrap first"
+
+    - name: Make the new key
+      ansible.builtin.shell: |
+        set -eu
+        umask 077
+        id="k$(date -u +%Y%m%d%H%M%S)"
+        openssl rand -hex 32 > "{{ failover_dir }}/proof-keys/$id"
+        echo "$id"
+      register: new_key
+      changed_when: true
+
+    - name: Give postgres the new key, not signing with it yet
+      ansible.builtin.shell: |
+        set -eu
+        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+        test -n "$primary"
+        printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), false) ON CONFLICT (id) DO NOTHING;\n" \
+          "{{ new_key.stdout }}" "$(tr -d '[:space:]' < "{{ failover_dir }}/proof-keys/{{ new_key.stdout }}")" \
+          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+      no_log: true
+
+    - name: The verifier trusts the old and the new key
+      ansible.builtin.shell: |
+        set -eu
+        kubectl create secret generic bedrock-proof-keys -n bedrock-failover --from-file="{{ failover_dir }}/proof-keys" --dry-run=client -o yaml | kubectl apply -f -
+        kubectl rollout restart -n bedrock-failover deployment/bedrock-verifier
+        kubectl rollout status -n bedrock-failover deployment/bedrock-verifier --timeout=300s
+      no_log: true
+
+    - name: Postgres signs with the new key only
+      ansible.builtin.shell: |
+        set -eu
+        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+        printf "UPDATE bedrock_proof_key SET active = (id = '%s');\n" "{{ new_key.stdout }}" \
+          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+
+    - name: Let every round signed with the old key close
+      ansible.builtin.pause:
+        seconds: "{{ overlap_seconds }}"
+
+    - name: Drop the old keys from postgres
+      ansible.builtin.shell: |
+        set -eu
+        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+        printf "DELETE FROM bedrock_proof_key WHERE id <> '%s';\n" "{{ new_key.stdout }}" \
+          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+
+    - name: Drop the old keys from the controller
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_keys.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: The verifier trusts the new key only
+      ansible.builtin.shell: |
+        set -eu
+        kubectl create secret generic bedrock-proof-keys -n bedrock-failover --from-file="{{ failover_dir }}/proof-keys" --dry-run=client -o yaml | kubectl apply -f -
+        kubectl rollout restart -n bedrock-failover deployment/bedrock-verifier
+        kubectl rollout status -n bedrock-failover deployment/bedrock-verifier --timeout=300s
+      no_log: true

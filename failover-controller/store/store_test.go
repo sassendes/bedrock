@@ -24,18 +24,18 @@ func TestVotesRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	s := New(optimistic(), DefaultConfig())
 	v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Ballot: observe.BallotDown, Seq: 7}}
-	if err := s.PublishVotes(ctx, "n1", "key", v); err != nil {
+	if err := s.PublishVotes(ctx, "n1", "a", "key", v); err != nil {
 		t.Fatal(err)
 	}
 	v["cluster-1/cluster-1"] = observe.Vote{Target: "cluster-1/cluster-1", Ballot: observe.BallotUp, Seq: 8}
-	if err := s.PublishVotes(ctx, "n1", "key", v); err != nil {
+	if err := s.PublishVotes(ctx, "n1", "a", "key", v); err != nil {
 		t.Fatal(err)
 	}
 	b, err := s.ListBallots(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(b) != 1 || b[0].Node != "n1" || b[0].Votes["cluster-1/cluster-1"].Seq != 8 {
+	if len(b) != 1 || b[0].Node != "n1" || b[0].Slot != "a" || b[0].ID() != "n1/a" || b[0].Votes["cluster-1/cluster-1"].Seq != 8 {
 		t.Fatalf("got %+v", b)
 	}
 }
@@ -43,8 +43,11 @@ func TestVotesRoundTrip(t *testing.T) {
 func TestVoteObjectMustNameItsNode(t *testing.T) {
 	ctx := context.Background()
 	kube := kubefake.NewSimpleClientset(&corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n1", Labels: map[string]string{"bedrock.io/failover-role": "vote"}},
-		Data:       map[string]string{"node": "n2", "votes": "{}"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n1-a", Labels: map[string]string{"bedrock.io/failover-role": "vote"}},
+		Data:       map[string]string{"node": "n2", "slot": "a", "votes": "{}"},
+	}, &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n3-a", Labels: map[string]string{"bedrock.io/failover-role": "vote"}},
+		Data:       map[string]string{"node": "n3", "slot": "b", "votes": "{}"},
 	})
 	b, err := New(kube, DefaultConfig()).ListBallots(ctx)
 	if err != nil {

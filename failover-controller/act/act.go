@@ -119,6 +119,26 @@ func (a *Actor) instanceSelector(name string) string {
 	return a.cfg.Discovery.InstanceSelector + "," + a.cfg.Discovery.ClusterLabel + "=" + name
 }
 
+func (a *Actor) ReadyStandbys(ctx context.Context, m discovery.Member) int {
+	d := a.cfg.Discovery
+	pods, err := a.kube.CoreV1().Pods(m.Namespace).List(ctx, metav1.ListOptions{LabelSelector: d.InstanceSelector + "," + d.ClusterLabel + "=" + m.Name})
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, p := range pods.Items {
+		if p.Name == m.CurrentPrimary || p.DeletionTimestamp != nil {
+			continue
+		}
+		for _, c := range p.Status.Conditions {
+			if c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func (a *Actor) Instances(ctx context.Context, key string) (pods, nodes []string, err error) {
 	ns, name, err := splitKey(key)
 	if err != nil {

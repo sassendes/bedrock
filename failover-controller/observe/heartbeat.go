@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -36,6 +37,7 @@ type Proof struct {
 	Timeline   int64         `json:"timeline"`
 	Latency    time.Duration `json:"latencyNs"`
 	Reason     string        `json:"reason"`
+	Stuck      bool          `json:"stuck,omitempty"`
 	Signed     *proof.Signed `json:"signed,omitempty"`
 	SignError  string        `json:"signError,omitempty"`
 }
@@ -79,7 +81,8 @@ func strongCheck(ctx context.Context, cfg CheckConfig, observer, target string) 
 	return StrongCheckWithNonce(ctx, cfg, observer, target, nonce)
 }
 
-// A hung instance that still accepts connections times out and is voted down.
+// Only a committed write is up, and only then does postgres sign. An instance that answers but cannot
+// commit is stuck: it is down for the vote and never signed.
 func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target, nonce string) Proof {
 	p := Proof{Observer: observer, Target: target, Result: ResultDown, Nonce: nonce}
 
@@ -95,26 +98,33 @@ func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target
 	}
 	defer conn.Close(context.Background())
 
-	p.Signed, p.SignError = sign(ctx, conn, nonce, observer)
-
 	err = conn.QueryRow(ctx, heartbeatSQL, observer, nonce).Scan(&p.EchoNonce, &p.InRecovery, &p.LSN, &p.SystemID, &p.Timeline)
 	p.Latency = time.Since(start)
 
 	var pgErr *pgconn.PgError
 	switch {
 	case errors.As(err, &pgErr) && pgErr.Code == sqlStateReadOnly:
+		var recovery bool
+		if qerr := conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recovery); qerr == nil && !recovery {
+			p.Stuck = true
+			p.Reason = "read only but not in recovery: the primary refuses writes"
+			return p
+		}
 		p.Result = ResultNotPrimary
 		p.InRecovery = true
 		p.Reason = "target is read only, not a primary"
 		return p
 	case errors.As(err, &pgErr) && pgErr.Code == sqlStateQueryCanceled:
+		p.Stuck = true
 		p.Reason = "statement timeout: the instance answered but could not write in time"
 		return p
 	case errors.Is(err, context.DeadlineExceeded):
-		p.Reason = "timeout: no answer within the check deadline"
+		p.Stuck = true
+		p.Reason = "timeout: connected but no answer within the check deadline"
 		return p
 	case err != nil:
-		p.Reason = "query: " + err.Error()
+		p.Stuck = true
+		p.Reason = "write: " + err.Error()
 		return p
 	}
 
@@ -126,6 +136,7 @@ func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target
 		p.Reason = "pg_is_in_recovery() is true"
 	default:
 		p.Result = ResultUp
+		p.Signed, p.SignError = sign(ctx, conn, nonce, observer)
 	}
 	return p
 }
@@ -140,8 +151,6 @@ func newNonce() (string, error) {
 
 func NewNonce() (string, error) { return newNonce() }
 
-// sign asks postgres to sign the challenge. It runs before the write, so a standby signs too:
-// it can only ever sign that it is in recovery.
 func sign(ctx context.Context, conn *pgx.Conn, challenge, observer string) (*proof.Signed, string) {
 	s := proof.Signed{Challenge: challenge, Observer: observer}
 	err := conn.QueryRow(ctx, proveSQL, challenge, observer).Scan(&s.KeyID, &s.Instance, &s.SystemID, &s.Timeline, &s.LSN, &s.InRecovery, &s.AtMs, &s.MAC)
@@ -175,6 +184,38 @@ func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
 		return ReceiverState{Err: err.Error()}
 	}
 	return r
+}
+
+// ReplayLSN is how far a replica has replayed. It fails on an instance that is not in recovery.
+func ReplayLSN(ctx context.Context, cfg CheckConfig) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
+	defer cancel()
+	conn, err := connect(ctx, cfg)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close(context.Background())
+	var lsn *string
+	if err := conn.QueryRow(ctx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn); err != nil {
+		return "", err
+	}
+	if lsn == nil {
+		return "", errors.New("not in recovery")
+	}
+	return *lsn, nil
+}
+
+func ParseLSN(s string) (uint64, bool) {
+	hi, lo, ok := strings.Cut(s, "/")
+	if !ok {
+		return 0, false
+	}
+	h, err1 := strconv.ParseUint(hi, 16, 32)
+	l, err2 := strconv.ParseUint(lo, 16, 32)
+	if err1 != nil || err2 != nil {
+		return 0, false
+	}
+	return h<<32 | l, true
 }
 
 func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {

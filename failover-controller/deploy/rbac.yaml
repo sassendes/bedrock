@@ -187,3 +187,30 @@ subjects:
   - kind: ServiceAccount
     name: bedrock-decider
     namespace: bedrock-failover
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bedrock-checker
+  namespace: bedrock-failover
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bedrock-checker
+  namespace: bedrock-failover
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: bedrock-checker
+subjects:
+  - kind: ServiceAccount
+    name: bedrock-checker
+    namespace: bedrock-failover

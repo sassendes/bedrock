@@ -12,6 +12,14 @@ metadata:
   labels:
     bedrock.io/failover-role: approvals
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bedrock-checker
+  namespace: bedrock-failover
+  labels:
+    bedrock.io/failover-role: checker
+---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -27,7 +35,7 @@ spec:
         apiVersions: ["v1"]
         operations: ["DELETE"]
         resources: ["configmaps"]
-        resourceNames: ["bedrock-approvals"]
+        resourceNames: ["bedrock-approvals", "bedrock-checker"]
       - apiGroups: ["coordination.k8s.io"]
         apiVersions: ["v1"]
         operations: ["DELETE"]
@@ -66,11 +74,15 @@ spec:
   variables:
     - name: node
       expression: "'authentication.kubernetes.io/node-name' in request.userInfo.extra ? request.userInfo.extra['authentication.kubernetes.io/node-name'][0] : ''"
+    - name: pod
+      expression: "'authentication.kubernetes.io/pod-name' in request.userInfo.extra ? request.userInfo.extra['authentication.kubernetes.io/pod-name'][0] : ''"
+    - name: slot
+      expression: "variables.pod.startsWith('bedrock-observer-a-') ? 'a' : (variables.pod.startsWith('bedrock-observer-b-') ? 'b' : '')"
   validations:
     - expression: request.operation != "DELETE"
       message: observers never delete
-    - expression: variables.node != "" && object.metadata.name == "vote-" + variables.node && object.?data.node.orValue("") == variables.node
-      messageExpression: "'an observer may only write vote-' + variables.node"
+    - expression: variables.node != "" && variables.slot != "" && object.metadata.name == "vote-" + variables.node + "-" + variables.slot && object.?data.node.orValue("") == variables.node && object.?data.slot.orValue("") == variables.slot
+      messageExpression: "'an observer may only write vote-' + variables.node + '-' + variables.slot"
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
@@ -83,7 +95,7 @@ spec:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
-  name: bedrock-verifier-owns-the-court
+  name: bedrock-court-writers
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -100,6 +112,8 @@ spec:
       expression: "request.operation == 'DELETE' ? oldObject.metadata.name : object.metadata.name"
     - name: verifier
       expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-verifier"
+    - name: checker
+      expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-checker"
     - name: serviceAccount
       expression: request.userInfo.username.startsWith("system:serviceaccount:")
   validations:
@@ -107,13 +121,17 @@ spec:
       message: no workload but the verifier writes rounds and approvals
     - expression: "!variables.verifier || (variables.name in ['bedrock-round', 'bedrock-approvals'] && request.operation != 'DELETE')"
       message: the verifier writes nothing else
+    - expression: "variables.name != 'bedrock-checker' || variables.checker || !variables.serviceAccount"
+      message: no workload but the checker writes the checker's object
+    - expression: "!variables.checker || (variables.name == 'bedrock-checker' && request.operation != 'DELETE')"
+      message: the checker writes nothing else
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
-  name: bedrock-verifier-owns-the-court
+  name: bedrock-court-writers
 spec:
-  policyName: bedrock-verifier-owns-the-court
+  policyName: bedrock-court-writers
   validationActions: ["Deny"]
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -194,6 +212,8 @@ spec:
       expression: "object != null ? object.metadata.?annotations[?'bedrock.io/failover-epoch'].orValue('') : ''"
     - name: approvedEpoch
       expression: "variables.epoch != '' && variables.approvals.exists(k, k.endsWith('.state') && variables.approvals[k] == 'valid' && variables.approvals[?(k.substring(0, k.size() - 6) + '.epoch')].orValue('') == variables.epoch)"
+    - name: clusterKey
+      expression: "request.namespace + '.' + request.name"
     - name: podTarget
       expression: "request.resource.resource == 'pods' && oldObject != null ? request.namespace + '.' + oldObject.metadata.?labels[?'cnpg.io/cluster'].orValue('') : ''"
   validations:
@@ -203,6 +223,8 @@ spec:
       message: a service write needs a valid approval for the epoch it carries
     - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || (oldObject.spec.all(k, k == 'replica' || (k in object.spec && object.spec[k] == oldObject.spec[k])) && object.spec.all(k, k == 'replica' || k in oldObject.spec))"
       message: during a failover the decider may change spec.replica and nothing else in a cluster
+    - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || variables.approvals[?(variables.clusterKey + '.state')].orValue('') != 'valid' || oldObject.status.?currentPrimary.orValue('') == variables.approvals[?(variables.clusterKey + '.instance')].orValue('')"
+      message: the approval names the instance that died; fencing a cluster whose primary moved since is refused
     - expression: "request.resource.resource != 'services' || request.operation != 'UPDATE' || (object.spec.type == 'ExternalName' && object.spec.?externalName.orValue('').endsWith('.svc.cluster.local'))"
       message: postgres-rw may only point inside the cluster
     - expression: request.resource.resource != "pods" || (request.operation == "DELETE" && oldObject.metadata.?labels[?'cnpg.io/podRole'].orValue('') == 'instance' && variables.approvals[?(variables.podTarget + '.state')].orValue('') == 'valid')
@@ -217,5 +239,46 @@ spec:
   validationActions: ["Deny"]
   paramRef:
     name: bedrock-approvals
+    namespace: bedrock-failover
+    parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bedrock-checker-halt
+spec:
+  failurePolicy: Fail
+  paramKind:
+    apiVersion: v1
+    kind: ConfigMap
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        bedrock.io/failover-scope: "true"
+    resourceRules:
+      - apiGroups: ["postgresql.cnpg.io"]
+        apiVersions: ["*"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["clusters"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["pods", "services"]
+  matchConditions:
+    - name: decider
+      expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-decider"
+  validations:
+    - expression: "!params.?data.orValue({}).exists(k, k.endsWith('.halt') && params.data[k] == 'true')"
+      message: the checker saw a database up while the normal path was down, everything stops
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bedrock-checker-halt
+spec:
+  policyName: bedrock-checker-halt
+  validationActions: ["Deny"]
+  paramRef:
+    name: bedrock-checker
     namespace: bedrock-failover
     parameterNotFoundAction: Deny

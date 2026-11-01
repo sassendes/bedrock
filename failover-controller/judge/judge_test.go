@@ -40,7 +40,37 @@ func witnesses(dead int) map[Witness]Answer {
 }
 
 func in(ballots map[string]observe.Vote, w map[Witness]Answer) Input {
-	return Input{Target: "cluster-1/cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, Witnesses: w, DeadNeeded: 3}
+	nodeOf := map[string]string{}
+	for id := range ballots {
+		nodeOf[id] = id
+	}
+	return Input{Target: "cluster-1/cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 1, Witnesses: w, DeadNeeded: 3}
+}
+
+func paired(ballots map[string]observe.Vote, w map[Witness]Answer) Input {
+	nodeOf := map[string]string{}
+	for id := range ballots {
+		nodeOf[id] = id[:1]
+	}
+	return Input{Target: "cluster-1/cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 2, Witnesses: w, DeadNeeded: 3}
+}
+
+func TestANodeIsDownOnlyWhenBothItsObserversAre(t *testing.T) {
+	both := map[string]observe.Vote{"a/1": down(), "a/2": down(), "b/1": down(), "b/2": down()}
+	if v := Judge(keys, paired(both, witnesses(3))); v.Outcome != ProvenDead || v.Downs != 2 {
+		t.Fatalf("got %+v", v)
+	}
+	half := map[string]observe.Vote{"a/1": down(), "a/2": {Ballot: observe.BallotAbstain}, "b/1": down(), "b/2": down(), "c/1": down()}
+	if v := Judge(keys, paired(half, witnesses(4))); v.Outcome != Unknown || v.Downs != 1 {
+		t.Fatalf("a node with one observer down counted: %+v", v)
+	}
+}
+
+func TestOneObserversSignatureIsUpForTheWholeNode(t *testing.T) {
+	b := map[string]observe.Vote{"a/1": down(), "a/2": down(), "b/1": down(), "b/2": down(), "c/1": down(), "c/2": up("c2", "c/2")}
+	if v := Judge(keys, paired(b, witnesses(2))); v.Outcome != Up {
+		t.Fatalf("got %+v", v)
+	}
 }
 
 func TestProvenDeadNeedsAMajorityAndThreeWitnesses(t *testing.T) {

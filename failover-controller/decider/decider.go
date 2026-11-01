@@ -34,6 +34,8 @@ type Config struct {
 	PromoteTimeout     time.Duration
 	ClaimTimeout       time.Duration
 	ClockOffset        time.Duration
+	PerNode            int
+	RoundStale         time.Duration
 }
 
 func DefaultConfig() Config {
@@ -47,6 +49,8 @@ func DefaultConfig() Config {
 		PromoteTimeout:     5 * time.Minute,
 		ClaimTimeout:       5 * time.Minute,
 		ClockOffset:        5 * time.Second,
+		PerNode:            2,
+		RoundStale:         15 * time.Second,
 	}
 }
 
@@ -68,6 +72,7 @@ type Decider struct {
 	metrics  *metrics.Registry
 	log      *slog.Logger
 	freshSeq map[string]seen
+	round    seen
 }
 
 func New(dyn dynamic.Interface, kube kubernetes.Interface, disc discovery.Config, st *store.Store, actor *act.Actor, cfg Config, leader func() bool, m *metrics.Registry, log *slog.Logger) (*Decider, error) {
@@ -76,6 +81,9 @@ func New(dyn dynamic.Interface, kube kubernetes.Interface, disc discovery.Config
 	}
 	if cfg.Identity == "" {
 		return nil, errors.New("decider identity is empty")
+	}
+	if cfg.PerNode < 1 || cfg.RoundStale <= 0 {
+		return nil, errors.New("observers per node must be at least 1 and the round staleness positive")
 	}
 	return &Decider{
 		dyn: dyn, kube: kube, disc: disc, store: st, actor: actor, cfg: cfg,
@@ -116,6 +124,16 @@ func (d *Decider) Tick(ctx context.Context) error {
 		pages.Add(map[string]string{"target": "", "reason": "decision store unreadable"})
 		return err
 	}
+	halts, err := d.store.GetHalts(ctx)
+	if err != nil {
+		pages.Add(map[string]string{"target": "", "reason": "checker object unreadable"})
+		return err
+	}
+	halted := store.Halted(halts)
+	if round != nil && uint64(round.Number) != d.round.seq {
+		d.round = seen{seq: uint64(round.Number), at: now}
+	}
+	d.metrics.Set("bedrock_failover_checker_halts", nil, float64(len(halted)))
 	byTarget := map[string]*store.Claim{}
 	inWindow := 0
 	for _, c := range claims {
@@ -135,7 +153,7 @@ func (d *Decider) Tick(ctx context.Context) error {
 	for _, c := range claims {
 		switch c.State {
 		case store.ClaimOpen:
-			if err := d.advance(ctx, c, ballots, round, approvals[store.ApprovalKey(c.Target)], pages); err != nil {
+			if err := d.advance(ctx, c, ballots, round, approvals[store.ApprovalKey(c.Target)], halted, pages); err != nil {
 				d.log.Error("advance claim", "target", c.Target, "step", c.Step, "err", err)
 				pages.Add(map[string]string{"target": c.Target, "reason": "step " + string(c.Step) + " failed: " + err.Error()})
 			}
@@ -177,15 +195,10 @@ func (d *Decider) Tick(ctx context.Context) error {
 			return err
 		}
 		in := decide.Input{Target: key, Eligible: eligible(observerNodes, primaryNode)}
-		for _, b := range ballots {
-			v, ok := b.Votes[key]
-			if !ok {
-				continue
-			}
-			in.Observations = append(in.Observations, decide.Observation{Node: b.Node, Ballot: proven(round, key, b.Node, v.Ballot), Fresh: d.fresh(b.Node, key, v.Seq, now)})
-		}
+		in.Observations = d.nodeObservations(key, ballots, round, now)
 		in.Paused = obj.GetAnnotations()[d.cfg.PauseAnnotation] == "true"
 		in.Transitioning = contains(d.cfg.TransitionalPhases, f.Primary.Phase)
+		in.StandbysReady = d.actor.ReadyStandbys(ctx, f.Primary) > 0
 		durability, _, _ := unstructured.NestedString(obj.Object, "spec", "postgresql", "synchronous", "dataDurability")
 		in.DurabilityRequired = durability == "required"
 		if c := byTarget[key]; c != nil && ran(c) {
@@ -214,6 +227,11 @@ func (d *Decider) Tick(ctx context.Context) error {
 		if v.State != decide.Dead {
 			continue
 		}
+		if len(halted) > 0 {
+			d.log.Warn("dead but the checker holds everything", "target", v.Target, "checker", halted)
+			d.tracker.Clear(v.Target)
+			continue
+		}
 		d.log.Warn("target declared dead", "target", v.Target, "down", v.Downs, "quorum", v.Q)
 		if err := d.claim(ctx, families[v.Target], byTarget[v.Target], now); err != nil {
 			pages.Add(map[string]string{"target": v.Target, "reason": err.Error()})
@@ -237,6 +255,29 @@ func (d *Decider) fresh(node, target string, seq uint64, now time.Time) bool {
 		return true
 	}
 	return !s.at.IsZero() && now.Sub(s.at) < d.cfg.Params.Freshness
+}
+
+func (d *Decider) nodeObservations(target string, ballots []store.Ballots, round *store.Round, now time.Time) []decide.Observation {
+	byNode := map[string][]observe.Ballot{}
+	var order []string
+	for _, b := range ballots {
+		v, ok := b.Votes[target]
+		if !ok {
+			continue
+		}
+		if !d.fresh(b.ID(), target, v.Seq, now) {
+			continue
+		}
+		if _, seen := byNode[b.Node]; !seen {
+			order = append(order, b.Node)
+		}
+		byNode[b.Node] = append(byNode[b.Node], proven(round, target, b.ID(), v.Ballot))
+	}
+	out := make([]decide.Observation, 0, len(order))
+	for _, n := range order {
+		out = append(out, decide.Observation{Node: n, Ballot: observe.NodeBallot(byNode[n], d.cfg.PerNode), Fresh: true})
+	}
+	return out
 }
 
 func (d *Decider) observerNodes(ctx context.Context) ([]string, error) {
@@ -278,14 +319,23 @@ func (d *Decider) primaryNode(ctx context.Context, m discovery.Member) (string, 
 	return pod.Spec.NodeName, nil
 }
 
+func (d *Decider) currentPrimary(ctx context.Context, target string) (string, error) {
+	obj, err := d.actor.Get(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	cur, _, _ := unstructured.NestedString(obj.Object, "status", "currentPrimary")
+	return cur, nil
+}
+
 func ran(c *store.Claim) bool { return c.Step != store.StepClaimed }
 
 // proven keeps an up only if the verifier checked its signature last round. A liar's plain up is an abstention.
-func proven(round *store.Round, target, node string, b observe.Ballot) observe.Ballot {
+func proven(round *store.Round, target, observer string, b observe.Ballot) observe.Ballot {
 	if b != observe.BallotUp {
 		return b
 	}
-	if round != nil && contains(round.ValidUps[target], node) {
+	if round != nil && contains(round.ValidUps[target], observer) {
 		return b
 	}
 	return observe.BallotAbstain
@@ -293,8 +343,8 @@ func proven(round *store.Round, target, node string, b observe.Ballot) observe.B
 
 func (d *Decider) freshUp(target string, ballots []store.Ballots, round *store.Round, now time.Time) string {
 	for _, b := range ballots {
-		if v, ok := b.Votes[target]; ok && proven(round, target, b.Node, v.Ballot) == observe.BallotUp && d.fresh(b.Node, target, v.Seq, now) {
-			return b.Node
+		if v, ok := b.Votes[target]; ok && proven(round, target, b.ID(), v.Ballot) == observe.BallotUp && d.fresh(b.ID(), target, v.Seq, now) {
+			return b.ID()
 		}
 	}
 	return ""
@@ -346,7 +396,7 @@ func (d *Decider) claim(ctx context.Context, f discovery.Family, prev *store.Cla
 		epoch = prev.Epoch + 1
 	}
 	c := &store.Claim{
-		Target: target, Epoch: epoch, State: store.ClaimOpen, Step: store.StepClaimed, Decider: d.cfg.Identity,
+		Target: target, Epoch: epoch, State: store.ClaimOpen, Step: store.StepClaimed, Decider: d.cfg.Identity, Instance: f.Primary.CurrentPrimary,
 		Candidate: cand.Key(), Followers: followers, Nodes: nodes, StartedAt: now, StepAt: now,
 		Times: map[string]string{},
 	}
@@ -379,7 +429,7 @@ func (d *Decider) halt(ctx context.Context, c *store.Claim, reason string) error
 
 // advance moves an open claim one step. Any decider holding the lease resumes the claim the same way,
 // since every step is fixed in the claim and safe to repeat.
-func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.Ballots, round *store.Round, approval store.Approval, pages *metrics.Set) error {
+func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.Ballots, round *store.Round, approval store.Approval, halted []string, pages *metrics.Set) error {
 	if !d.leader() {
 		return nil
 	}
@@ -396,6 +446,18 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 			d.log.Warn("claim revoked", "target", c.Target)
 			return d.store.Save(ctx, c)
 		}
+		if len(halted) > 0 {
+			c.State, c.Reason = store.ClaimClosed, "the checker saw the database up while the normal path was down: "+strings.Join(halted, ", ")
+			d.log.Warn("claim stopped by the checker", "target", c.Target, "checker", halted)
+			return d.store.Save(ctx, c)
+		}
+		if cur, err := d.currentPrimary(ctx, c.Target); err != nil {
+			return err
+		} else if cur != c.Instance {
+			c.State, c.Reason = store.ClaimClosed, "cnpg moved the primary from "+c.Instance+" to "+cur+", nothing to fence"
+			d.log.Warn("claim closed, the primary changed", "target", c.Target, "from", c.Instance, "to", cur)
+			return d.store.Save(ctx, c)
+		}
 		if up := d.freshUp(c.Target, ballots, round, d.now()); up != "" {
 			c.State, c.Reason = store.ClaimClosed, "vetoed before the fence: fresh up from "+up
 			d.log.Warn("claim vetoed", "target", c.Target, "by", up)
@@ -403,6 +465,10 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 		}
 		if approval.Epoch != c.Epoch || approval.State != store.ApprovalValid {
 			pages.Add(map[string]string{"target": c.Target, "reason": "waiting for the verifier's approval"})
+			return nil
+		}
+		if d.round.at.IsZero() || now.Sub(d.round.at) > d.cfg.RoundStale || round == nil || now.Sub(round.IssuedAt) > d.cfg.RoundStale+d.cfg.ClockOffset {
+			d.log.Warn("approved but the verifier stopped closing rounds, not fencing on a stale view", "target", c.Target)
 			return nil
 		}
 		if err := d.actor.Fence(ctx, c.Target, c.Epoch); err != nil {

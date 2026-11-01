@@ -48,13 +48,20 @@ spec:
           annotations:
             summary: "{{ $labels.target }} signed up while proven dead"
             description: "the failover will never act on a contradiction, look at it"
-        - alert: BedrockCheckerDisagrees
-          expr: max by (target) (bedrock_checker_primary_healthy) == 1 and on (target) max by (target) (bedrock_failover_state{state="dead"}) == 1
+        - alert: BedrockFallbackDatabaseDown
+          expr: max by (target, reason) (bedrock_checker_page) > 0
           labels:
             severity: critical
           annotations:
-            summary: "the checker sees {{ $labels.target }} healthy while the decider calls it dead"
-            description: "the observers and the instance manager disagree"
+            summary: "{{ $labels.target }} is down and the failover cannot act"
+            description: "{{ $labels.reason }}"
+        - alert: BedrockPrimaryNotWriting
+          expr: min by (target) (bedrock_observer_write_stuck_seconds) > 120
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }} has not committed a write for over 2 minutes"
+            description: "it answers but every observer's heartbeat write is stuck; this never fails over, look at it"
         - alert: BedrockFailoverClaimStuck
           expr: max by (target) (bedrock_failover_claim_open) > 0
           for: 10m

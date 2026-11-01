@@ -13,6 +13,7 @@ type Params struct {
 	ProbeInterval time.Duration
 	Freshness     time.Duration
 	DeadAfter     time.Duration
+	CnpgGrace     time.Duration
 	Cooldown      time.Duration
 	CapWindow     time.Duration
 	CapCount      int
@@ -25,6 +26,7 @@ func DefaultParams() Params {
 		ProbeInterval: 2 * time.Second,
 		Freshness:     6 * time.Second,
 		DeadAfter:     30 * time.Second,
+		CnpgGrace:     time.Minute,
 		Cooldown:      10 * time.Minute,
 		CapWindow:     time.Hour,
 		CapCount:      1,
@@ -65,6 +67,7 @@ type Input struct {
 	Observations       []Observation
 	Paused             bool
 	Transitioning      bool
+	StandbysReady      bool
 	DurabilityRequired bool
 	LastFailover       time.Time
 }
@@ -124,7 +127,11 @@ func (t *Tracker) Step(now time.Time, inputs []Input, failoversInWindow int) []V
 	for i := range out {
 		v := &out[i]
 		in := inputs[i]
-		if v.State != Suspect || now.Sub(v.Since) < t.p.DeadAfter {
+		wait := t.p.DeadAfter
+		if in.StandbysReady && t.p.CnpgGrace > wait {
+			wait = t.p.CnpgGrace
+		}
+		if v.State != Suspect || now.Sub(v.Since) < wait {
 			continue
 		}
 		var hold []string

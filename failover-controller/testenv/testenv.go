@@ -81,11 +81,15 @@ func Instance(cluster string, i int, node string) *corev1.Pod {
 	}
 }
 
-func Observer(node string) *corev1.Pod {
+func Observer(node, slot string) *corev1.Pod {
+	ip := "10.1.0."
+	if slot == "b" {
+		ip = "10.2.0."
+	}
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: Namespace, Name: "observer-" + node, Labels: map[string]string{"app.kubernetes.io/name": "bedrock-observer"}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: Namespace, Name: "bedrock-observer-" + slot + "-" + node, Labels: map[string]string{"app.kubernetes.io/name": "bedrock-observer", "bedrock.io/observer-slot": slot}},
 		Spec:       corev1.PodSpec{NodeName: node},
-		Status:     corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.1.0." + node[len(node)-1:]},
+		Status:     corev1.PodStatus{Phase: corev1.PodRunning, PodIP: ip + node[len(node)-1:]},
 	}
 }
 
@@ -104,7 +108,7 @@ func New() *World {
 	primary := map[string]string{"cnpg.io/instanceRole": "primary"}
 	var objs []runtime.Object
 	for _, n := range []string{"n1", "n2", "n3", "n4", "n5"} {
-		objs = append(objs, Node(n, "z-"+n), Observer(n))
+		objs = append(objs, Node(n, "z-"+n), Observer(n, "a"), Observer(n, "b"))
 	}
 	for _, c := range []string{"cluster-1", "cluster-2", "cluster-3"} {
 		objs = append(objs,

@@ -18,6 +18,10 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/proof"
 	"github.com/sassendes/bedrock/failover-controller/store"
 	"github.com/sassendes/bedrock/failover-controller/testenv"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const target = "cluster-1/cluster-1"
@@ -29,13 +33,15 @@ type fixed map[judge.Witness]judge.Answer
 func (f *fixed) Gather(context.Context, discovery.Family) map[judge.Witness]judge.Answer { return *f }
 
 type court struct {
-	t   *testing.T
-	st  *store.Store
-	v   *Verifier
-	w   *fixed
-	m   *metrics.Registry
-	seq uint64
-	n   int
+	t      *testing.T
+	world  *testenv.World
+	replay string
+	st     *store.Store
+	v      *Verifier
+	w      *fixed
+	m      *metrics.Registry
+	seq    uint64
+	n      int
 }
 
 func newCourt(t *testing.T) *court {
@@ -44,12 +50,13 @@ func newCourt(t *testing.T) *court {
 	st := store.New(w.Kube, store.DefaultConfig())
 	a := act.New(w.Dyn, w.Kube, act.DefaultConfig())
 	alive := fixed{judge.Replicas: judge.Alive, judge.Manager: judge.Alive, judge.Kubelet: judge.Alive, judge.API: judge.Alive}
-	c := &court{t: t, st: st, w: &alive, m: metrics.New()}
+	c := &court{t: t, world: w, replay: "0/FFFFFF", st: st, w: &alive, m: metrics.New()}
 	v, err := New(w.Dyn, w.Kube, a.Config().Discovery, st, a, c.w, proof.Keys{"k1": key}, DefaultConfig(), c.m, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	v.nonce = func() (string, error) { c.n++; return "challenge-" + string(rune('a'+c.n)), nil }
+	v.replay = func(context.Context, discovery.Member) (string, error) { return c.replay, nil }
 	c.v = v
 	return c
 }
@@ -84,11 +91,33 @@ func sign(challenge, node, instance string) *proof.Signed {
 	return &s
 }
 
+func resign(s *proof.Signed, observer string) *proof.Signed {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	cp.Observer = observer
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(cp.Payload()))
+	cp.MAC = hex.EncodeToString(m.Sum(nil))
+	return &cp
+}
+
+// vote casts the same vote from both observers of a node, each signature made for its own observer.
 func (c *court) vote(node string, v observe.Vote) {
+	for _, slot := range []string{"a", "b"} {
+		c.slotVote(node, slot, v)
+	}
+}
+
+func (c *court) slotVote(node, slot string, v observe.Vote) {
 	c.seq++
 	v.Seq = c.seq
 	v.Target = target
-	if err := c.st.PublishVotes(context.Background(), node, "", map[string]observe.Vote{target: v}); err != nil {
+	if v.Proof.Signed != nil && v.Proof.Signed.Observer == node {
+		v.Proof.Signed = resign(v.Proof.Signed, observe.ObserverID(node, slot))
+	}
+	if err := c.st.PublishVotes(context.Background(), node, slot, "", map[string]observe.Vote{target: v}); err != nil {
 		c.t.Fatal(err)
 	}
 }
@@ -100,7 +129,7 @@ func (c *court) downs(challenge string, nodes ...string) {
 }
 
 func (c *court) claim(epoch int64) {
-	cl := &store.Claim{Target: target, Epoch: epoch, State: store.ClaimOpen, Step: store.StepClaimed, StartedAt: time.Now(), Times: map[string]string{}}
+	cl := &store.Claim{Target: target, Epoch: epoch, State: store.ClaimOpen, Step: store.StepClaimed, Instance: "cluster-1-1", Candidate: "cluster-2/cluster-2", StartedAt: time.Now(), Times: map[string]string{}}
 	if err := c.st.Open(context.Background(), cl, nil); err != nil {
 		c.t.Fatal(err)
 	}
@@ -257,5 +286,227 @@ func TestSplitBrainIsPagedOnlyAfterTwoRounds(t *testing.T) {
 	r = c.tick()
 	if !r.Split[target] {
 		t.Fatal("two rounds of two signers were missed")
+	}
+}
+
+func TestOneObserverPerNodeIsNotADown(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	c.claim(1)
+	for _, n := range []string{"n2", "n3", "n4", "n5"} {
+		c.slotVote(n, "a", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotDown})
+		c.slotVote(n, "b", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotAbstain})
+	}
+	c.dead(4)
+	c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved with only one observer of each node voting down")
+	}
+}
+
+func TestOneObserversSignedUpBlocks(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	c.claim(1)
+	c.downs(r.Challenge, "n2", "n3", "n4")
+	c.slotVote("n5", "a", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotDown})
+	c.slotVote("n5", "b", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotUp, Proof: observe.Proof{Signed: sign(r.Challenge, "n5/b", "cluster-1@10.0.1.1")}})
+	c.dead(3)
+	c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved over one observer's signed up")
+	}
+}
+
+func TestCheckerHaltBlocksAndRevokes(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	c.claim(1)
+	if err := c.st.PutHalts(context.Background(), map[string]bool{target: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.dead(4)
+	r = c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved while the checker held everything")
+	}
+	if err := c.st.PutHalts(context.Background(), map[string]bool{target: false}); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	r = c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid {
+		t.Fatalf("not approved once the halt lifted: %+v", a)
+	}
+	if err := c.st.PutHalts(context.Background(), map[string]bool{target: true}); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalRevoked {
+		t.Fatalf("the halt did not revoke: %+v", a)
+	}
+}
+
+func (c *court) standbyReady() { c.standby(corev1.ConditionTrue) }
+
+func (c *court) standby(ready corev1.ConditionStatus) {
+	ctx := context.Background()
+	p, err := c.world.Kube.CoreV1().Pods("cluster-1").Get(ctx, "cluster-1-2", metav1.GetOptions{})
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: ready}}
+	if _, err := c.world.Kube.CoreV1().Pods("cluster-1").UpdateStatus(ctx, p, metav1.UpdateOptions{}); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+func TestCnpgGetsItsWindowWhileStandbysAreReady(t *testing.T) {
+	c := newCourt(t)
+	c.standbyReady()
+	r := c.tick()
+	c.claim(1)
+	c.dead(4)
+	for i := int64(0); i < c.v.cfg.GraceRounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+		if a := c.approval(); a.State == store.ApprovalValid {
+			t.Fatalf("approved after %d rounds, inside the cnpg window", i+1)
+		}
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid || a.Instance != "cluster-1-1" {
+		t.Fatalf("not approved once the window closed: %+v", a)
+	}
+}
+
+func TestTheWindowRestartsWhenTheDeathIsNotProvenInARow(t *testing.T) {
+	c := newCourt(t)
+	c.standbyReady()
+	r := c.tick()
+	c.claim(1)
+	c.dead(4)
+	for i := int64(0); i < c.v.cfg.GraceRounds; i++ {
+		if i == c.v.cfg.GraceRounds-2 {
+			r = c.tick()
+			continue
+		}
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("a gap in the proof did not restart the window")
+	}
+}
+
+func TestAClaimForAnotherInstanceIsNeverApproved(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	cl := &store.Claim{Target: target, Epoch: 1, State: store.ClaimOpen, Step: store.StepClaimed, Instance: "cluster-1-2", Candidate: "cluster-2/cluster-2", Times: map[string]string{}}
+	if err := c.st.Open(context.Background(), cl, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.dead(4)
+	c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved a claim about an instance that is not the primary")
+	}
+}
+
+func TestPrimaryMovingRevokes(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	c.claim(1)
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.dead(4)
+	r = c.tick()
+	if c.approval().State != store.ApprovalValid {
+		t.Fatal("not approved")
+	}
+	obj := c.world.Cluster("cluster-1")
+	_ = unstructured.SetNestedField(obj.Object, "cluster-1-2", "status", "currentPrimary")
+	if _, err := c.world.Dyn.Resource(testenv.Clusters).Namespace("cluster-1").Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalRevoked {
+		t.Fatalf("cnpg moved the primary and the approval stood: %+v", a)
+	}
+}
+
+func TestACandidateBehindTheLastProvenWriteIsHeld(t *testing.T) {
+	c := newCourt(t)
+	r := c.tick()
+	c.vote("n2", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotUp, Proof: observe.Proof{Signed: sign(r.Challenge, "n2", "cluster-1@10.0.1.1")}})
+	r = c.tick()
+	if r.ProvenLSN[target] != "0/1" {
+		t.Fatalf("proven position %q", r.ProvenLSN[target])
+	}
+	c.claim(1)
+	c.replay = "0/0"
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.dead(4)
+	r = c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved a candidate missing a proven write")
+	}
+	if c.m.Count("bedrock_verifier_page") == 0 {
+		t.Fatal("holding was not paged")
+	}
+	c.replay = "0/1"
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid {
+		t.Fatalf("not approved once the candidate caught up: %+v", a)
+	}
+}
+
+func TestAStandbyThatIsNotReadyGivesNoWindow(t *testing.T) {
+	c := newCourt(t)
+	c.standby(corev1.ConditionFalse)
+	r := c.tick()
+	c.claim(1)
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.dead(4)
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid {
+		t.Fatalf("waited for a standby that is not ready: %+v", a)
+	}
+}
+
+func TestTheWindowStartsOverForANewPrimary(t *testing.T) {
+	c := newCourt(t)
+	c.standbyReady()
+	r := c.tick()
+	c.dead(4)
+	for i := int64(0); i <= c.v.cfg.GraceRounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+	}
+	obj := c.world.Cluster("cluster-1")
+	_ = unstructured.SetNestedField(obj.Object, "cluster-1-2", "status", "currentPrimary")
+	if _, err := c.world.Dyn.Resource(testenv.Clusters).Namespace("cluster-1").Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := c.world.Kube.CoreV1().Pods("cluster-1").Get(context.Background(), "cluster-1-1", metav1.GetOptions{})
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	if _, err := c.world.Kube.CoreV1().Pods("cluster-1").UpdateStatus(context.Background(), p, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	cl := &store.Claim{Target: target, Epoch: 1, State: store.ClaimOpen, Step: store.StepClaimed, Instance: "cluster-1-2", Candidate: "cluster-2/cluster-2", Times: map[string]string{}}
+	if err := c.st.Open(context.Background(), cl, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("the old primary's window was spent on the new one")
 	}
 }

@@ -19,6 +19,26 @@ type Vote struct {
 	Seq       uint64 `json:"seq"`
 }
 
+// NodeBallot folds one node's observers into its one vote. A proven up from any of them is up, since
+// postgres signed it. Down needs every observer of the node present and saying down.
+func NodeBallot(ballots []Ballot, perNode int) Ballot {
+	downs := 0
+	for _, b := range ballots {
+		switch b {
+		case BallotUp:
+			return BallotUp
+		case BallotDown:
+			downs++
+		}
+	}
+	if perNode > 0 && len(ballots) == perNode && downs == perNode {
+		return BallotDown
+	}
+	return BallotAbstain
+}
+
+func ObserverID(node, slot string) string { return node + "/" + slot }
+
 // Valid is the dumb check every reader runs on an up: a primary that wrote my nonce, at the expected system.
 func Valid(p Proof, expectedSystemID string) bool {
 	return p.Result == ResultUp && p.Nonce != "" && p.EchoNonce == p.Nonce && !p.InRecovery &&

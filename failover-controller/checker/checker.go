@@ -9,46 +9,67 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sassendes/bedrock/failover-controller/act"
 	"github.com/sassendes/bedrock/failover-controller/discovery"
 	"github.com/sassendes/bedrock/failover-controller/metrics"
+	"github.com/sassendes/bedrock/failover-controller/observe"
+	"github.com/sassendes/bedrock/failover-controller/store"
 
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
 
 type Config struct {
-	Scheme   string
-	Port     int
-	Path     string
-	Interval time.Duration
-	Timeout  time.Duration
+	Scheme           string
+	Port             int
+	Path             string
+	Interval         time.Duration
+	Timeout          time.Duration
+	Namespace        string
+	LeaseName        string
+	RoundStale       time.Duration
+	PerNode          int
+	ObserverSelector string
 }
 
 func DefaultConfig() Config {
-	return Config{Scheme: "https", Port: 8000, Path: "/healthz", Interval: 5 * time.Second, Timeout: 2 * time.Second}
+	return Config{
+		Scheme: "https", Port: 8000, Path: "/readyz", Interval: 5 * time.Second, Timeout: 2 * time.Second,
+		Namespace: "bedrock-failover", LeaseName: "bedrock-decider", RoundStale: 15 * time.Second, PerNode: 2,
+		ObserverSelector: "app.kubernetes.io/name=bedrock-observer",
+	}
 }
 
-// Checker is the fallback when there is no majority to vote. It asks each primary's instance manager
-// if it is healthy and exports the answer. It never votes and never acts: alerts page on it.
+// Checker is the fallback. It sleeps while the normal path works. When the verifier stops closing rounds,
+// the decider has no leader, or the observers lose quorum on a target, it asks the primary's instance
+// manager itself: up stops everything, down pages a human. It never fails anything over.
 type Checker struct {
 	kube    kubernetes.Interface
 	dyn     dynamic.Interface
 	disc    discovery.Config
 	actor   *act.Actor
+	store   *store.Store
 	cfg     Config
 	roots   *x509.CertPool
 	metrics *metrics.Registry
 	log     *slog.Logger
 	now     func() time.Time
+	round   struct {
+		number int64
+		at     time.Time
+	}
 }
 
-func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config, actor *act.Actor, cfg Config, roots *x509.CertPool, m *metrics.Registry, log *slog.Logger) *Checker {
-	return &Checker{kube: kube, dyn: dyn, disc: disc, actor: actor, cfg: cfg, roots: roots, metrics: m, log: log, now: time.Now}
+func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config, actor *act.Actor, st *store.Store, cfg Config, roots *x509.CertPool, m *metrics.Registry, log *slog.Logger) *Checker {
+	return &Checker{kube: kube, dyn: dyn, disc: disc, actor: actor, store: st, cfg: cfg, roots: roots, metrics: m, log: log, now: time.Now}
 }
 
 // client verifies the instance's certificate against the database CAs under the primary Service's
@@ -75,27 +96,184 @@ func (c *Checker) Run(ctx context.Context, done func()) {
 }
 
 func (c *Checker) Round(ctx context.Context) bool {
+	pages := metrics.NewSet()
+	defer func() { c.metrics.Replace("bedrock_checker_page", pages) }()
+	now := c.now()
 	d, err := discovery.Discover(ctx, c.dyn, c.kube, c.disc)
 	if err != nil {
 		c.log.Warn("discovery", "err", err)
 		return false
 	}
+	broken, err := c.brokenPath(ctx, now)
+	if err != nil {
+		c.log.Warn("read the normal path", "err", err)
+		broken = append(broken, "normal path unreadable: "+err.Error())
+	}
+	midFailover, err := c.midFailover(ctx)
+	if err != nil {
+		c.log.Warn("read claims", "err", err)
+		return false
+	}
+	ballots, ballotsErr := c.store.ListBallots(ctx)
+	round, roundErr := c.store.GetRound(ctx)
+	nodes, nodesErr := c.observerNodes(ctx)
+
+	halts := map[string]bool{}
 	for _, f := range d.Families {
 		p := f.Primary
-		if obj, err := c.actor.Get(ctx, p.Key()); err == nil && c.actor.Fenced(obj) {
+		target := p.Key()
+		if obj, err := c.actor.Get(ctx, target); err == nil && c.actor.Fenced(obj) {
 			continue
 		}
-		healthy, reason := c.check(ctx, p)
-		v := 0.0
-		if healthy {
-			v = 1
-		} else {
-			c.log.Warn("primary unhealthy", "target", p.Key(), "reason", reason)
+		why := append([]string{}, broken...)
+		switch {
+		case ballotsErr != nil || roundErr != nil || nodesErr != nil:
+			why = append(why, "votes unreadable")
+		case !c.quorum(target, ballots, round, without(nodes, c.primaryNode(ctx, p))):
+			why = append(why, "observers lost quorum")
 		}
-		c.metrics.Set("bedrock_checker_primary_healthy", map[string]string{"target": p.Key()}, v)
+		active := len(why) > 0
+		healthy, reason := c.check(ctx, p)
+		l := map[string]string{"target": target}
+		c.metrics.Set("bedrock_checker_active", l, b2f(active))
+		c.metrics.Set("bedrock_checker_primary_healthy", l, b2f(healthy))
+		switch {
+		case !active:
+		case healthy && !midFailover:
+			halts[target] = true
+			c.log.Warn("normal path down and the database is up: stopping everything", "target", target, "why", why)
+		case !healthy:
+			c.log.Error("normal path down and the database is down", "target", target, "why", why, "reason", reason)
+			pages.Add(map[string]string{"target": target, "reason": "fallback: database down while " + strings.Join(why, ", ")})
+		}
+		c.metrics.Set("bedrock_checker_halt", l, b2f(halts[target]))
 	}
-	c.metrics.Set("bedrock_checker_last_round_timestamp_seconds", nil, float64(c.now().Unix()))
+	for _, f := range d.Families {
+		if _, ok := halts[f.Primary.Key()]; !ok {
+			halts[f.Primary.Key()] = false
+		}
+	}
+	if err := c.store.PutHalts(ctx, halts); err != nil {
+		c.log.Error("write halts", "err", err)
+		return false
+	}
+	c.metrics.Set("bedrock_checker_last_round_timestamp_seconds", nil, float64(now.Unix()))
 	return true
+}
+
+func (c *Checker) brokenPath(ctx context.Context, now time.Time) ([]string, error) {
+	var why []string
+	r, err := c.store.GetRound(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if r != nil && r.Number != c.round.number {
+		c.round.number, c.round.at = r.Number, now
+	}
+	if r == nil || now.Sub(c.round.at) > c.cfg.RoundStale {
+		why = append(why, "verifier stalled")
+	}
+	lease, err := c.kube.CoordinationV1().Leases(c.cfg.Namespace).Get(ctx, c.cfg.LeaseName, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		why = append(why, "no decider lease")
+	case err != nil:
+		return why, err
+	case lease.Spec.HolderIdentity == nil || *lease.Spec.HolderIdentity == "" || lease.Spec.RenewTime == nil || lease.Spec.LeaseDurationSeconds == nil ||
+		now.Sub(lease.Spec.RenewTime.Time) > time.Duration(*lease.Spec.LeaseDurationSeconds)*time.Second+c.cfg.RoundStale:
+		why = append(why, "decider has no leader")
+	}
+	return why, nil
+}
+
+// midFailover is true once a fence has started: from there finishing is safer than stopping.
+func (c *Checker) midFailover(ctx context.Context) (bool, error) {
+	claims, err := c.store.ListClaims(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, cl := range claims {
+		if cl.State == store.ClaimOpen && cl.Step != store.StepClaimed {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// quorum is true when a majority of eligible nodes have all their observers voting on this round.
+func (c *Checker) quorum(target string, ballots []store.Ballots, round *store.Round, eligible []string) bool {
+	if round == nil || len(eligible) == 0 {
+		return false
+	}
+	count := map[string]int{}
+	for _, b := range ballots {
+		if v, ok := b.Votes[target]; ok && v.Challenge == round.Challenge && v.Ballot != observe.BallotAbstain {
+			count[b.Node]++
+		}
+	}
+	voting := 0
+	for _, n := range eligible {
+		if count[n] >= c.cfg.PerNode {
+			voting++
+		}
+	}
+	return voting >= len(eligible)/2+1
+}
+
+func (c *Checker) observerNodes(ctx context.Context) ([]string, error) {
+	pods, err := c.kube.CoreV1().Pods(c.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: c.cfg.ObserverSelector})
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := c.kube.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	zone := map[string]string{}
+	for _, n := range nodes.Items {
+		zone[n.Name] = n.Labels[c.disc.ZoneLabel]
+	}
+	set := map[string]bool{}
+	for _, p := range pods.Items {
+		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || c.disc.DRZones[zone[p.Spec.NodeName]] {
+			continue
+		}
+		set[p.Spec.NodeName] = true
+	}
+	out := make([]string, 0, len(set))
+	for n := range set {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func (c *Checker) primaryNode(ctx context.Context, m discovery.Member) string {
+	if m.CurrentPrimary == "" {
+		return ""
+	}
+	p, err := c.kube.CoreV1().Pods(m.Namespace).Get(ctx, m.CurrentPrimary, metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	return p.Spec.NodeName
+}
+
+func without(xs []string, x string) []string {
+	var out []string
+	for _, v := range xs {
+		if v != x {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func b2f(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func (c *Checker) check(ctx context.Context, m discovery.Member) (bool, string) {

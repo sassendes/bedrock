@@ -26,6 +26,15 @@ type Round struct {
 	Signers   map[string][]string `json:"signers"`
 	Outcomes  map[string]string   `json:"outcomes"`
 	Split     map[string]bool     `json:"split"`
+	ProvenLSN map[string]string   `json:"provenLsn"`
+	DeadSince map[string]DeadMark `json:"deadSince"`
+}
+
+// DeadMark is when the verifier first proved this instance dead, by round number, so the cnpg window
+// is counted in rounds and survives a verifier restart.
+type DeadMark struct {
+	Instance string `json:"instance"`
+	Round    int64  `json:"round"`
 }
 
 func (s *Store) GetRound(ctx context.Context) (*Round, error) {
@@ -77,9 +86,10 @@ const (
 )
 
 type Approval struct {
-	State ApprovalState
-	Epoch int64
-	Round int64
+	State    ApprovalState
+	Epoch    int64
+	Round    int64
+	Instance string
 }
 
 // ApprovalKey is the one slot per target. Admission reads <key>.state and <key>.epoch, so a run
@@ -108,6 +118,8 @@ func (s *Store) GetApprovals(ctx context.Context) (map[string]Approval, error) {
 			a.Epoch, _ = strconv.ParseInt(v, 10, 64)
 		case "round":
 			a.Round, _ = strconv.ParseInt(v, 10, 64)
+		case "instance":
+			a.Instance = v
 		}
 		out[key] = a
 	}
@@ -136,6 +148,7 @@ func (s *Store) SetApproval(ctx context.Context, target string, a Approval) erro
 	data[key+".state"] = string(a.State)
 	data[key+".epoch"] = strconv.FormatInt(a.Epoch, 10)
 	data[key+".round"] = strconv.FormatInt(a.Round, 10)
+	data[key+".instance"] = a.Instance
 	if apierrors.IsNotFound(err) {
 		_, err = s.cms().Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: ApprovalsObject, Labels: map[string]string{s.cfg.RoleLabel: "approvals"}},

@@ -40,6 +40,8 @@ type Input struct {
 	Challenge  string
 	Eligible   []string
 	Ballots    map[string]observe.Vote
+	NodeOf     map[string]string
+	PerNode    int
 	Witnesses  map[Witness]Answer
 	DeadNeeded int
 }
@@ -57,14 +59,14 @@ type Verdict struct {
 }
 
 // ValidUp is grade A: postgres signed this round's challenge, for this observer, as a primary.
-func ValidUp(keys proof.Keys, challenge, node string, v observe.Vote) (bool, string) {
+func ValidUp(keys proof.Keys, challenge, observer string, v observe.Vote) (bool, string) {
 	s := v.Proof.Signed
 	switch {
 	case s == nil:
 		return false, "no signature"
 	case s.Challenge != challenge:
 		return false, "signed another round's challenge"
-	case s.Observer != node:
+	case s.Observer != observer:
 		return false, "signed for another observer"
 	case s.InRecovery:
 		return false, "signed as a replica"
@@ -84,23 +86,36 @@ func Judge(keys proof.Keys, in Input) Verdict {
 		eligible[n] = true
 	}
 	signers := map[string]bool{}
-	nodes := make([]string, 0, len(in.Ballots))
-	for n := range in.Ballots {
-		nodes = append(nodes, n)
+	ids := make([]string, 0, len(in.Ballots))
+	for id := range in.Ballots {
+		ids = append(ids, id)
 	}
-	sort.Strings(nodes)
-	for _, n := range nodes {
-		b := in.Ballots[n]
-		ok, why := ValidUp(keys, in.Challenge, n, b)
+	sort.Strings(ids)
+	perNode := map[string][]observe.Ballot{}
+	for _, id := range ids {
+		b := in.Ballots[id]
+		node, known := in.NodeOf[id]
+		ok, why := ValidUp(keys, in.Challenge, id, b)
 		if ok {
-			v.ValidUps = append(v.ValidUps, n)
+			v.ValidUps = append(v.ValidUps, id)
 			signers[b.Proof.Signed.Instance+"/"+b.Proof.Signed.SystemID] = true
+		} else if b.Ballot == observe.BallotUp {
+			v.RejectedProofs[id] = why
+		}
+		if !known {
 			continue
 		}
-		if b.Ballot == observe.BallotUp {
-			v.RejectedProofs[n] = why
+		switch {
+		case ok:
+			perNode[node] = append(perNode[node], observe.BallotUp)
+		case b.Ballot == observe.BallotDown:
+			perNode[node] = append(perNode[node], observe.BallotDown)
+		default:
+			perNode[node] = append(perNode[node], observe.BallotAbstain)
 		}
-		if eligible[n] && b.Ballot == observe.BallotDown {
+	}
+	for _, n := range in.Eligible {
+		if observe.NodeBallot(perNode[n], in.PerNode) == observe.BallotDown {
 			v.Downs++
 		}
 	}

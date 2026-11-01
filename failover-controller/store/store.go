@@ -48,20 +48,25 @@ func (s *Store) cms() interface {
 
 type Ballots struct {
 	Node    string
+	Slot    string
 	PubKey  string
 	Votes   map[string]observe.Vote
 	Version string
 }
 
-// PublishVotes writes this node's ballots into its own object. Admission ties the object's name to the
-// node in the writer's token, so no observer can write for another.
-func (s *Store) PublishVotes(ctx context.Context, node, pubKey string, votes map[string]observe.Vote) error {
+func (b Ballots) ID() string { return observe.ObserverID(b.Node, b.Slot) }
+
+func (s *Store) voteName(node, slot string) string { return s.cfg.VotePrefix + node + "-" + slot }
+
+// PublishVotes writes one observer's ballots into its own object. Admission ties the object's name to the
+// node and slot in the writer's token, so no observer can write for another.
+func (s *Store) PublishVotes(ctx context.Context, node, slot, pubKey string, votes map[string]observe.Vote) error {
 	b, err := json.Marshal(votes)
 	if err != nil {
 		return err
 	}
-	name := s.cfg.VotePrefix + node
-	data := map[string]string{"node": node, "pubkey": pubKey, "votes": string(b)}
+	name := s.voteName(node, slot)
+	data := map[string]string{"node": node, "slot": slot, "pubkey": pubKey, "votes": string(b)}
 	cm, err := s.cms().Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		_, err = s.cms().Create(ctx, &corev1.ConfigMap{
@@ -85,17 +90,17 @@ func (s *Store) ListBallots(ctx context.Context) ([]Ballots, error) {
 	}
 	var out []Ballots
 	for _, cm := range list.Items {
-		node := strings.TrimPrefix(cm.Name, s.cfg.VotePrefix)
-		if cm.Data["node"] != node {
+		node, slot := cm.Data["node"], cm.Data["slot"]
+		if node == "" || slot == "" || strings.Contains(slot, "-") || cm.Name != s.voteName(node, slot) {
 			continue
 		}
-		b := Ballots{Node: node, PubKey: cm.Data["pubkey"], Votes: map[string]observe.Vote{}, Version: cm.ResourceVersion}
+		b := Ballots{Node: node, Slot: slot, PubKey: cm.Data["pubkey"], Votes: map[string]observe.Vote{}, Version: cm.ResourceVersion}
 		if err := json.Unmarshal([]byte(cm.Data["votes"]), &b.Votes); err != nil {
 			continue
 		}
 		out = append(out, b)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Node < out[j].Node })
+	sort.Slice(out, func(i, j int) bool { return out[i].ID() < out[j].ID() })
 	return out, nil
 }
 
@@ -125,6 +130,7 @@ type Claim struct {
 	State     ClaimState        `json:"state"`
 	Step      Step              `json:"step"`
 	Decider   string            `json:"decider"`
+	Instance  string            `json:"instance"`
 	Candidate string            `json:"candidate"`
 	Followers []string          `json:"followers"`
 	Nodes     []string          `json:"nodes"`

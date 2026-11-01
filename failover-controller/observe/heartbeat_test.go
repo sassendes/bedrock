@@ -223,13 +223,64 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("a standby can only sign that it is in recovery", func(t *testing.T) {
+	t.Run("a standby never signs because it cannot commit", func(t *testing.T) {
 		p := StrongCheckWithNonce(ctx, standby.observerConfig(2*time.Second), "node-1", "db/standby", "challenge-9")
-		if p.Signed == nil {
-			t.Fatalf("standby did not sign: %s", p.SignError)
+		if p.Signed != nil || p.Stuck {
+			t.Fatalf("standby proof %+v", p)
 		}
-		if !p.Signed.InRecovery || testKeys(t).Verify(*p.Signed) != nil {
-			t.Fatalf("standby proof %+v", p.Signed)
+	})
+
+	t.Run("a stuck synchronous commit is stuck and never signed", func(t *testing.T) {
+		primary.exec("ALTER SYSTEM SET synchronous_standby_names = 'nobody'")
+		primary.exec("SELECT pg_reload_conf()")
+		defer func() {
+			primary.exec("ALTER SYSTEM RESET synchronous_standby_names")
+			primary.exec("SELECT pg_reload_conf()")
+		}()
+		time.Sleep(200 * time.Millisecond)
+		p := StrongCheckWithNonce(ctx, primary.observerConfig(500*time.Millisecond), "node-sync", "db/primary", "challenge-s")
+		if p.Result != ResultDown || !p.Stuck || p.Signed != nil {
+			t.Fatalf("want stuck with no signature, got %+v", p)
+		}
+	})
+
+	t.Run("a primary set read only is stuck, not a standby", func(t *testing.T) {
+		primary.exec("ALTER SYSTEM SET default_transaction_read_only = on")
+		primary.exec("SELECT pg_reload_conf()")
+		defer func() {
+			primary.exec("ALTER SYSTEM RESET default_transaction_read_only")
+			primary.exec("SELECT pg_reload_conf()")
+		}()
+		time.Sleep(200 * time.Millisecond)
+		p := StrongCheckWithNonce(ctx, primary.observerConfig(time.Second), "node-ro", "db/primary", "challenge-r")
+		if p.Result != ResultDown || !p.Stuck || p.Signed != nil {
+			t.Fatalf("want stuck with no signature, got %+v", p)
+		}
+	})
+
+	t.Run("a replica reports how far it replayed", func(t *testing.T) {
+		p := StrongCheckWithNonce(ctx, primary.observerConfig(2*time.Second), "node-1", "db/primary", "challenge-l")
+		if p.Signed == nil {
+			t.Fatal("no signature")
+		}
+		want, _ := ParseLSN(p.Signed.LSN)
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			got, err := ReplayLSN(ctx, standby.observerConfig(2*time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			n, ok := ParseLSN(got)
+			if ok && n >= want {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("replica at %s never reached %s", got, p.Signed.LSN)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if _, err := ReplayLSN(ctx, primary.observerConfig(2*time.Second)); err == nil {
+			t.Fatal("a primary reported a replay position")
 		}
 	})
 
@@ -301,8 +352,8 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		p := strongCheck(ctx, primary.observerConfig(500*time.Millisecond), "node-hang", "db/primary")
-		if p.Result != ResultDown || !strings.Contains(p.Reason, "statement timeout") {
-			t.Fatalf("want down by statement timeout, got %+v", p)
+		if p.Result != ResultDown || !p.Stuck || p.Signed != nil || !strings.Contains(p.Reason, "statement timeout") {
+			t.Fatalf("want stuck by statement timeout and unsigned, got %+v", p)
 		}
 	})
 
@@ -343,4 +394,15 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestParseLSN(t *testing.T) {
+	a, ok1 := ParseLSN("0/3000060")
+	b, ok2 := ParseLSN("1/0")
+	if !ok1 || !ok2 || a >= b || a != 0x3000060 {
+		t.Fatalf("got %x %x", a, b)
+	}
+	if _, ok := ParseLSN("garbage"); ok {
+		t.Fatal("parsed garbage")
+	}
 }
