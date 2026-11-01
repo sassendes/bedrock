@@ -28,6 +28,7 @@ type Round struct {
 	Split     map[string]bool     `json:"split"`
 	ProvenLSN map[string]string   `json:"provenLsn"`
 	DeadSince map[string]DeadMark `json:"deadSince"`
+	Behind    map[string]DeadMark `json:"behind"`
 }
 
 // DeadMark is when the verifier first proved this instance dead, by round number, so the cnpg window

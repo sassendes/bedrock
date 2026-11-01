@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -441,30 +442,77 @@ func TestPrimaryMovingRevokes(t *testing.T) {
 	}
 }
 
-func TestACandidateBehindTheLastProvenWriteIsHeld(t *testing.T) {
-	c := newCourt(t)
+func (c *court) provenAt(lsn string) *store.Round {
 	r := c.tick()
-	c.vote("n2", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotUp, Proof: observe.Proof{Signed: sign(r.Challenge, "n2", "cluster-1@10.0.1.1")}})
-	r = c.tick()
-	if r.ProvenLSN[target] != "0/1" {
+	s := sign(r.Challenge, "n2", "cluster-1@10.0.1.1")
+	s.LSN = lsn
+	c.vote("n2", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotUp, Proof: observe.Proof{Signed: s}})
+	return c.tick()
+}
+
+func TestABehindCandidateGetsTheCatchUpWindowThenIsPromotedAnyway(t *testing.T) {
+	c := newCourt(t)
+	r := c.provenAt("0/100")
+	if r.ProvenLSN[target] != "0/100" {
 		t.Fatalf("proven position %q", r.ProvenLSN[target])
 	}
 	c.claim(1)
-	c.replay = "0/0"
-	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.replay = "0/40"
 	c.dead(4)
-	r = c.tick()
-	if a := c.approval(); a.State == store.ApprovalValid {
-		t.Fatal("approved a candidate missing a proven write")
+	for i := int64(0); i < c.v.cfg.CatchUpRounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+		if a := c.approval(); a.State == store.ApprovalValid {
+			t.Fatalf("approved after %d rounds, inside the catch-up window", i+1)
+		}
 	}
-	if c.m.Count("bedrock_verifier_page") == 0 {
-		t.Fatal("holding was not paged")
-	}
-	c.replay = "0/1"
 	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
 	c.tick()
 	if a := c.approval(); a.State != store.ApprovalValid {
-		t.Fatalf("not approved once the candidate caught up: %+v", a)
+		t.Fatalf("held past the catch-up window: %+v", a)
+	}
+	if lost, _ := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); lost != 0xc0 {
+		t.Fatalf("reported %v bytes lost, want %v", lost, 0xc0)
+	}
+}
+
+func TestACandidateThatCatchesUpIsPromotedAtOnceWithNothingLost(t *testing.T) {
+	c := newCourt(t)
+	r := c.provenAt("0/100")
+	c.claim(1)
+	c.replay = "0/FF"
+	c.dead(4)
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	r = c.tick()
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatal("approved a candidate one byte behind, at once")
+	}
+	c.replay = "0/100"
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid {
+		t.Fatalf("not approved once caught up: %+v", a)
+	}
+	if lost, ok := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); !ok || lost != 0 {
+		t.Fatalf("lost %v, reported %v", lost, ok)
+	}
+}
+
+func TestACandidateThatCannotBeReadIsPromotedAfterTheWindowAsUnknown(t *testing.T) {
+	c := newCourt(t)
+	r := c.provenAt("0/100")
+	c.claim(1)
+	c.v.replay = func(context.Context, discovery.Member) (string, error) { return "", errors.New("refused") }
+	c.dead(4)
+	for i := int64(0); i <= c.v.cfg.CatchUpRounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+	}
+	if a := c.approval(); a.State != store.ApprovalValid {
+		t.Fatalf("held forever on an unreadable candidate: %+v", a)
+	}
+	if lost, _ := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); lost != -1 {
+		t.Fatalf("reported %v, want -1 for unknown", lost)
 	}
 }
 

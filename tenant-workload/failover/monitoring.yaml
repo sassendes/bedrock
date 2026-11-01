@@ -62,6 +62,13 @@ spec:
           annotations:
             summary: "{{ $labels.target }} has not committed a write for over 2 minutes"
             description: "it answers but every observer's heartbeat write is stuck; this never fails over, look at it"
+        - alert: BedrockFailoverLostWrites
+          expr: max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) != 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }} failed over behind its last signed write"
+            description: "{{ $value }} bytes of WAL postgres had signed are not on the new primary, -1 means the amount could not be read"
         - alert: BedrockFailoverClaimStuck
           expr: max by (target) (bedrock_failover_claim_open) > 0
           for: 10m

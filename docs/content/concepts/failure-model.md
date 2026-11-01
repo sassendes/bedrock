@@ -16,7 +16,7 @@ etcd, Loki and Garage all depend on a majority agreeing. With N members, a major
 |---|---|---|
 | A minority of nodes lost | etcd, Loki and Garage keep a majority, and the remaining Prometheus replicas keep scraping. Longhorn serves volumes from the remaining replicas. Pods on the dead node are deleted and rescheduled. | No |
 | The cluster-1 primary instance lost | CloudNativePG promotes a standby instance inside cluster-1. Synchronous replication means no acknowledged write is lost. | No |
-| cluster-1 lost entirely | The failover controller proves it dead, fences it, promotes cluster-2 and points `postgres-rw` at it. | No, unless cluster-2 is missing a proven write |
+| cluster-1 lost entirely | The failover controller proves it dead, fences it, promotes cluster-2 and points `postgres-rw` at it. | No |
 | A bad `DROP`, `DELETE` or `UPDATE` | An alert fires. cluster-3 is five minutes behind, so its replay can be paused before the change reaches it. | Yes |
 | Kyverno down | Application pods cannot be admitted, because those policies fail closed. Databases, storage and the operators keep working, because policies on their namespaces fail open or do not apply. | No, but it pages |
 | One Garage pod lost | Two full copies keep serving S3. | No |
@@ -42,7 +42,7 @@ A process should not be the only judge of whether it is healthy, so the decision
 - **Postgres proves it is alive.** Every round the verifier issues a fresh challenge. Postgres signs it with a key no observer can read, and only after a write has committed. One valid signature outweighs every vote that says dead.
 - **Death needs evidence.** Two observers run on every node and count as one vote: the node votes down only when both say down. A majority of nodes must vote down, and three of four witnesses must answer dead: the replicas streaming from the primary, its instance manager, its container state, and what CloudNativePG last recorded. A witness that cannot be reached is silent, never dead.
 - **CloudNativePG goes first.** While cluster-1 still has a Ready standby, nothing happens for a minute so CloudNativePG can promote inside the cluster. If it does, the claim is closed and nothing is fenced.
-- **No proven write is lost.** cluster-2 is promoted only if it has replayed past the last position postgres signed. Otherwise the controller holds and pages.
+- **Availability first, with the least loss.** If cluster-2 is behind the last position postgres signed, it gets up to 30 seconds to replay what cluster-1 archived. Then it is promoted either way, and any gap is reported in bytes and paged. The database is never left down waiting for a person.
 - **The decider holds nothing.** It has the permissions to fence and promote, and admission refuses every one of its writes unless the verifier approved that exact instance and epoch. Approvals are written only by the verifier.
 - **A fallback that only stops things.** When the normal path is broken, a simple checker asks the database itself. If it is up, every failover action is blocked. If it is down, a person is paged.
 - **Stuck writes page, never fail over.** A primary that answers but cannot commit for two minutes pages a person.

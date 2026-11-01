@@ -147,8 +147,15 @@ The verifier approves a run only when all of these hold:
 - the outcome for this round is proven dead
 - the instance proven dead is the one the claim names, and it is still the current primary
 - if cluster-1 has a Ready standby, the same instance was proven dead in every round for the last 60 seconds
-- the candidate has replayed at least up to the highest WAL position postgres ever signed for cluster-1, read with `pg_last_wal_replay_lsn()`. If it is behind, the verifier holds and pages, so no write that was proven is thrown away
 - the checker is not halting
+
+Then the verifier compares how far the candidate has replayed, read with `pg_last_wal_replay_lsn()`, with the highest WAL position postgres ever signed for cluster-1:
+
+| Candidate | The verifier |
+|---|---|
+| At or past the signed position | Approves at once. No signed write is lost |
+| Behind | Waits up to 30 seconds. cluster-2 keeps replaying the WAL cluster-1 archived to Garage before it died. It approves as soon as the candidate catches up |
+| Still behind after 30 seconds, or unreadable | Approves anyway, so the database is never left down waiting for a person, and reports the gap in bytes. `BedrockFailoverLostWrites` pages with it |
 
 Until the fence starts, the run ends without a fence when a fresh up arrives, the verifier revokes, the checker halts, or CloudNativePG has moved the primary to another instance. After the fence starts, the old primary cannot sign, so the approval stands and the run is finished.
 
@@ -242,6 +249,7 @@ Every value is a flag on the binary. The defaults are the values in use.
 | `-dead-witnesses` | verifier | 3 | Witnesses that must say dead |
 | `-cnpg-grace` | verifier, decider | 1m | CloudNativePG's time to promote inside the cluster |
 | `-max-stream-lag` | verifier | 10s | A replica stream older than this counts as gone |
+| `-catch-up` | verifier | 30s | How long a candidate behind the last signed position gets to replay from the archive |
 | `-dead-after` | decider | 30s | Time suspect before dead, without a Ready standby |
 | `-freshness` | decider | 6s | How long a vote counts |
 | `-cooldown` | decider | 10m | No second failover of the same primary within this |
@@ -283,6 +291,7 @@ All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns 
 | `bedrock_verifier_outcome` | Up, proven dead, contradiction or unknown, per primary |
 | `bedrock_verifier_dead_witnesses` | Witnesses that say dead |
 | `bedrock_verifier_round` | The current round number |
+| `bedrock_verifier_promoted_behind_bytes` | Signed WAL the new primary did not have at approval, per run; 0 when nothing was lost, -1 when unknown |
 | `bedrock_failover_state` | Alive, suspect or dead, per primary |
 | `bedrock_failover_votes` | Up, down and abstain counts, per primary |
 | `bedrock_failover_claim_open` | Open runs and their step |
@@ -301,7 +310,7 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded. 
 | `Instances` | A force deleted pod never leaves two primaries |
 | `Pairs` | Two observers per node: two liars anywhere cannot vote a live database down |
 | `Halt` | A stalled verifier with a recovered database never leads to a fence |
-| `Promotion` | Sign after commit, the CloudNativePG minute, the replay guard, the instance pin, the stuck write page |
+| `Promotion` | Sign after commit, the CloudNativePG minute, the catch-up window, the instance pin, the stuck write page. No run ever waits for a person |
 | `Decider`, `Exchange`, `Fallback` | The claim steps, the observer exchange, the earlier fallback design |
 
 ## What it does not do

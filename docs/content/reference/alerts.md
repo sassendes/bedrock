@@ -88,6 +88,7 @@ These live in `tenant-workload/failover/monitoring.yaml`.
 | `BedrockPrimaryProvenDead` | critical | immediately | A primary is proven dead |
 | `BedrockPrimaryContradiction` | critical | 1m | A primary signed that it is alive while three witnesses say dead; nothing will act |
 | `BedrockFallbackDatabaseDown` | critical | immediately | The normal path is broken and the checker sees the database down |
+| `BedrockFailoverLostWrites` | critical | immediately | A failover promoted a replica that was behind the last signed write; the value is the gap in bytes, -1 if unknown |
 | `BedrockPrimaryNotWriting` | critical | immediately | Every observer has seen the primary answer without committing a write for over two minutes |
 | `BedrockFailoverClaimStuck` | critical | 10m | A failover has been open for ten minutes |
 | `BedrockDeciderNoLeader` | critical | 1m | The deciders do not have exactly one leader |

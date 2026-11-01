@@ -24,10 +24,11 @@ func main() {
 	st := store.DefaultConfig()
 	cfg := verifier.DefaultConfig()
 	wcfg := witness.DefaultConfig()
-	var interval, cnpgGrace time.Duration
+	var interval, cnpgGrace, catchUp time.Duration
 	var keyDir, caDir, passwordFile string
 	fs.DurationVar(&interval, "round", 4*time.Second, "length of a round; every round closes on this timer")
 	fs.DurationVar(&cnpgGrace, "cnpg-grace", time.Minute, "how long cnpg gets to promote inside a cluster that still has ready standbys")
+	fs.DurationVar(&catchUp, "catch-up", 30*time.Second, "how long a candidate behind the last signed position gets to replay from the archive before it is promoted anyway")
 	fs.IntVar(&cfg.PerNode, "observers-per-node", cfg.PerNode, "observers on every node, folded into the node's one vote")
 	fs.IntVar(&cfg.DeadNeeded, "dead-witnesses", cfg.DeadNeeded, "witnesses that must answer dead to prove a death")
 	fs.StringVar(&cfg.ObserverSelector, "observer-selector", cfg.ObserverSelector, "label selector of the observer pods")
@@ -53,6 +54,7 @@ func main() {
 	log := cli.Logger()
 	cfg.ObserverNamespace = common.Namespace
 	cfg.GraceRounds = int64((cnpgGrace + interval - 1) / interval)
+	cfg.CatchUpRounds = int64((catchUp + interval - 1) / interval)
 	st.Namespace = common.Namespace
 
 	keys, err := proof.LoadKeys(keyDir)
