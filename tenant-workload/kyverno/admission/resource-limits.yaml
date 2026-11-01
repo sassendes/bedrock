@@ -19,6 +19,7 @@ spec:
           values:
             - application
             - node-agents
+            - bedrock-failover
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]

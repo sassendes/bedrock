@@ -1,0 +1,105 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: bedrock-failover
+  namespace: application
+spec:
+  namespaceSelector:
+    matchNames:
+      - bedrock-failover
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: bedrock-failover
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: bedrock-failover
+  namespace: application
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: bedrock-failover.rules
+      rules:
+        - alert: BedrockFailoverPage
+          expr: max by (target, reason) (bedrock_failover_page or bedrock_verifier_page) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: "failover needs a human: {{ $labels.target }}"
+            description: "{{ $labels.reason }}"
+        - alert: BedrockPrimaryProvenDead
+          expr: max by (target) (bedrock_verifier_outcome{outcome="proven-dead"}) == 1
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }} is proven dead"
+            description: "three witnesses say dead and nothing signed up this round"
+        - alert: BedrockPrimaryContradiction
+          expr: max by (target) (bedrock_verifier_outcome{outcome="contradiction"}) == 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }} signed up while proven dead"
+            description: "the failover will never act on a contradiction, look at it"
+        - alert: BedrockCheckerDisagrees
+          expr: max by (target) (bedrock_checker_primary_healthy) == 1 and on (target) max by (target) (bedrock_failover_state{state="dead"}) == 1
+          labels:
+            severity: critical
+          annotations:
+            summary: "the checker sees {{ $labels.target }} healthy while the decider calls it dead"
+            description: "the observers and the instance manager disagree"
+        - alert: BedrockFailoverClaimStuck
+          expr: max by (target) (bedrock_failover_claim_open) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "a failover of {{ $labels.target }} has been open for 10 minutes"
+            description: "read the claim object in bedrock-failover"
+        - alert: BedrockDeciderNoLeader
+          expr: sum(bedrock_failover_leader) != 1
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "the decider has {{ $value }} leaders"
+            description: "with no leader nothing fails over"
+        - alert: BedrockVerifierStalled
+          expr: changes(bedrock_verifier_round[1m]) == 0 or absent(bedrock_verifier_round)
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "the verifier has not closed a round for a minute"
+            description: "no approvals can be given or revoked"
+        - alert: BedrockCheckerSilent
+          expr: time() - max(bedrock_checker_last_round_timestamp_seconds) > 60 or absent(bedrock_checker_last_round_timestamp_seconds)
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "the checker has not finished a round for a minute"
+            description: "the last fallback is blind"
+        - alert: BedrockObserverBlind
+          expr: min by (pod) (bedrock_observer_up) == 0 or min by (pod) (bedrock_observer_publish_ok) == 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "observer {{ $labels.pod }} cannot discover or publish"
+            description: "one fewer vote counts"
+        - alert: BedrockObserverAlone
+          expr: max by (pod) (bedrock_observer_peers) == 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "observer {{ $labels.pod }} reaches no peers"
+            description: "it can only abstain when its own check fails"

@@ -38,6 +38,7 @@ func main() {
 	c := checker.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), cfg, roots, m, log)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	common.Serve(m, log)
-	c.Run(ctx)
+	health := cli.NewHealth(3*cfg.Interval + cfg.Timeout)
+	common.Serve(m, health, log)
+	c.Run(ctx, health.Mark)
 }

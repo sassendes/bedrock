@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sassendes/bedrock/failover-controller/act"
@@ -84,10 +85,36 @@ func (c *Common) Clients(log *slog.Logger) (dynamic.Interface, kubernetes.Interf
 	return dynamic.NewForConfigOrDie(rc), kubernetes.NewForConfigOrDie(rc)
 }
 
-func (c *Common) Serve(m *metrics.Registry, log *slog.Logger) {
+// Health is green only while the loop keeps finishing rounds, so a stuck loop gets restarted.
+type Health struct {
+	mu   sync.Mutex
+	last time.Time
+	max  time.Duration
+}
+
+func NewHealth(max time.Duration) *Health { return &Health{last: time.Now(), max: max} }
+
+func (h *Health) Mark() {
+	h.mu.Lock()
+	h.last = time.Now()
+	h.mu.Unlock()
+}
+
+func (h *Health) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	age := time.Since(h.last)
+	h.mu.Unlock()
+	if age > h.max {
+		http.Error(w, "last good round "+age.Round(time.Second).String()+" ago", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func (c *Common) Serve(m *metrics.Registry, h *Health, log *slog.Logger) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", m)
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.Handle("/healthz", h)
 	srv := &http.Server{Addr: c.MetricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {

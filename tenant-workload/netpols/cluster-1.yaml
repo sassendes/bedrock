@@ -57,6 +57,28 @@ spec:
         - ports:
             - port: "5432"
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: bedrock-failover
+            app.kubernetes.io/name: bedrock-observer
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: bedrock-failover
+            app.kubernetes.io/name: bedrock-verifier
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: bedrock-failover
+            app.kubernetes.io/name: bedrock-verifier
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: bedrock-failover
+            app.kubernetes.io/name: bedrock-checker
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
   egress:
     - toEndpoints:
         - {}

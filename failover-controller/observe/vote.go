@@ -11,11 +11,12 @@ const (
 )
 
 type Vote struct {
-	Target string `json:"target"`
-	Ballot Ballot `json:"ballot"`
-	Reason string `json:"reason"`
-	Proof  Proof  `json:"proof"`
-	Seq    uint64 `json:"seq"`
+	Target    string `json:"target"`
+	Challenge string `json:"challenge"`
+	Ballot    Ballot `json:"ballot"`
+	Reason    string `json:"reason"`
+	Proof     Proof  `json:"proof"`
+	Seq       uint64 `json:"seq"`
 }
 
 // Valid is the dumb check every reader runs on an up: a primary that wrote my nonce, at the expected system.

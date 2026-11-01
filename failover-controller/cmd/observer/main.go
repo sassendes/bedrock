@@ -94,7 +94,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	common.Serve(m, log)
+	health := cli.NewHealth(3*cfg.ProbeInterval + cfg.AskTimeout + 2*cfg.Check.Timeout)
+	common.Serve(m, health, log)
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.ExchangePort),
@@ -110,7 +111,7 @@ func main() {
 		}
 	}()
 	log.Info("observer started", "node", cfg.Node)
-	o.Run(ctx)
+	o.Run(ctx, health.Mark)
 	_ = srv.Close()
 	_ = observe.BallotUp
 }

@@ -15,7 +15,7 @@ import (
 func TestRepointNeedsAPreparedEntry(t *testing.T) {
 	w := testenv.New()
 	a := New(w.Dyn, w.Kube, DefaultConfig())
-	ok, msg, err := a.Repoint(context.Background(), "cluster-2/cluster-2", "cluster-3/cluster-3")
+	ok, msg, err := a.Repoint(context.Background(), "cluster-2/cluster-2", "cluster-3/cluster-3", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestRepointIsIdempotent(t *testing.T) {
 	w := testenv.New()
 	a := New(w.Dyn, w.Kube, DefaultConfig())
 	for i := 0; i < 2; i++ {
-		ok, _, err := a.Repoint(context.Background(), "cluster-3/cluster-3", "cluster-2/cluster-2")
+		ok, _, err := a.Repoint(context.Background(), "cluster-3/cluster-3", "cluster-2/cluster-2", 1)
 		if err != nil || !ok {
 			t.Fatalf("round %d: %v %v", i, ok, err)
 		}
@@ -59,7 +59,7 @@ func TestStableHostFallsBackToThePrimaryService(t *testing.T) {
 
 func TestFlipRefusesWhenNothingIsLabelled(t *testing.T) {
 	w := testenv.New()
-	if _, err := New(w.Dyn, w.Kube, DefaultConfig()).Flip(context.Background(), "cluster-2/cluster-2", "cluster-3/cluster-3"); err == nil {
+	if _, err := New(w.Dyn, w.Kube, DefaultConfig()).Flip(context.Background(), "cluster-2/cluster-2", "cluster-3/cluster-3", 1); err == nil {
 		t.Fatal("flip with no labelled service succeeded")
 	}
 }
@@ -95,7 +95,7 @@ func TestPromotedNeedsHealthy(t *testing.T) {
 	if ok, _, _ := a.Promoted(ctx, "cluster-2/cluster-2"); ok {
 		t.Fatal("a replica counted as promoted")
 	}
-	if err := a.Promote(ctx, "cluster-2/cluster-2"); err != nil {
+	if err := a.Promote(ctx, "cluster-2/cluster-2", 1); err != nil {
 		t.Fatal(err)
 	}
 	w.SetStatus("cluster-2", "Promoting to primary cluster", 1)

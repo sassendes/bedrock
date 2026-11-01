@@ -98,9 +98,13 @@ func ballot(t *testing.T, st *store.Store, node string) observe.Vote {
 	return observe.Vote{}
 }
 
+// roundAll runs two passes: an observer learns its peers' keys from the votes they published, so the
+// first one to go in a pass cannot know the others yet.
 func roundAll(obs map[string]*Observer) {
-	for _, o := range obs {
-		o.Round(context.Background())
+	for pass := 0; pass < 2; pass++ {
+		for _, o := range obs {
+			o.Round(context.Background())
+		}
 	}
 }
 
@@ -162,5 +166,17 @@ func TestUnknownTargetIsNeverProbed(t *testing.T) {
 	p := obs["n3"].probe(context.Background(), "kube-system/etcd", "x")
 	if p.Result != observe.ResultDown || p.Reason != "unknown target" {
 		t.Fatalf("probed %+v", p)
+	}
+}
+
+func TestObserversSignTheVerifiersChallenge(t *testing.T) {
+	obs, _, st := setup(t, "n3")
+	if err := st.PutRound(context.Background(), store.Round{Number: 9, Challenge: "round-9-challenge"}); err != nil {
+		t.Fatal(err)
+	}
+	obs["n3"].Round(context.Background())
+	v := ballot(t, st, "n3")
+	if v.Challenge != "round-9-challenge" || v.Proof.Nonce != "round-9-challenge" {
+		t.Fatalf("vote %+v did not use the round's challenge", v)
 	}
 }

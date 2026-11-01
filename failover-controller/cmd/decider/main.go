@@ -71,7 +71,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	common.Serve(m, log)
+	health := cli.NewHealth(3*tick + leaseDuration)
+	common.Serve(m, health, log)
 
 	lock := &resourcelock.LeaseLock{
 		LeaseMeta:  metav1.ObjectMeta{Name: leaseName, Namespace: common.Namespace},
@@ -92,6 +93,8 @@ func main() {
 				for {
 					if err := d.Tick(ctx); err != nil {
 						log.Error("tick", "err", err)
+					} else {
+						health.Mark()
 					}
 					select {
 					case <-ctx.Done():
@@ -111,5 +114,19 @@ func main() {
 		os.Exit(1)
 	}
 	m.Set("bedrock_failover_leader", nil, 0)
+	go func() {
+		t := time.NewTicker(tick)
+		defer t.Stop()
+		for {
+			if !leading() {
+				health.Mark()
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 	le.Run(ctx)
 }

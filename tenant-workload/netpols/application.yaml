@@ -191,6 +191,13 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
+        k8s:io.kubernetes.pod.namespace: bedrock-failover
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
         k8s:io.kubernetes.pod.namespace: longhorn-system
         app: longhorn-manager
     toPorts:

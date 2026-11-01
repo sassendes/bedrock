@@ -274,6 +274,9 @@
     nats_enabled: false
     redis_enabled: false
     kafka_enabled: false
+    failover_enabled: true
+    failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
+    failover_deploy: "{{ playbook_dir }}/../../failover-controller/deploy"
   tasks:
     - name: Wait for Kubernetes API to answer
       ansible.builtin.command: kubectl get --raw=/readyz
@@ -380,6 +383,7 @@
         - "{{repo_root }}/secrets/nats-auth.yaml"
         - "{{repo_root }}/secrets/redis-auth.yaml"
         - "{{ repo_root }}/secrets/grafana-admin.yaml"
+        - "{{ repo_root }}/secrets/bedrock-observer.yaml"
 
     - name: Download Longhorn v1.13.0 (checksum verified)
       ansible.builtin.get_url:
@@ -680,6 +684,40 @@
       retries: 40
       delay: 15
 
+    - name: Failover secrets directory on the controller only
+      ansible.builtin.file:
+        path: "{{ failover_dir }}/proof-keys"
+        state: directory
+        mode: "0700"
+
+    - name: Generate the first proof key (it never leaves the controller, postgres and the verifier)
+      ansible.builtin.shell: |
+        set -eu
+        umask 077
+        openssl rand -hex 32 > "{{ failover_dir }}/proof-keys/k1"
+      args:
+        creates: "{{ failover_dir }}/proof-keys/k1"
+
+    - name: Load the bedrock functions and the proof keys into the cluster-1 primary
+      ansible.builtin.shell: |
+        set -eu
+        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+        test -n "$primary"
+        {
+          cat "{{ failover_deploy }}/../observe/heartbeat.sql"
+          for f in "{{ failover_dir }}"/proof-keys/*; do
+            printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
+          done
+        } | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: bedrock_sql
+      until: bedrock_sql.rc == 0
+      retries: 10
+      delay: 10
+      changed_when: false
+      no_log: true
+
     - name: Take the first cluster-1 base backup (replicas bootstrap from it)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -923,6 +961,106 @@
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
+
+    - name: Failover namespace, config and the parameters admission reads
+      when: failover_enabled | bool
+      ansible.builtin.command: kubectl apply -f {{ failover_deploy }}/namespace.yaml -f {{ failover_deploy }}/config.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Failover admission (its parameters ship first inside the same file)
+      when: failover_enabled | bool
+      ansible.builtin.command: kubectl apply -f {{ failover_deploy }}/admission.yaml -f {{ failover_deploy }}/rbac.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Kyverno sync of the database cas and the observer password into bedrock-failover
+      when: failover_enabled | bool
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/kyverno/generate/failover-secret-sync.yaml"
+      register: failover_sync
+      until: failover_sync is succeeded
+      retries: 10
+      delay: 6
+
+    - name: Wait for the synced secrets in bedrock-failover
+      when: failover_enabled | bool
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: bedrock-failover
+        name: "{{ item }}"
+      register: failover_synced
+      until: failover_synced.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
+      loop:
+        - bedrock-observer
+        - cluster-1-ca-crt
+        - cluster-2-ca-crt
+        - cluster-3-ca-crt
+
+    - name: Proof keys for the verifier
+      when: failover_enabled | bool
+      ansible.builtin.shell: |
+        set -eu
+        kubectl create secret generic bedrock-proof-keys -n bedrock-failover --from-file="{{ failover_dir }}/proof-keys" --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      no_log: true
+
+    - name: Exchange mtls for the observers (ca and one shared leaf, generated once on the controller)
+      when: failover_enabled | bool
+      ansible.builtin.shell: |
+        set -eu
+        umask 077
+        d="{{ failover_dir }}/exchange"
+        mkdir -p "$d"
+        cd "$d"
+        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 -subj /CN=bedrock-observer-ca -addext basicConstraints=critical,CA:TRUE,pathlen:0 -addext keyUsage=critical,keyCertSign,cRLSign -keyout ca.key -out ca.crt
+        openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=bedrock-observer -keyout tls.key -out tls.csr
+        printf 'subjectAltName=DNS:bedrock-observer\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' > leaf.ext
+        openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 825 -extfile leaf.ext -out tls.crt
+        rm -f tls.csr leaf.ext
+      args:
+        creates: "{{ failover_dir }}/exchange/tls.crt"
+
+    - name: Exchange mtls secret
+      when: failover_enabled | bool
+      ansible.builtin.shell: |
+        set -eu
+        d="{{ failover_dir }}/exchange"
+        kubectl create secret generic bedrock-observer-exchange -n bedrock-failover --from-file=tls.crt="$d/tls.crt" --from-file=tls.key="$d/tls.key" --from-file=ca.crt="$d/ca.crt" --dry-run=client -o yaml | kubectl apply -f -
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      no_log: true
+
+    - name: Apply the failover controller
+      when: failover_enabled | bool
+      ansible.builtin.command: >
+        kubectl apply
+        -f {{ failover_deploy }}/netpol.yaml
+        -f {{ failover_deploy }}/observer.yaml
+        -f {{ failover_deploy }}/verifier.yaml
+        -f {{ failover_deploy }}/decider.yaml
+        -f {{ failover_deploy }}/checker.yaml
+        -f {{ failover_deploy }}/monitoring.yaml
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Wait for the failover controller
+      when: failover_enabled | bool
+      ansible.builtin.command: kubectl rollout status -n bedrock-failover {{ item }} --timeout=300s
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
+      loop:
+        - daemonset/bedrock-observer
+        - deployment/bedrock-verifier
+        - deployment/bedrock-decider
+        - deployment/bedrock-checker
 
     - name: Apply network policies
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/netpols/

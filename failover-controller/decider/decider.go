@@ -96,6 +96,16 @@ func (d *Decider) Tick(ctx context.Context) error {
 	d.metrics.Set("bedrock_failover_leader", nil, 1)
 	now := d.now()
 
+	round, err := d.store.GetRound(ctx)
+	if err != nil {
+		pages.Add(map[string]string{"target": "", "reason": "round unreadable"})
+		return err
+	}
+	approvals, err := d.store.GetApprovals(ctx)
+	if err != nil {
+		pages.Add(map[string]string{"target": "", "reason": "approvals unreadable"})
+		return err
+	}
 	ballots, err := d.store.ListBallots(ctx)
 	if err != nil {
 		pages.Add(map[string]string{"target": "", "reason": "votes unreadable"})
@@ -125,7 +135,7 @@ func (d *Decider) Tick(ctx context.Context) error {
 	for _, c := range claims {
 		switch c.State {
 		case store.ClaimOpen:
-			if err := d.advance(ctx, c, ballots, pages); err != nil {
+			if err := d.advance(ctx, c, ballots, round, approvals[store.ApprovalKey(c.Target)], pages); err != nil {
 				d.log.Error("advance claim", "target", c.Target, "step", c.Step, "err", err)
 				pages.Add(map[string]string{"target": c.Target, "reason": "step " + string(c.Step) + " failed: " + err.Error()})
 			}
@@ -172,7 +182,7 @@ func (d *Decider) Tick(ctx context.Context) error {
 			if !ok {
 				continue
 			}
-			in.Observations = append(in.Observations, decide.Observation{Node: b.Node, Ballot: v.Ballot, Fresh: d.fresh(b.Node, key, v.Seq, now)})
+			in.Observations = append(in.Observations, decide.Observation{Node: b.Node, Ballot: proven(round, key, b.Node, v.Ballot), Fresh: d.fresh(b.Node, key, v.Seq, now)})
 		}
 		in.Paused = obj.GetAnnotations()[d.cfg.PauseAnnotation] == "true"
 		in.Transitioning = contains(d.cfg.TransitionalPhases, f.Primary.Phase)
@@ -268,12 +278,22 @@ func (d *Decider) primaryNode(ctx context.Context, m discovery.Member) (string, 
 	return pod.Spec.NodeName, nil
 }
 
-// ran is true once a run went past its claim: only those count for the cap and the cooldown.
 func ran(c *store.Claim) bool { return c.Step != store.StepClaimed }
 
-func (d *Decider) freshUp(target string, ballots []store.Ballots, now time.Time) string {
+// proven keeps an up only if the verifier checked its signature last round. A liar's plain up is an abstention.
+func proven(round *store.Round, target, node string, b observe.Ballot) observe.Ballot {
+	if b != observe.BallotUp {
+		return b
+	}
+	if round != nil && contains(round.ValidUps[target], node) {
+		return b
+	}
+	return observe.BallotAbstain
+}
+
+func (d *Decider) freshUp(target string, ballots []store.Ballots, round *store.Round, now time.Time) string {
 	for _, b := range ballots {
-		if v, ok := b.Votes[target]; ok && v.Ballot == observe.BallotUp && d.fresh(b.Node, target, v.Seq, now) {
+		if v, ok := b.Votes[target]; ok && proven(round, target, b.Node, v.Ballot) == observe.BallotUp && d.fresh(b.Node, target, v.Seq, now) {
 			return b.Node
 		}
 	}
@@ -359,7 +379,7 @@ func (d *Decider) halt(ctx context.Context, c *store.Claim, reason string) error
 
 // advance moves an open claim one step. Any decider holding the lease resumes the claim the same way,
 // since every step is fixed in the claim and safe to repeat.
-func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.Ballots, pages *metrics.Set) error {
+func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.Ballots, round *store.Round, approval store.Approval, pages *metrics.Set) error {
 	if !d.leader() {
 		return nil
 	}
@@ -371,12 +391,21 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 	}
 	switch c.Step {
 	case store.StepClaimed:
-		if up := d.freshUp(c.Target, ballots, d.now()); up != "" {
+		if approval.Epoch == c.Epoch && approval.State == store.ApprovalRevoked {
+			c.State, c.Reason = store.ClaimClosed, "the verifier revoked the approval: the database proved it is alive"
+			d.log.Warn("claim revoked", "target", c.Target)
+			return d.store.Save(ctx, c)
+		}
+		if up := d.freshUp(c.Target, ballots, round, d.now()); up != "" {
 			c.State, c.Reason = store.ClaimClosed, "vetoed before the fence: fresh up from "+up
 			d.log.Warn("claim vetoed", "target", c.Target, "by", up)
 			return d.store.Save(ctx, c)
 		}
-		if err := d.actor.Fence(ctx, c.Target); err != nil {
+		if approval.Epoch != c.Epoch || approval.State != store.ApprovalValid {
+			pages.Add(map[string]string{"target": c.Target, "reason": "waiting for the verifier's approval"})
+			return nil
+		}
+		if err := d.actor.Fence(ctx, c.Target, c.Epoch); err != nil {
 			return err
 		}
 		return d.move(ctx, c, store.StepFencing)
@@ -403,7 +432,7 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 		if !ok {
 			return d.halt(ctx, c, "fence no longer holds before promote: "+reason)
 		}
-		if err := d.actor.Promote(ctx, c.Candidate); err != nil {
+		if err := d.actor.Promote(ctx, c.Candidate, c.Epoch); err != nil {
 			return err
 		}
 		return d.move(ctx, c, store.StepPromoting)
@@ -424,7 +453,7 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 
 	case store.StepPromoted:
 		for _, f := range c.Followers {
-			ok, msg, err := d.actor.Repoint(ctx, f, c.Candidate)
+			ok, msg, err := d.actor.Repoint(ctx, f, c.Candidate, c.Epoch)
 			if err != nil {
 				return err
 			}
@@ -436,7 +465,7 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 		return d.move(ctx, c, store.StepRepointed)
 
 	case store.StepRepointed:
-		flipped, err := d.actor.Flip(ctx, c.Target, c.Candidate)
+		flipped, err := d.actor.Flip(ctx, c.Target, c.Candidate, c.Epoch)
 		if err != nil {
 			return err
 		}

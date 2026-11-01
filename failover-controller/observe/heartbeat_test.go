@@ -2,6 +2,7 @@ package observe
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -12,10 +13,21 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/sassendes/bedrock/failover-controller/proof"
 )
 
 const pgSuperPassword = "super-test-password"
 const pgObserverPassword = "observer-test-password"
+const testKeyHex = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+
+func testKeys(t *testing.T) proof.Keys {
+	raw, err := hex.DecodeString(testKeyHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return proof.Keys{"k1": raw}
+}
 
 type pgInstance struct {
 	t    *testing.T
@@ -89,6 +101,7 @@ func startPrimary(t *testing.T) *pgInstance {
 	p.start()
 	p.exec(readSQL(t))
 	p.exec(fmt.Sprintf("ALTER ROLE bedrock_observer PASSWORD '%s'", pgObserverPassword))
+	p.exec(fmt.Sprintf("INSERT INTO bedrock_proof_key (id, key, active) VALUES ('k1', decode('%s', 'hex'), true)", testKeyHex))
 	return p
 }
 
@@ -176,6 +189,74 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		}
 		if p.InRecovery || p.LSN == "" || p.SystemID == "" || p.Timeline < 1 {
 			t.Errorf("incomplete proof: %+v", p)
+		}
+	})
+
+	t.Run("postgres signs the challenge and the signature verifies", func(t *testing.T) {
+		p := StrongCheckWithNonce(ctx, primary.observerConfig(2*time.Second), "node-1", "db/primary", "challenge-7")
+		if p.Signed == nil {
+			t.Fatalf("no signature: %s", p.SignError)
+		}
+		s := *p.Signed
+		if err := testKeys(t).Verify(s); err != nil {
+			t.Fatalf("signature does not verify: %v %+v", err, s)
+		}
+		if s.Challenge != "challenge-7" || s.Observer != "node-1" || s.InRecovery || s.SystemID != p.SystemID {
+			t.Fatalf("signed the wrong facts: %+v", s)
+		}
+		for name, tamper := range map[string]func(*proof.Signed){
+			"challenge":   func(x *proof.Signed) { x.Challenge = "challenge-8" },
+			"observer":    func(x *proof.Signed) { x.Observer = "node-2" },
+			"in recovery": func(x *proof.Signed) { x.InRecovery = true },
+			"lsn":         func(x *proof.Signed) { x.LSN = "0/0" },
+			"time":        func(x *proof.Signed) { x.AtMs++ },
+		} {
+			c := s
+			tamper(&c)
+			if testKeys(t).Verify(c) == nil {
+				t.Errorf("changing the %s kept the signature valid", name)
+			}
+		}
+		wrong := proof.Keys{"k1": make([]byte, 32)}
+		if wrong.Verify(s) == nil {
+			t.Error("a different key verified the signature")
+		}
+	})
+
+	t.Run("a standby can only sign that it is in recovery", func(t *testing.T) {
+		p := StrongCheckWithNonce(ctx, standby.observerConfig(2*time.Second), "node-1", "db/standby", "challenge-9")
+		if p.Signed == nil {
+			t.Fatalf("standby did not sign: %s", p.SignError)
+		}
+		if !p.Signed.InRecovery || testKeys(t).Verify(*p.Signed) != nil {
+			t.Fatalf("standby proof %+v", p.Signed)
+		}
+	})
+
+	t.Run("the observer login cannot read the key", func(t *testing.T) {
+		cfg := primary.observerConfig(time.Second)
+		conn, err := pgx.Connect(ctx, fmt.Sprintf("postgres://bedrock_observer:%s@127.0.0.1:%d/postgres?sslmode=disable", cfg.Password, cfg.Port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close(ctx)
+		if _, err := conn.Exec(ctx, "SELECT key FROM bedrock_proof_key"); err == nil {
+			t.Fatal("observer read the proof key")
+		}
+		if _, err := conn.Exec(ctx, "UPDATE bedrock_proof_key SET active = false"); err == nil {
+			t.Fatal("observer changed the proof key")
+		}
+	})
+
+	t.Run("a replica reports its wal stream and the primary reports none", func(t *testing.T) {
+		cfg := standby.observerConfig(2 * time.Second)
+		r := Receiver(ctx, cfg)
+		if r.Err != "" || r.Status != "streaming" {
+			t.Fatalf("standby receiver %+v", r)
+		}
+		r = Receiver(ctx, primary.observerConfig(2*time.Second))
+		if r.Err != "" || r.Status != "" {
+			t.Fatalf("primary receiver %+v", r)
 		}
 	})
 

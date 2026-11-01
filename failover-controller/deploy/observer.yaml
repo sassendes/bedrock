@@ -1,0 +1,139 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: bedrock-observer
+  namespace: bedrock-failover
+  labels:
+    app.kubernetes.io/name: bedrock-observer
+    app.kubernetes.io/part-of: bedrock-failover
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bedrock-observer
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bedrock-observer
+        app.kubernetes.io/part-of: bedrock-failover
+      annotations:
+        reloader.stakater.com/auto: "true"
+    spec:
+      serviceAccountName: bedrock-observer
+      priorityClassName: bedrock-data
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: CriticalAddonsOnly
+          operator: Exists
+      containers:
+        - name: observer
+          image: ghcr.io/sassendes/bedrock-failover:0.1.0
+          command: ["/observer"]
+          args:
+            - -dr-zones=$(DR_ZONES)
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DR_ZONES
+              valueFrom:
+                configMapKeyRef:
+                  name: bedrock-failover
+                  key: dr-zones
+          ports:
+            - name: exchange
+              containerPort: 8443
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: pg-password
+              mountPath: /etc/bedrock/pg
+              readOnly: true
+            - name: pg-ca
+              mountPath: /etc/bedrock/pg-ca
+              readOnly: true
+            - name: exchange-tls
+              mountPath: /etc/bedrock/exchange
+              readOnly: true
+            - name: run
+              mountPath: /run/bedrock
+      volumes:
+        - name: pg-password
+          secret:
+            secretName: bedrock-observer
+            items:
+              - key: password
+                path: password
+        - name: pg-ca
+          projected:
+            sources:
+              - secret:
+                  name: cluster-1-ca-crt
+                  items:
+                    - key: ca.crt
+                      path: cluster-1.crt
+              - secret:
+                  name: cluster-2-ca-crt
+                  items:
+                    - key: ca.crt
+                      path: cluster-2.crt
+              - secret:
+                  name: cluster-3-ca-crt
+                  items:
+                    - key: ca.crt
+                      path: cluster-3.crt
+        - name: exchange-tls
+          secret:
+            secretName: bedrock-observer-exchange
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

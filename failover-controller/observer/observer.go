@@ -50,6 +50,8 @@ type Observer struct {
 	check   func(ctx context.Context, cfg observe.CheckConfig, observer, target, nonce string) observe.Proof
 	nonce   func() (string, error)
 
+	published bool
+
 	mu      sync.Mutex
 	targets map[string]string
 	systems map[string]string
@@ -86,11 +88,14 @@ func (o *Observer) probe(ctx context.Context, target, nonce string) observe.Proo
 }
 
 // Run returns only when ctx ends. One round every probe interval, faster while any target looks down.
-func (o *Observer) Run(ctx context.Context) {
+func (o *Observer) Run(ctx context.Context, done func()) {
 	for {
 		wait := o.cfg.ProbeInterval
 		if down := o.Round(ctx); down {
 			wait = o.cfg.SuspectInterval
+		}
+		if o.published {
+			done()
 		}
 		select {
 		case <-ctx.Done():
@@ -127,10 +132,17 @@ func (o *Observer) Round(ctx context.Context) bool {
 	o.targets = targets
 	o.mu.Unlock()
 
+	challenge := ""
+	if r, err := o.store.GetRound(ctx); err == nil && r != nil {
+		challenge = r.Challenge
+	} else if err != nil {
+		o.log.Warn("round unreadable, signing a private nonce", "err", err)
+	}
 	votes := map[string]observe.Vote{}
 	anyDown := false
 	for _, key := range keys {
-		v := o.vote(ctx, key)
+		v := o.vote(ctx, key, challenge)
+		v.Challenge = challenge
 		o.mu.Lock()
 		o.seq++
 		v.Seq = o.seq
@@ -148,7 +160,9 @@ func (o *Observer) Round(ctx context.Context) bool {
 		}
 		o.metrics.Set("bedrock_observer_check_latency_seconds", map[string]string{"target": key}, v.Proof.Latency.Seconds())
 	}
-	if err := o.store.PublishVotes(ctx, o.cfg.Node, o.pub, votes); err != nil {
+	err = o.store.PublishVotes(ctx, o.cfg.Node, o.pub, votes)
+	o.published = err == nil
+	if err != nil {
 		o.log.Error("publish votes", "err", err)
 		o.metrics.Set("bedrock_observer_publish_ok", nil, 0)
 	} else {
@@ -157,10 +171,15 @@ func (o *Observer) Round(ctx context.Context) bool {
 	return anyDown
 }
 
-func (o *Observer) vote(ctx context.Context, key string) observe.Vote {
-	nonce, err := o.nonce()
-	if err != nil {
-		return observe.Vote{Target: key, Ballot: observe.BallotAbstain, Reason: "nonce: " + err.Error()}
+// vote signs the verifier's challenge when there is one, so postgres's signature counts for this round.
+func (o *Observer) vote(ctx context.Context, key, challenge string) observe.Vote {
+	nonce := challenge
+	if nonce == "" {
+		n, err := o.nonce()
+		if err != nil {
+			return observe.Vote{Target: key, Ballot: observe.BallotAbstain, Reason: "nonce: " + err.Error()}
+		}
+		nonce = n
 	}
 	own := o.probe(ctx, key, nonce)
 	o.mu.Lock()

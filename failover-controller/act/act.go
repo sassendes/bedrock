@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,7 @@ type Config struct {
 	FlipLabel              string
 	ClusterDomain          string
 	HealthyPhase           string
+	EpochAnnotation        string
 }
 
 func DefaultConfig() Config {
@@ -47,6 +49,7 @@ func DefaultConfig() Config {
 		FlipLabel:              "bedrock.io/points-at",
 		ClusterDomain:          "cluster.local",
 		HealthyPhase:           "Cluster in healthy state",
+		EpochAnnotation:        "bedrock.io/failover-epoch",
 	}
 }
 
@@ -82,7 +85,19 @@ func (a *Actor) Get(ctx context.Context, key string) (*unstructured.Unstructured
 	return a.cluster(ns).Get(ctx, name, metav1.GetOptions{})
 }
 
-func (a *Actor) patch(ctx context.Context, key string, body map[string]any) error {
+// patch stamps every write with the run's epoch, so admission can refuse a decider from an older run.
+func (a *Actor) patch(ctx context.Context, key string, epoch int64, body map[string]any) error {
+	meta, _ := body["metadata"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+		body["metadata"] = meta
+	}
+	an, _ := meta["annotations"].(map[string]any)
+	if an == nil {
+		an = map[string]any{}
+		meta["annotations"] = an
+	}
+	an[a.cfg.EpochAnnotation] = strconv.FormatInt(epoch, 10)
 	ns, name, err := splitKey(key)
 	if err != nil {
 		return err
@@ -130,12 +145,12 @@ func (a *Actor) Instances(ctx context.Context, key string) (pods, nodes []string
 
 // Fence stops the operator from reconciling the cluster, so nothing recreates its pods, then deletes them.
 // Hibernation alone is not enough: CNPG defers it while the cluster is unhealthy, which is exactly now.
-func (a *Actor) Fence(ctx context.Context, key string) error {
+func (a *Actor) Fence(ctx context.Context, key string, epoch int64) error {
 	ns, name, err := splitKey(key)
 	if err != nil {
 		return err
 	}
-	if err := a.patch(ctx, key, map[string]any{"metadata": map[string]any{"annotations": map[string]any{
+	if err := a.patch(ctx, key, epoch, map[string]any{"metadata": map[string]any{"annotations": map[string]any{
 		a.cfg.ReconcileAnnotation:   a.cfg.ReconcileDisabled,
 		a.cfg.HibernationAnnotation: a.cfg.HibernationOn,
 	}}}); err != nil {
@@ -203,8 +218,8 @@ func nodeReady(n *corev1.Node) (bool, time.Time) {
 	return false, time.Time{}
 }
 
-func (a *Actor) Promote(ctx context.Context, key string) error {
-	return a.patch(ctx, key, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}})
+func (a *Actor) Promote(ctx context.Context, key string, epoch int64) error {
+	return a.patch(ctx, key, epoch, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}})
 }
 
 func (a *Actor) Promoted(ctx context.Context, key string) (bool, string, error) {
@@ -226,7 +241,7 @@ func (a *Actor) Promoted(ctx context.Context, key string) (bool, string, error) 
 
 // Repoint switches a follower to an externalClusters entry that already exists and resolves to the new
 // primary. It never writes hosts or credentials: an entry that was not prepared is reported, not invented.
-func (a *Actor) Repoint(ctx context.Context, follower, newPrimary string) (bool, string, error) {
+func (a *Actor) Repoint(ctx context.Context, follower, newPrimary string, epoch int64) (bool, string, error) {
 	obj, err := a.Get(ctx, follower)
 	if err != nil {
 		return false, "", err
@@ -253,7 +268,7 @@ func (a *Actor) Repoint(ctx context.Context, follower, newPrimary string) (bool,
 		if name == current {
 			return true, "already following " + newPrimary, nil
 		}
-		if err := a.patch(ctx, follower, map[string]any{"spec": map[string]any{"replica": map[string]any{"source": name}}}); err != nil {
+		if err := a.patch(ctx, follower, epoch, map[string]any{"spec": map[string]any{"replica": map[string]any{"source": name}}}); err != nil {
 			return false, "", err
 		}
 		return true, "now follows " + newPrimary + " through " + name, nil
@@ -331,7 +346,7 @@ func (a *Actor) fqdn(svc, ns string) string {
 	return svc + "." + ns + ".svc." + a.cfg.ClusterDomain
 }
 
-func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string) ([]string, error) {
+func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string, epoch int64) ([]string, error) {
 	_, oldName, err := splitKey(oldPrimary)
 	if err != nil {
 		return nil, err
@@ -354,8 +369,11 @@ func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string) ([]stri
 			continue
 		}
 		body, _ := json.Marshal(map[string]any{
-			"metadata": map[string]any{"labels": map[string]any{a.cfg.FlipLabel: newName}},
-			"spec":     map[string]any{"externalName": host},
+			"metadata": map[string]any{
+				"labels":      map[string]any{a.cfg.FlipLabel: newName},
+				"annotations": map[string]any{a.cfg.EpochAnnotation: strconv.FormatInt(epoch, 10)},
+			},
+			"spec": map[string]any{"externalName": host},
 		})
 		if _, err := a.kube.CoreV1().Services(s.Namespace).Patch(ctx, s.Name, types.MergePatchType, body, metav1.PatchOptions{}); err != nil {
 			return flipped, fmt.Errorf("flip %s/%s: %w", s.Namespace, s.Name, err)

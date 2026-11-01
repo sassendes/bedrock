@@ -38,6 +38,17 @@ func (j *journal) add(e string) {
 	j.events = append(j.events, e)
 }
 
+func (j *journal) indexContains(prefix, part string) int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	for i, e := range j.events {
+		if strings.HasPrefix(e, prefix) && strings.Contains(e, part) {
+			return i
+		}
+	}
+	return -1
+}
+
 func (j *journal) index(prefix string) int {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -58,12 +69,16 @@ type lab struct {
 	journal *journal
 	leader  bool
 	m       *metrics.Registry
+	verify  bool
+	approve bool
+	ups     map[string]bool
+	liars   map[string]bool
 }
 
 func newLab(t *testing.T) *lab {
 	w := testenv.New()
 	testenv.Optimistic(w.Kube, "configmaps")
-	l := &lab{t: t, w: w, st: store.New(w.Kube, store.DefaultConfig()), clock: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC), journal: &journal{}, leader: true, m: metrics.New()}
+	l := &lab{t: t, w: w, st: store.New(w.Kube, store.DefaultConfig()), clock: time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC), journal: &journal{}, leader: true, m: metrics.New(), verify: true, approve: true}
 	w.Kube.PrependReactor("delete", "pods", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		l.journal.add("delete pod " + a.GetNamespace() + "/" + a.(k8stesting.DeleteAction).GetName())
 		return false, nil, nil
@@ -94,10 +109,35 @@ func (l *lab) decider(identity string) *Decider {
 
 func (l *lab) vote(ballots map[string]observe.Ballot) {
 	ctx := context.Background()
+	l.ups = map[string]bool{}
 	for node, b := range ballots {
+		if b == observe.BallotUp {
+			l.ups[node] = true
+		}
 		l.seq++
 		v := observe.Vote{Target: target, Ballot: b, Seq: l.seq}
 		if err := l.st.PublishVotes(ctx, node, "", map[string]observe.Vote{target: v}); err != nil {
+			l.t.Fatal(err)
+		}
+	}
+}
+
+// verifier stands in for the real one: every up in the lab is treated as signed, and an open claim is
+// approved while approve is set.
+func (l *lab) verifier() {
+	ctx := context.Background()
+	var ups []string
+	for n := range l.ups {
+		if !l.liars[n] {
+			ups = append(ups, n)
+		}
+	}
+	if err := l.st.PutRound(ctx, store.Round{Number: 1, Challenge: "c", ValidUps: map[string][]string{target: ups}}); err != nil {
+		l.t.Fatal(err)
+	}
+	c := l.claim()
+	if c != nil && c.State == store.ClaimOpen && c.Step == store.StepClaimed && l.approve {
+		if err := l.st.SetApproval(ctx, target, store.Approval{State: store.ApprovalValid, Epoch: c.Epoch, Round: 1}); err != nil {
 			l.t.Fatal(err)
 		}
 	}
@@ -111,6 +151,9 @@ func (l *lab) run(d *Decider, seconds int, ballots func() map[string]observe.Bal
 	for i := 0; i < seconds; i++ {
 		if ballots != nil {
 			l.vote(ballots())
+		}
+		if l.verify {
+			l.verifier()
 		}
 		if err := d.Tick(context.Background()); err != nil {
 			l.t.Fatalf("tick: %v", err)
@@ -177,7 +220,7 @@ func TestFullFailoverInOrder(t *testing.T) {
 			lastDelete = i
 		}
 	}
-	promote := l.journal.index(`patch cluster-2 {"spec":{"replica":{"enabled":false}}}`)
+	promote := l.journal.indexContains("patch cluster-2 ", `"replica":{"enabled":false}`)
 	flip := l.journal.index("flip postgres-rw")
 	if !(fence >= 0 && fence < lastDelete && lastDelete < promote && promote < flip) {
 		t.Fatalf("wrong order: fence %d, delete %d, promote %d, flip %d: %v", fence, lastDelete, promote, flip, l.journal.events)
@@ -330,7 +373,7 @@ func TestNewLeaderResumesTheSameClaim(t *testing.T) {
 	}
 	promotes := 0
 	for _, e := range l.journal.events {
-		if strings.HasPrefix(e, `patch cluster-2 {"spec":{"replica":{"enabled":false}}}`) {
+		if strings.HasPrefix(e, "patch cluster-2 ") && strings.Contains(e, `"replica":{"enabled":false}`) {
 			promotes++
 		}
 	}
@@ -409,5 +452,78 @@ func TestLosingTheLeaseFreezesAnOpenClaim(t *testing.T) {
 	l.run(d, 60, allDown)
 	if c := l.claim(); c.Step != before.Step || c.State != store.ClaimOpen || len(l.w.Pods("cluster-1", "cluster-1")) != 2 {
 		t.Fatalf("a decider without the lease moved the claim: %+v", c)
+	}
+}
+
+func TestNoApprovalNoFence(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	l.run(l.decider("decider-0"), 400, allDown)
+	c := l.claim()
+	if c == nil || c.State != store.ClaimHalted || len(l.w.Pods("cluster-1", "cluster-1")) != 2 {
+		t.Fatalf("acted without the verifier's approval: %+v", c)
+	}
+}
+
+func TestRevokedApprovalClosesTheClaim(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	d := l.decider("decider-0")
+	l.run(d, 32, allDown)
+	c := l.claim()
+	if c == nil || c.Step != store.StepClaimed {
+		t.Fatalf("claim %+v", c)
+	}
+	if err := l.st.SetApproval(context.Background(), target, store.Approval{State: store.ApprovalRevoked, Epoch: c.Epoch}); err != nil {
+		t.Fatal(err)
+	}
+	l.run(d, 3, allDown)
+	c = l.claim()
+	if c.State != store.ClaimClosed || !strings.Contains(c.Reason, "revoked") || len(l.w.Pods("cluster-1", "cluster-1")) != 2 {
+		t.Fatalf("claim %+v", c)
+	}
+}
+
+func TestAnApprovalForAnotherEpochIsNotPermission(t *testing.T) {
+	l := newLab(t)
+	l.approve = false
+	d := l.decider("decider-0")
+	if err := l.st.SetApproval(context.Background(), target, store.Approval{State: store.ApprovalValid, Epoch: 7}); err != nil {
+		t.Fatal(err)
+	}
+	l.run(d, 60, allDown)
+	if len(l.w.Pods("cluster-1", "cluster-1")) != 2 {
+		t.Fatal("fenced on an approval for another epoch")
+	}
+}
+
+func TestALiarsUnprovenUpDoesNotVeto(t *testing.T) {
+	l := newLab(t)
+	l.liars = map[string]bool{"n5": true}
+	d := l.decider("decider-0")
+	l.run(d, 45, func() map[string]observe.Ballot {
+		b := allDown()
+		b["n5"] = observe.BallotUp
+		return b
+	})
+	if c := l.claim(); c == nil || !l.promoted() {
+		t.Fatalf("a liar's up without proof blocked the failover: %+v", c)
+	}
+}
+
+func TestEveryWriteCarriesTheEpoch(t *testing.T) {
+	l := newLab(t)
+	l.run(l.decider("decider-0"), 45, allDown)
+	n := 0
+	for _, e := range l.journal.events {
+		if strings.HasPrefix(e, "patch ") {
+			n++
+			if !strings.Contains(e, `"bedrock.io/failover-epoch":"1"`) {
+				t.Fatalf("write without the epoch: %s", e)
+			}
+		}
+	}
+	if n < 3 {
+		t.Fatalf("only %d writes seen", n)
 	}
 }

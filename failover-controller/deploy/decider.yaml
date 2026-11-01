@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bedrock-decider
+  namespace: bedrock-failover
+  labels:
+    app.kubernetes.io/name: bedrock-decider
+    app.kubernetes.io/part-of: bedrock-failover
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bedrock-decider
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bedrock-decider
+        app.kubernetes.io/part-of: bedrock-failover
+    spec:
+      serviceAccountName: bedrock-decider
+      priorityClassName: bedrock-data
+      automountServiceAccountToken: true
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: bedrock-decider
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: decider
+          image: ghcr.io/sassendes/bedrock-failover:0.1.0
+          command: ["/decider"]
+          args:
+            - -dr-zones=$(DR_ZONES)
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DR_ZONES
+              valueFrom:
+                configMapKeyRef:
+                  name: bedrock-failover
+                  key: dr-zones
+          ports:
+            - name: metrics
+              containerPort: 9090
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 48Mi
+            limits:
+              cpu: 300m
+              memory: 192Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: bedrock-decider
+  namespace: bedrock-failover
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bedrock-decider

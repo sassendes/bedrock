@@ -61,9 +61,11 @@ func (c *Checker) client(serverName string) *http.Client {
 	return &http.Client{Timeout: c.cfg.Timeout, Transport: tr}
 }
 
-func (c *Checker) Run(ctx context.Context) {
+func (c *Checker) Run(ctx context.Context, done func()) {
 	for {
-		c.Round(ctx)
+		if c.Round(ctx) {
+			done()
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -72,11 +74,11 @@ func (c *Checker) Run(ctx context.Context) {
 	}
 }
 
-func (c *Checker) Round(ctx context.Context) {
+func (c *Checker) Round(ctx context.Context) bool {
 	d, err := discovery.Discover(ctx, c.dyn, c.kube, c.disc)
 	if err != nil {
 		c.log.Warn("discovery", "err", err)
-		return
+		return false
 	}
 	for _, f := range d.Families {
 		p := f.Primary
@@ -93,6 +95,7 @@ func (c *Checker) Round(ctx context.Context) {
 		c.metrics.Set("bedrock_checker_primary_healthy", map[string]string{"target": p.Key()}, v)
 	}
 	c.metrics.Set("bedrock_checker_last_round_timestamp_seconds", nil, float64(c.now().Unix()))
+	return true
 }
 
 func (c *Checker) check(ctx context.Context, m discovery.Member) (bool, string) {
