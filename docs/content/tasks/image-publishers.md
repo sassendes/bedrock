@@ -22,7 +22,7 @@ Copy the `Digest:` line and write the image as `quay.io/example/tool:v1.2.3@sha2
 
 ## Add the publisher
 
-Open `kyverno/registry-allowlist.yaml`. It contains two policies with the same pattern, one for application namespaces and one for data namespaces. The pattern has two groups:
+Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains two policies with the same pattern, one for application namespaces and one for data namespaces. The pattern has two groups:
 
 - single repositories, such as `quay\\.io/kiwigrid/k8s-sidecar`, for when you trust one image
 - whole organisations, such as `quay\\.io/(prometheus|prometheus-operator|strimzi)/`, for when you trust everything a publisher ships
@@ -36,7 +36,7 @@ Images from Docker Hub without a registry name, like `nats:2.14`, are matched as
 Write a test pod using the new image and check it with the Kyverno CLI:
 
 ```sh
-kyverno apply kyverno/registry-allowlist.yaml --resource test-pod.yaml
+kyverno apply tenant-workload/kyverno/admission/registry-allowlist.yaml --resource test-pod.yaml
 ```
 
 Also test a pod with an image that should still be refused, such as `nginx:1.27`, and confirm it fails. A policy that passes everything looks the same as a working one until you test the negative case.
@@ -44,7 +44,7 @@ Also test a pod with an image that should still be refused, such as `nginx:1.27`
 ## Apply it
 
 ```sh
-kubectl apply -f kyverno/registry-allowlist.yaml
+kubectl apply -f tenant-workload/kyverno/admission/registry-allowlist.yaml
 ```
 
 The change affects new pods only. Running pods are not evicted.

@@ -4,7 +4,7 @@ weight: 7
 description: "Recover cluster-1's data as it was at a given moment, into a new cluster, from the backups in Garage."
 ---
 
-Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores cluster-1 into a separate, new cluster, so the running database is not touched.
+Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `tenant-workload/database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores cluster-1 into a separate, new cluster, so the running database is not touched.
 
 ## Before you begin
 
@@ -63,7 +63,7 @@ spec:
           compression: gzip
 ```
 
-Fill in the placeholders. Copy `imageName` and the storage size from `database/cluster-1.yaml`, since the restored data must fit and the PostgreSQL major version must match. A single instance is enough to inspect the data; use more if the restored cluster will serve traffic. Change `targetTime` to your moment. The file has no `backup` section on purpose: the restored cluster must never write into cluster-1's bucket.
+Fill in the placeholders. Copy `imageName` and the storage size from `tenant-workload/database/cluster-1.yaml`, since the restored data must fit and the PostgreSQL major version must match. A single instance is enough to inspect the data; use more if the restored cluster will serve traffic. Change `targetTime` to your moment. The file has no `backup` section on purpose: the restored cluster must never write into cluster-1's bucket.
 
 ## Run the restore
 

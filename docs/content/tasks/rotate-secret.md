@@ -4,10 +4,10 @@ weight: 11
 description: "Change a password or token that a platform component reads, and get the component to use it."
 ---
 
-The platform's credentials live in `secrets/` as plain Kubernetes Secrets. Every component reads them as environment variables, which a process only reads when it starts. Changing a Secret therefore does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
+The platform's credentials live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Every component reads them as environment variables, which a process only reads when it starts. Changing a Secret therefore does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
 
 {{< note >}}
-Secrets will move to OpenBao. Until then, the values in `secrets/` are the source of truth, so change them there and apply the file rather than editing the Secret in the cluster.
+Secrets will move to OpenBao. Until then, the values in `tenant-workload/secrets/` are the source of truth, so change them there and apply the file rather than editing the Secret in the cluster.
 {{< /note >}}
 
 ## Which components read which Secret
@@ -29,18 +29,18 @@ Grafana only reads the admin password from its environment the first time it sta
 kubectl -n application exec deploy/grafana -c grafana -- grafana cli admin reset-admin-password '<new password>'
 ```
 
-Put the same value in `secrets/grafana-admin.yaml` and apply it, so a fresh install uses it too:
+Put the same value in `tenant-workload/secrets/grafana-admin.yaml` and apply it, so a fresh install uses it too:
 
 ```sh
-kubectl apply -f secrets/grafana-admin.yaml
+kubectl apply -f tenant-workload/secrets/grafana-admin.yaml
 ```
 
 ## Garage admin token
 
-Change `admin_token` in `secrets/garage-secrets.yaml`, apply it and restart Garage:
+Change `admin_token` in `tenant-workload/secrets/garage-secrets.yaml`, apply it and restart Garage:
 
 ```sh
-kubectl apply -f secrets/garage-secrets.yaml
+kubectl apply -f tenant-workload/secrets/garage-secrets.yaml
 kubectl -n garage rollout restart statefulset/garage
 kubectl -n garage rollout status statefulset/garage
 ```
@@ -49,10 +49,10 @@ Leave `rpc_secret` alone on a running tenant. Every Garage node must share it, s
 
 ## NATS and Redis passwords
 
-Change the values in `secrets/nats-auth.yaml` or `secrets/redis-auth.yaml`, apply the file and restart the StatefulSet:
+Change the values in `tenant-workload/secrets/nats-auth.yaml` or `tenant-workload/secrets/redis-auth.yaml`, apply the file and restart the StatefulSet:
 
 ```sh
-kubectl apply -f secrets/redis-auth.yaml
+kubectl apply -f tenant-workload/secrets/redis-auth.yaml
 kubectl -n redis rollout restart statefulset/redis
 kubectl -n redis rollout status statefulset/redis
 ```
@@ -65,7 +65,7 @@ The `appuser` password is a role in PostgreSQL. Set it on the primary, then stor
 
 ```sh
 kubectl -n cluster-1 exec cluster-1-1 -c postgres -- psql -U postgres -c "ALTER ROLE appuser PASSWORD '<new password>'"
-kubectl apply -f secrets/user-secret-1.yaml
+kubectl apply -f tenant-workload/secrets/user-secret-1.yaml
 ```
 
 `cluster-1-1` is an example; run it against whichever instance is the current primary, shown by `kubectl -n cluster-1 get cluster cluster-1`. The replica clusters receive the change through replication.

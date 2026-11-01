@@ -4,7 +4,7 @@ weight: 3
 description: "Every connection allowed between components in a tenant, by source, destination and port."
 ---
 
-Everything not listed here is dropped. Each row is allowed in both the source's and the destination's policy. Policies live in `netpols/`, one file per namespace, plus `cluster-default-deny.yaml`.
+Everything not listed here is dropped. Each row is allowed in both the source's and the destination's policy. Policies live in `tenant-workload/netpols/`, one file per namespace, plus `cluster-default-deny.yaml`.
 
 ## Allowed for every pod
 

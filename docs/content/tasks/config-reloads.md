@@ -29,7 +29,7 @@ To watch more than one ConfigMap, separate the names with commas.
 Apply the workload as usual:
 
 ```sh
-kubectl apply -f observability/prometheus/blackbox-exporter.yaml
+kubectl apply -f tenant-workload/observability/prometheus/blackbox-exporter.yaml
 ```
 
 ## Test it
@@ -45,7 +45,7 @@ A new pod starts within a few seconds and the old one is removed. Changing only 
 
 ## Watch a new namespace
 
-Reloader only has permissions in the namespaces it watches. To add one, add the namespace to the `--namespaces` argument in `platform/reloader.yaml` and add a Role and RoleBinding for it in the same file, copied from the existing ones.
+Reloader only has permissions in the namespaces it watches. To add one, add the namespace to the `--namespaces` argument in `tenant-workload/platform/reloader.yaml` and add a Role and RoleBinding for it in the same file, copied from the existing ones.
 
 ## Workloads already annotated
 

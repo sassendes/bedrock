@@ -31,7 +31,7 @@ Policies are written as `CiliumNetworkPolicy` and `CiliumClusterwideNetworkPolic
 - **entities** such as `kube-apiserver`, `host` and `remote-node`, so the API server and the nodes can be named without knowing their IP addresses
 - room for FQDN egress and layer 7 rules later
 
-Each namespace has one file in `netpols/`. The rules and the reasoning are in [networking]({{< relref "/concepts/networking" >}}) and every allowed flow is listed in the [network flows reference]({{< relref "/reference/network-flows" >}}).
+Each namespace has one file in `tenant-workload/netpols/`. The rules and the reasoning are in [networking]({{< relref "/concepts/networking" >}}) and every allowed flow is listed in the [network flows reference]({{< relref "/reference/network-flows" >}}).
 
 ## Entities used
 

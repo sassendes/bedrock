@@ -18,7 +18,7 @@ Garage v2.4.1 is a single binary that provides an S3 API. It replaces MinIO and 
 | Ports | 3900 S3, 3901 cluster RPC, 3903 admin |
 | Service | `garage.garage.svc` |
 
-Garage pods find each other through Kubernetes discovery. The `GarageNode` custom resource definition is shipped in `storage/garage.yaml` and Garage is started with `skip_crd = true`, so it never needs permission to create CRDs. Its service account has a Role in the `garage` namespace with exactly the four verbs its discovery code uses on `garagenodes`: get, list, create and update.
+Garage pods find each other through Kubernetes discovery. The `GarageNode` custom resource definition is shipped in `tenant-workload/storage/garage/garage.yaml` and Garage is started with `skip_crd = true`, so it never needs permission to create CRDs. Its service account has a Role in the `garage` namespace with exactly the four verbs its discovery code uses on `garagenodes`: get, list, create and update.
 
 ## The bucket job
 

@@ -20,14 +20,14 @@ On the controller, clone the repository and install the controller's dependencie
 ```sh
 git clone https://github.com/sassendes/bedrock.git
 cd bedrock
-sudo ./scripts/ansible_deps.sh
+sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
 ```
 
 This installs Ansible, the Python Kubernetes client and the `kubernetes.core` collection.
 
 ## Describe your machines
 
-Open `bootstrap/hosts.ini` and replace the placeholders with your machines. The first node creates the cluster and the other two join it.
+Open `tenant-workload/bootstrap/hosts.ini` and replace the placeholders with your machines. The first node creates the cluster and the other two join it.
 
 ```ini
 [server_init]
@@ -45,7 +45,7 @@ server_join
 Check that Ansible can reach every node:
 
 ```sh
-ansible -i bootstrap/hosts.ini rke2_servers -m ping
+ansible -i tenant-workload/bootstrap/hosts.ini rke2_servers -m ping
 ```
 
 Each node should answer with `pong`.
@@ -113,7 +113,7 @@ Dashboards are not exposed outside the cluster. Forward Grafana's port to the co
 kubectl -n application port-forward svc/grafana 3000:3000
 ```
 
-Open `http://localhost:3000` and log in with the user and password from `secrets/grafana-admin.yaml`. The node and database dashboards are already loaded.
+Open `http://localhost:3000` and log in with the user and password from `tenant-workload/secrets/grafana-admin.yaml`. The node and database dashboards are already loaded.
 
 ## What you built
 

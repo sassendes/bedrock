@@ -17,13 +17,13 @@ The three event buses are off by default, because most tenants do not need them 
 Run the bootstrap with the variable set to `true`. For NATS:
 
 ```sh
-ansible-playbook -i bootstrap/hosts.ini bootstrap/bedrock-bootstrap.yml -e nats_enabled=true
+ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml -e nats_enabled=true
 ```
 
 Several at once:
 
 ```sh
-ansible-playbook -i bootstrap/hosts.ini bootstrap/bedrock-bootstrap.yml \
+ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml \
   -e nats_enabled=true -e redis_enabled=true
 ```
 
@@ -39,10 +39,10 @@ One pod per node, all `Running`. For Redis use the `redis` namespace and for Kaf
 
 ## Let an application use it
 
-No platform component talks to the buses, so their network policies only admit traffic from their own namespace. When an application needs a bus, add an ingress rule to the bus's policy in `netpols/event-buses.yaml` that names the application's pods, and an egress rule in the application's own policy that names the bus. Both sides have to allow the flow.
+No platform component talks to the buses, so their network policies only admit traffic from their own namespace. When an application needs a bus, add an ingress rule to the bus's policy in `tenant-workload/netpols/event-buses.yaml` that names the application's pods, and an egress rule in the application's own policy that names the bus. Both sides have to allow the flow.
 
-Credentials for the buses are placeholders in `secrets/` until OpenBao replaces them. Change them before an application stores anything real.
+Credentials for the buses are placeholders in `tenant-workload/secrets/` until OpenBao replaces them. Change them before an application stores anything real.
 
 ## Make it permanent
 
-The `-e` flag applies to one run. To keep a bus on for every future deploy, set its variable to `true` in the `vars` block of the second play in `bootstrap/bedrock-bootstrap.yml`.
+The `-e` flag applies to one run. To keep a bus on for every future deploy, set its variable to `true` in the `vars` block of the second play in `tenant-workload/bootstrap/bedrock-bootstrap.yml`.

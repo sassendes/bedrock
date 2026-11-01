@@ -27,7 +27,7 @@ Applications send OpenTelemetry traces to Alloy, which forwards them to Tempo. T
 A set of alert rules ships with every tenant. They cover nodes, pods and jobs, the database clusters and their backups, storage, certificates, etcd, Kyverno, Falco and the monitoring pipeline itself. A Watchdog alert fires all the time on purpose: if it ever stops arriving upstream, the alerting path is broken. The full list is in the [alerts reference]({{< relref "/reference/alerts" >}}).
 
 {{< note "planned" >}}
-Alertmanager will forward alerts to the v2 provisioner, which groups them across tenants and delivers them. Until v2 exists, alerts are visible in Prometheus and Grafana only.
+Alertmanager will forward alerts to the provisioner, which groups them across tenants and delivers them. Until the provisioner exists, alerts are visible in Prometheus and Grafana only.
 {{< /note >}}
 
 ## Dashboards and cost

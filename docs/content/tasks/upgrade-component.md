@@ -32,7 +32,7 @@ Every image in the repository is pinned by tag and digest, and every bundle the 
 4. Apply the file and wait for the rollout:
 
    ```sh
-   kubectl apply -f observability/loki/loki.yaml
+   kubectl apply -f tenant-workload/observability/loki/loki.yaml
    kubectl -n application rollout status statefulset/loki
    ```
 
@@ -40,7 +40,7 @@ The same steps work for the PostgreSQL image, `imageName` in the database cluste
 
 ## Upgrade a bundled operator
 
-Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `bootstrap/bedrock-bootstrap.yml`. Each download has a URL with the version in it and a `checksum`.
+Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `tenant-workload/bootstrap/bedrock-bootstrap.yml`. Each download has a URL with the version in it and a `checksum`.
 
 1. Download the new manifest and compute its checksum:
 

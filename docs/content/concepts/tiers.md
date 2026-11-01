@@ -1,7 +1,7 @@
 ---
 title: "The tier model"
 weight: 2
-description: "Genesis, v3, v2 and tenants: how the layers relate and which ones exist today."
+description: "Genesis, the fleet, provisioners and tenants: how the layers relate and which ones exist today."
 ---
 
 bedrock is built as four layers. Each layer creates and looks after the layer below it, and nothing else.
@@ -10,22 +10,22 @@ bedrock is built as four layers. Each layer creates and looks after the layer be
 
 ## The layers
 
-**Genesis** is a one-time step run from an operator's workstation. It creates the root of trust and stands up v3, then stops. Nothing keeps running, so there is nothing to attack between runs. It installs only from a sealed, verified mirror and never reaches the internet.
+**Genesis** is a one-time step run from an operator's workstation. It creates the root of trust and stands up the fleet, then stops. Nothing keeps running, so there is nothing to attack between runs. It installs only from a sealed, verified mirror and never reaches the internet.
 
-**v3** is the control plane for the whole fleet. It decides where provisioners run, buys machines through provider integrations and holds the source of truth for every tenant. It runs on enough nodes that it can still agree something has failed while some of them are down.
+**The fleet** is the control plane above everything. It decides where provisioners run, buys machines through provider integrations and holds the source of truth for every tenant. It runs on enough nodes that it can still agree something has failed while some of them are down.
 
-**v2** is a provisioner. It owns a pool of idle machines and turns them into tenants on request. It stamps the tenant's nodes, firewall pair, network, backup target and databases, then keeps the tenant matching its description over time. Each v2 has a replica, and if a v2 is lost another one can take over its tenants.
+**A provisioner** owns a pool of idle machines and turns them into tenants on request. It stamps the tenant's nodes, firewall pair, network, backup target and databases, then keeps the tenant matching its description over time. Each provisioner has a replica, and if one is lost another can take over its tenants.
 
 **The tenant** is a single cluster on dedicated nodes. It is the part that runs a customer's workloads, and it is the part these docs cover.
 
 ## Recursion
 
-The layers repeat one pattern: describe what you want, and a controller makes it true. A tenant's operators keep its pods running. v2 keeps its tenants matching their descriptions. v3 keeps its v2s alive. Genesis is where the recursion stops, which is why it holds no state and runs only when needed.
+The layers repeat one pattern: describe what you want, and a controller makes it true. A tenant's operators keep its pods running. A provisioner keeps its tenants matching their descriptions. The fleet keeps its provisioners alive. Genesis is where the recursion stops, which is why it holds no state and runs only when needed.
 
 The same idea applies to watching for failure. A process should not be the only judge of whether it is healthy, so each layer is watched from outside:
 
 - inside a tenant, separate observers decide whether the primary database is gone
-- above a tenant, v2 and v3 watch whole clusters
+- above a tenant, the provisioners and the fleet watch whole clusters
 - above a site, offsite backups survive the loss of the building
 
 ## Why separate clusters
@@ -37,6 +37,6 @@ The cost of one cluster per tenant is real. Every tenant runs its own copy of th
 | Layer | Status |
 |---|---|
 | Tenant cluster | Built. Deploys from empty machines, passes CIS. |
-| v2 provisioner | Designed |
-| v3 control plane | Designed |
+| Provisioner | Designed |
+| Fleet | Designed |
 | Genesis | Designed |

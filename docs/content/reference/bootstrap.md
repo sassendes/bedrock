@@ -8,10 +8,11 @@ description: "The files, variables and stages of the bootstrap and teardown play
 
 | Command | Runs |
 |---|---|
-| `make deploy` | `ansible-playbook -i bootstrap/hosts.ini bootstrap/bedrock-bootstrap.yml` |
-| `make teardown` | `ansible-playbook -i bootstrap/hosts.ini bootstrap/bedrock-teardown.yml` |
+| `make deploy` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml` |
+| `make teardown` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-teardown.yml` |
 | `make redeploy` | Teardown, then deploy |
 | `make check` | Syntax check of the bootstrap playbook |
+| `make rotate-proof-key` | Rotates the failover controller's proof key with an overlap, no downtime |
 
 Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 
@@ -32,6 +33,8 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 | `redis_enabled` | `false` | Deploy Redis with Sentinel |
 | `kafka_enabled` | `false` | Deploy Strimzi and Kafka |
 | `kubeconfig` | `~/.bedrock/kubeconfig` | Where the admin kubeconfig is written on the controller |
+| `failover_enabled` | `true` | Deploy the failover controller |
+| `failover_dir` | `~/.bedrock/failover` | Where the proof keys and the exchange certificates are kept on the controller |
 
 ## Stages
 
@@ -47,12 +50,13 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 | 8 | Longhorn, with its RBAC rewritten without wildcards |
 | 9 | CloudNativePG operator and prometheus-operator |
 | 10 | Longhorn encryption key and storage class, Garage, the bucket job |
-| 11 | cluster-1, its first backup, the certificate sync, then cluster-2 and cluster-3 |
+| 11 | cluster-1, the failover functions and the proof key loaded into it, its first backup, the certificate sync, then cluster-2 and cluster-3 |
 | 12 | Poolers, scheduled backups and disruption budgets |
 | 13 | Event buses, if enabled |
 | 14 | Loki, Alloy, Tempo, Prometheus and exporters, alerting, Grafana, OpenCost, Falco, Reloader, dashboards |
 | 15 | Token automount turned off on every default service account |
-| 16 | Network policies, then a check that every namespace running pods has one |
+| 16 | The failover controller: its namespace, admission policies, secret syncs, proof key, exchange certificates, then the workloads and their alerts |
+| 17 | Network policies, then a check that every namespace running pods has one |
 
 ## Files the bootstrap writes on the nodes
 

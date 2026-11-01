@@ -48,6 +48,6 @@ Most parts of bedrock replaced something else that was tried or considered first
 
 | Chosen | Instead of | Reason |
 |---|---|---|
-| A single Alertmanager per tenant | A highly available Alertmanager | If it dies, the Watchdog stops reaching v2, which raises the alarm. High availability arrives with v2 delivery. |
+| A single Alertmanager per tenant | A highly available Alertmanager | If it dies, the Watchdog stops reaching the provisioner, which raises the alarm. High availability arrives with delivery through the provisioner. |
 | Local etcd snapshots | Snapshots to external S3 | The bootstrap must work with no outside services, and etcd can be rebuilt from the repository |
 | Single replicas for Tempo, Grafana and OpenCost | High availability everywhere | They lose nothing on restart |

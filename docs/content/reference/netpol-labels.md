@@ -4,7 +4,7 @@ weight: 12
 description: "The pod labels the network policies select on. Changing one of these labels cuts a pod off."
 ---
 
-Cilium policies pick pods by label. If a pod loses one of the labels below, or a new pod is deployed without it, the policies stop recognising it and its traffic is dropped. Before relabelling a platform workload, find it here and update the policies in `netpols/` at the same time.
+Cilium policies pick pods by label. If a pod loses one of the labels below, or a new pod is deployed without it, the policies stop recognising it and its traffic is dropped. Before relabelling a platform workload, find it here and update the policies in `tenant-workload/netpols/` at the same time.
 
 Cilium writes the namespace as the label `k8s:io.kubernetes.pod.namespace`, so a peer is often a namespace and a label together.
 

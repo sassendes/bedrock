@@ -43,7 +43,7 @@ Pick a namespace at `http://localhost:12000`. Dropped flows are drawn in red.
 
 ## Fix the policy
 
-Every flow must be allowed on both sides. Open the two files in `netpols/`, one for the sender's namespace and one for the receiver's, and add:
+Every flow must be allowed on both sides. Open the two files in `tenant-workload/netpols/`, one for the sender's namespace and one for the receiver's, and add:
 
 - an egress rule in the sender's policy naming the receiver's pods and port
 - an ingress rule in the receiver's policy naming the sender's pods and port

@@ -4,7 +4,7 @@ weight: 7
 description: "Runtime threat detection on every node, and where its events go."
 ---
 
-Falco 0.44.1 watches system calls on every node and matches them against rules: a shell opening inside a container, a write to a sensitive path, an unexpected binary, an attempt to reach the host. It is hand written in `observability/falco/falco.yaml`, without Helm and without falcosidekick.
+Falco 0.44.1 watches system calls on every node and matches them against rules: a shell opening inside a container, a write to a sensitive path, an unexpected binary, an attempt to reach the host. It is hand written in `tenant-workload/observability/falco/falco.yaml`, without Helm and without falcosidekick.
 
 ## How it runs
 

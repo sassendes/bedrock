@@ -8,7 +8,7 @@ description: "The Longhorn storage classes, their settings and which components 
 
 | | `longhorn` | `longhorn-local` |
 |---|---|---|
-| Defined by | Longhorn's manifest | `storage/longhorn-local.yaml` |
+| Defined by | Longhorn's manifest | `tenant-workload/storage/longhorn/longhorn-local.yaml` |
 | Default class | Yes | No |
 | Replicas | Longhorn's default, spread across nodes | 1 |
 | Data locality | Off | `strict-local`, the replica stays on the pod's node |
@@ -45,7 +45,7 @@ The class has no provisioner secret parameters on purpose. Encryption happens on
 
 ## Longhorn settings
 
-`storage/longhorn-settings.yaml` changes these Longhorn defaults:
+`tenant-workload/storage/longhorn/longhorn-settings.yaml` changes these Longhorn defaults:
 
 | Setting | Value | Why |
 |---|---|---|

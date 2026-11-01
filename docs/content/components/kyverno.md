@@ -14,7 +14,7 @@ Kyverno v1.19.1 is installed from the release's `install.yaml`, checked against 
 | Admission controller spread | none | Required anti-affinity, at most one replica per node |
 | Admission controller priority | default | `system-cluster-critical`, so it is never evicted to make room |
 | Background controller priority | default | `system-cluster-critical`, because it keeps the replication certificates in sync |
-| Disruption budget | none | `minAvailable: 2` in `kyverno/admission-pdb.yaml` |
+| Disruption budget | none | `minAvailable: 2` in `tenant-workload/kyverno/admission/admission-pdb.yaml` |
 
 The bootstrap waits for the rollout to finish before it applies the policies.
 

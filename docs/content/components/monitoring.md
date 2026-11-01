@@ -24,7 +24,7 @@ Its ClusterRole can read nodes, services, endpoints, endpoint slices and pods, a
 
 ## Alertmanager
 
-v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbox exporter can reach it, so no other pod can create a silence. Running it without replicas is enough because the Watchdog alert reveals a dead Alertmanager as soon as delivery to v2 exists.
+v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbox exporter can reach it, so no other pod can create a silence. Running it without replicas is enough because the Watchdog alert reveals a dead Alertmanager as soon as delivery to the provisioner exists.
 
 ## Loki
 

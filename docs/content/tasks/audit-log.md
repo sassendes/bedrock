@@ -52,4 +52,4 @@ Requests that were refused:
 
 ## What is recorded
 
-The policy in `bootstrap/audit-policy.yaml` records requests at metadata level. Health checks, leases and events are left out as noise. Watches are left out too, except watches on Secrets, ServiceAccounts and RBAC objects, which are always recorded. Logs are kept for 30 days.
+The policy in `tenant-workload/bootstrap/audit-policy.yaml` records requests at metadata level. Health checks, leases and events are left out as noise. Watches are left out too, except watches on Secrets, ServiceAccounts and RBAC objects, which are always recorded. Logs are kept for 30 days.

@@ -18,13 +18,13 @@ Most platforms put many customers on one cluster and draw the lines with namespa
 
 ```mermaid
 flowchart LR
-    G[genesis] --> V3[v3 control plane] --> V2[v2 provisioners] --> T[tenants]
+    G[genesis] --> F[fleet] --> P[provisioners] --> T[tenants]
     style T stroke-width:3px
 ```
 
 - **Tenant:** the workload cluster. This repository builds it today.
-- **v2:** stamps tenants, owns their network edge, rolls upgrades across the fleet. Planned.
-- **v3:** places v2s on providers and sites. Planned.
+- **Provisioner:** stamps tenants, owns their network edge, rolls upgrades across them. Planned.
+- **Fleet:** the control plane above the provisioners. Places them on providers and sites, holds the failure quorum. Planned.
 - **Genesis:** the sealed starting point the rest is rebuilt from. Planned.
 
 ## The tenant cluster
@@ -51,6 +51,7 @@ flowchart TB
 | Object storage | Garage, encrypted at rest |
 | Databases | CloudNativePG: a primary with synchronous replication, a live replica and a delayed replica, poolers, WAL and base backups to Garage |
 | Observability | Prometheus, Alertmanager, Loki, Tempo, Alloy, Grafana, OpenCost, blackbox |
+| Failover | bedrock's own controller: two observers per node, a database that proves it is alive with a signature, a separate verifier, every action gated by admission |
 | Runtime | Falco, Reloader |
 | Event buses (optional) | NATS JetStream, Redis with Sentinel, Kafka on Strimzi |
 
@@ -67,16 +68,21 @@ flowchart TB
 ## Repository layout
 
 ```
-bootstrap/       ansible playbooks, RKE2 and Cilium config, audit policy
-platform/        reloader, namespaces, priority classes
-netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
-kyverno/         admission policies
-database/        CloudNativePG clusters, poolers, backups
-storage/         Garage, bucket initialisation, Longhorn settings
-observability/   metrics, logs, traces, dashboards, alerting, falco
-event-buses/     NATS, Redis, Kafka
-secrets/         placeholder secrets, replaced by OpenBao
-docs/            the documentation site
+tenant-workload/bootstrap/       ansible playbooks, RKE2 and Cilium config, audit policy, proof key rotation
+tenant-workload/platform/        reloader, namespaces, priority classes
+tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
+tenant-workload/kyverno/         admission policies and secret syncs
+tenant-workload/database/        CloudNativePG clusters, poolers, backups
+tenant-workload/failover/        the failover controller: deployment, admission, network policy, alerts
+tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
+tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
+tenant-workload/event-buses/     NATS, Redis, Kafka
+tenant-workload/openbao/         OpenBao
+tenant-workload/secrets/         placeholder secrets, replaced by OpenBao
+failover-controller/             the failover controller: Go code, Dockerfile, TLA+ models
+.github/workflows/               builds the failover controller image
+docs/                            the documentation site
+reports/                         the CIS benchmark report
 ```
 
 ## Running it
@@ -84,8 +90,8 @@ docs/            the documentation site
 Requirements: three Debian 12 nodes (4 vCPU, 9 GB RAM, 200 GB disk absolute minimum), SSH key access, and a controller with Ansible.
 
 ```sh
-sudo ./scripts/ansible_deps.sh
-# fill in bootstrap/hosts.ini
+sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
+# fill in tenant-workload/bootstrap/hosts.ini
 make deploy
 ```
 
@@ -97,6 +103,6 @@ The full walkthrough is in the [documentation](https://bedrock.sassendes.xyz/tut
 
 ## Status
 
-The tenant layer runs end to end on a lab cluster. Next: the Go failover operator, OpenBao, then the network edge (OPNsense, WireGuard, nginx), disaster recovery, and the v2 and v3 tiers.
+The tenant layer runs end to end on a lab cluster, and the failover controller is built, model checked and tested. Next: OpenBao, then the network edge (OPNsense, WireGuard, nginx), disaster recovery, and the provisioner and fleet tiers.
 
-The secrets in `secrets/` are placeholders for a public repository and must never be used as they are.
+The secrets in `tenant-workload/secrets/` are placeholders for a public repository and must never be used as they are.

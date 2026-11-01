@@ -10,12 +10,12 @@ Every budget in bedrock allows one pod down at a time. Each one is written as a 
 
 | Budget | Namespace | Selects | File |
 |---|---|---|---|
-| `kyverno-admission-controller` | `kyverno` | Kyverno's admission controller | `kyverno/admission-pdb.yaml` |
-| `prometheus` | `application` | Prometheus | `observability/prometheus/pdb.yaml` |
-| `loki` | `application` | Loki | `observability/loki/loki-pdb.yaml` |
-| `<cluster>-pooler-rw` | each database namespace | That cluster's PgBouncer pooler | `database/pooler.yaml` |
-| `nats` | `nats` | NATS | `event-buses/nats.yaml` |
-| `redis` | `redis` | Redis | `event-buses/redis.yaml` |
+| `kyverno-admission-controller` | `kyverno` | Kyverno's admission controller | `tenant-workload/kyverno/admission/admission-pdb.yaml` |
+| `prometheus` | `application` | Prometheus | `tenant-workload/observability/prometheus/prometheus.yaml` |
+| `loki` | `application` | Loki | `tenant-workload/observability/loki/loki-pdb.yaml` |
+| `<cluster>-pooler-rw` | each database namespace | That cluster's PgBouncer pooler | `tenant-workload/database/pooler.yaml` |
+| `nats` | `nats` | NATS | `tenant-workload/event-buses/nats.yaml` |
+| `redis` | `redis` | Redis | `tenant-workload/event-buses/redis.yaml` |
 
 ## Workloads managed by an operator
 

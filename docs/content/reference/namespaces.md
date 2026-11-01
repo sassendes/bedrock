@@ -11,6 +11,7 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 | `cluster-1` | Primary PostgreSQL cluster and its pooler | restricted | Allowed |
 | `cluster-2` | Live replica cluster and its pooler | restricted | Allowed |
 | `cluster-3` | Delayed replica cluster and its pooler | restricted | Allowed |
+| `bedrock-failover` | The failover controller: observers, deciders, the verifier and the checker | restricted | Per component only |
 | `cnpg-system` | CloudNativePG operator | set by the upstream bundle | Allowed |
 | `garage` | Garage and its init job | restricted | Per component only |
 | `longhorn-system` | Longhorn | privileged | Allowed |
@@ -30,7 +31,7 @@ Default service accounts in every namespace have `automountServiceAccountToken: 
 | Class | Value | Allowed in |
 |---|---|---|
 | `bedrock-storage` | 90000000 | `garage` |
-| `bedrock-data` | 80000000 | `cluster-1`, `cluster-2`, `cluster-3`, `falco` |
+| `bedrock-data` | 80000000 | `cluster-1`, `cluster-2`, `cluster-3`, `falco`, `bedrock-failover` |
 | `bedrock-workload` | 50000000 | any |
 | `bedrock-default` | 10000000 | any, the global default |
 | `system-cluster-critical`, `system-node-critical` | Kubernetes defaults | `kube-system`, `kyverno` |

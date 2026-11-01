@@ -27,7 +27,7 @@ Run the command for the dashboard you want and open the address in a browser. St
 | Hubble | `kubectl -n kube-system port-forward svc/hubble-ui 12000:80` | `http://localhost:12000` |
 | Longhorn | `kubectl -n longhorn-system port-forward svc/longhorn-frontend 8080:80` | `http://localhost:8080` |
 
-Grafana's login is in `secrets/grafana-admin.yaml`. Change it before the cluster holds anything real.
+Grafana's login is in `tenant-workload/secrets/grafana-admin.yaml`. Change it before the cluster holds anything real.
 
 {{< note "warning" >}}
 The Longhorn and Hubble interfaces have no login of their own, and the Longhorn interface can delete volumes. Only open them when you need them, and close the forward afterwards.

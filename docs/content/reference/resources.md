@@ -8,7 +8,7 @@ Every platform container has requests and limits. Requests are what the schedule
 
 ## Priority classes
 
-When a node runs out of room, Kubernetes evicts lower priority pods first. bedrock defines four classes in `platform/priorityclasses.yaml`, and the `restrict-priority-classes` policy stops anything outside their namespaces from claiming the higher ones.
+When a node runs out of room, Kubernetes evicts lower priority pods first. bedrock defines four classes in `tenant-workload/platform/priorityclasses.yaml`, and the `restrict-priority-classes` policy stops anything outside their namespaces from claiming the higher ones.
 
 | Class | Value | Reserved for |
 |---|---|---|

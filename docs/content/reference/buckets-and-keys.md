@@ -4,7 +4,7 @@ weight: 8
 description: "The S3 buckets in Garage, the key that can use each one and the Secret that key is stored in."
 ---
 
-All buckets are created by the `garage-init` Job in `storage/buckets.yaml`. Each bucket has its own access key, scoped to that bucket only, and no key has owner rights, so no workload can change bucket settings or delete a bucket. The Job writes each key into a Secret in the namespace that uses it, with the fields `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
+All buckets are created by the `garage-init` Job in `tenant-workload/storage/garage/buckets.yaml`. Each bucket has its own access key, scoped to that bucket only, and no key has owner rights, so no workload can change bucket settings or delete a bucket. The Job writes each key into a Secret in the namespace that uses it, with the fields `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 ## Buckets
 

@@ -4,7 +4,7 @@ weight: 5
 description: "Every alert rule that ships with a tenant, with its severity and how long the condition must hold."
 ---
 
-Most rules live in `observability/alerting/alert-rules.yaml` as one `PrometheusRule`. Falco's rules live next to Falco in `observability/falco/falco.yaml`. One more rule, `PostgresDropStatement`, is a Loki rule in `observability/loki/loki.yaml` that fires as soon as a database logs a `DROP` statement.
+Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as one `PrometheusRule`. Falco's rules live next to Falco in `tenant-workload/observability/falco/falco.yaml`. One more rule, `PostgresDropStatement`, is a Loki rule in `tenant-workload/observability/loki/loki.yaml` that fires as soon as a database logs a `DROP` statement.
 
 ## Nodes
 
@@ -77,6 +77,24 @@ Most rules live in `observability/alerting/alert-rules.yaml` as one `PrometheusR
 | `FalcoCriticalEvent` | critical | immediately | A Falco rule of priority Emergency, Alert or Critical matched in the last 5 minutes |
 | `FalcoWarningEvent` | warning | immediately | A Falco rule of priority Error or Warning matched in the last 15 minutes |
 | `FalcoDown` | critical | 5m | Falco on a node cannot be scraped |
+
+## Failover
+
+These live in `tenant-workload/failover/monitoring.yaml`.
+
+| Alert | Severity | For | Fires when |
+|---|---|---|---|
+| `BedrockFailoverPage` | critical | immediately | The decider or the verifier needs a person, with the reason |
+| `BedrockPrimaryProvenDead` | critical | immediately | A primary is proven dead |
+| `BedrockPrimaryContradiction` | critical | 1m | A primary signed that it is alive while three witnesses say dead; nothing will act |
+| `BedrockFallbackDatabaseDown` | critical | immediately | The normal path is broken and the checker sees the database down |
+| `BedrockPrimaryNotWriting` | critical | immediately | Every observer has seen the primary answer without committing a write for over two minutes |
+| `BedrockFailoverClaimStuck` | critical | 10m | A failover has been open for ten minutes |
+| `BedrockDeciderNoLeader` | critical | 1m | The deciders do not have exactly one leader |
+| `BedrockVerifierStalled` | critical | 1m | The verifier has not closed a round for a minute |
+| `BedrockCheckerSilent` | warning | 1m | The checker has not finished a round for a minute |
+| `BedrockObserverBlind` | warning | 2m | An observer cannot discover the clusters or publish its vote |
+| `BedrockObserverAlone` | warning | 5m | An observer reaches no peers |
 
 ## Logs
 
