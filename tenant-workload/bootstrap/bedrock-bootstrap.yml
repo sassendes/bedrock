@@ -276,7 +276,8 @@
     kafka_enabled: false
     failover_enabled: true
     failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
-    failover_deploy: "{{ playbook_dir }}/../../failover-controller/deploy"
+    failover_deploy: "{{ repo_root }}/failover"
+    failover_sql: "{{ playbook_dir }}/../../failover-controller/observe/heartbeat.sql"
   tasks:
     - name: Wait for Kubernetes API to answer
       ansible.builtin.command: kubectl get --raw=/readyz
@@ -706,7 +707,7 @@
         primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
         test -n "$primary"
         {
-          cat "{{ failover_deploy }}/../observe/heartbeat.sql"
+          cat "{{ failover_sql }}"
           for f in "{{ failover_dir }}"/proof-keys/*; do
             printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
           done
