@@ -1,0 +1,44 @@
+<svg viewBox="0 0 960 470" role="img" aria-label="The parts of the failover controller and what each one reads and writes">
+<defs>
+<marker id="fp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow-a"/></marker>
+<marker id="fp-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow"/></marker>
+<marker id="fp-w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z" class="d-arrow-w"/></marker>
+</defs>
+<text x="20" y="28" class="d-lab">every node</text>
+<rect x="20" y="40" width="200" height="150" rx="6" class="d-soft"/>
+<rect x="36" y="56" width="168" height="54" rx="4" class="d-box"/>
+<text x="50" y="80" class="d-title">observer a</text><text x="50" y="98" class="d-sub">checks, votes</text>
+<rect x="36" y="122" width="168" height="54" rx="4" class="d-box"/>
+<text x="50" y="146" class="d-title">observer b</text><text x="50" y="164" class="d-sub">checks, votes</text>
+<rect x="300" y="40" width="300" height="230" rx="6" class="d-block"/>
+<text x="316" y="64" class="d-title">API server</text>
+<text x="316" y="84" class="d-sub">ConfigMaps in bedrock-failover</text>
+<rect x="316" y="96" width="268" height="30" rx="4" class="d-chip"/><text x="328" y="116" class="d-chip-t">vote-&lt;node&gt;-&lt;slot&gt;</text><text x="468" y="116" class="d-sub">observers</text>
+<rect x="316" y="132" width="268" height="30" rx="4" class="d-chip"/><text x="328" y="152" class="d-chip-t">round, approvals</text><text x="468" y="152" class="d-sub">verifier</text>
+<rect x="316" y="168" width="268" height="30" rx="4" class="d-chip"/><text x="328" y="188" class="d-chip-t">claim-&lt;target&gt;</text><text x="468" y="188" class="d-sub">decider</text>
+<rect x="316" y="204" width="268" height="30" rx="4" class="d-chip"/><text x="328" y="224" class="d-chip-t">bedrock-checker</text><text x="468" y="224" class="d-sub">checker</text>
+<text x="316" y="258" class="d-sub">one writer per object, enforced by admission</text>
+<rect x="680" y="40" width="260" height="66" rx="6" class="d-accent"/>
+<text x="696" y="66" class="d-title">verifier</text><text x="696" y="86" class="d-sub">challenges, judges, approves</text>
+<rect x="680" y="122" width="260" height="66" rx="6" class="d-box"/>
+<text x="696" y="148" class="d-title">deciders, 2</text><text x="696" y="168" class="d-sub">one holds the lease and acts</text>
+<rect x="680" y="204" width="260" height="66" rx="6" class="d-box"/>
+<text x="696" y="230" class="d-title">checker</text><text x="696" y="250" class="d-sub">fallback: halts or pages</text>
+<path d="M220 100 H298" class="d-wire" marker-end="url(#fp-n)"/>
+<path d="M678 73 H602" class="d-wire" marker-end="url(#fp-n)"/>
+<path d="M678 155 H602" class="d-wire" marker-end="url(#fp-n)"/>
+<path d="M678 237 H602" class="d-wire" marker-end="url(#fp-n)"/>
+<rect x="280" y="320" width="322" height="56" rx="6" class="d-box"/>
+<text x="296" y="344" class="d-title">admission</text><text x="296" y="364" class="d-sub">lease holder, approved run, no halt</text>
+<path d="M680 178 H646 V348 H604" class="d-wire" marker-end="url(#fp-w)"/>
+<text x="660" y="312" class="d-warn-t">fence, promote, flip</text>
+<rect x="20" y="300" width="200" height="150" rx="6" class="d-accent"/>
+<text x="36" y="326" class="d-title">cluster-1</text><text x="36" y="346" class="d-sub">primary, signs proofs</text>
+<text x="36" y="380" class="d-title">cluster-2, cluster-3</text><text x="36" y="400" class="d-sub">replicas, witnesses</text>
+<text x="36" y="430" class="d-sub">postgres-rw in application</text>
+<path d="M120 190 V298" class="d-flow" marker-end="url(#fp-a)"/>
+<text x="130" y="250" class="d-acc-t">write, then sign</text>
+<path d="M278 348 H222" class="d-wire" marker-end="url(#fp-w)"/>
+<path d="M810 270 V430 H224" class="d-flow" marker-end="url(#fp-a)"/>
+<text x="430" y="452" class="d-acc-t">the verifier and the checker also read the instances directly</text>
+</svg>

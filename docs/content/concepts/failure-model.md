@@ -37,7 +37,7 @@ Because admission sits in front of every pod ever created, Kyverno's admission c
 
 ## The failover controller
 
-A process should not be the only judge of whether it is healthy, so the decision to fail over is split between parts that do not trust each other.
+A process should not be the only judge of whether it is healthy, so the decision to fail over is split between parts that do not trust each other. The full description is on the [failover controller]({{< relref "/components/failover" >}}) page.
 
 - **Postgres proves it is alive.** Every round the verifier issues a fresh challenge. Postgres signs it with a key no observer can read, and only after a write has committed. One valid signature outweighs every vote that says dead.
 - **Death needs evidence.** Two observers run on every node and count as one vote: the node votes down only when both say down. A majority of nodes must vote down, and three of four witnesses must answer dead: the replicas streaming from the primary, its instance manager, its container state, and what CloudNativePG last recorded. A witness that cannot be reached is silent, never dead.

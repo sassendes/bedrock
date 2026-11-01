@@ -28,6 +28,7 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 | Prometheus | Kyverno | 8000 |
 | Prometheus | Longhorn manager | 9500 |
 | Prometheus | Garage admin | 3903 |
+| Prometheus | Failover controller | 9090, `/metrics` only |
 | Prometheus | CloudNativePG operator | 8080 |
 | Prometheus | Nodes: kubelet, node-exporter, etcd | 10250, 9100, 2381 |
 | Prometheus | Kubernetes API | any |
@@ -77,6 +78,17 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 | CloudNativePG operator | Database instances | 8000 |
 | Database instances | Kubernetes API | any |
 | The nodes | Database instances | 8000, 5432 |
+
+## Failover controller
+
+| From | To | Port |
+|---|---|---|
+| Observers | Observers (exchange, mutual TLS) | 8443 |
+| Observers | Database instances | 5432 |
+| Verifier | Database instances | 5432, 8000 |
+| Checker | Database instances | 8000 |
+| Observers, verifier, deciders, checker | Kubernetes API | any |
+| The nodes | Failover controller | 9090 |
 
 ## Storage
 

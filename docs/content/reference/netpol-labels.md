@@ -25,6 +25,9 @@ These labels pick which pods a rule applies to.
 | `garage` | `app: garage` | Garage nodes | `garage.yaml` |
 | `garage` | `app: garage-init` | The bucket setup Job | `garage.yaml` |
 | `kube-system` | `k8s-app: kube-dns` | CoreDNS | `kube-system.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Both observer DaemonSets | `tenant-workload/failover/netpol.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | The verifier | `tenant-workload/failover/netpol.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | The checker | `tenant-workload/failover/netpol.yaml` |
 
 The other namespaces apply one policy to every pod in them, so their pods need no particular label.
 
@@ -44,6 +47,11 @@ These labels are named as peers by policies in other namespaces.
 | `kyverno` | `app.kubernetes.io/component: admission-controller` | Probed by the blackbox exporter |
 | `cnpg-system` | `app.kubernetes.io/name: cloudnative-pg` | Scraped and probed from `application` |
 | `garage` | `app: garage` | Scraped by Prometheus |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Reaches the database instances on 5432 |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | Reaches the database instances on 5432 and 8000 |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | Reaches the database instances on 8000 |
+
+The failover controller's pods also carry `bedrock.io/observer-slot` (`a` or `b`) on the observers, which admission reads to tell the two observers on a node apart.
 
 ## Labels set by operators
 
