@@ -965,9 +965,9 @@
         KUBECONFIG: "{{ kubeconfig }}"
 
 
-    - name: Failover namespace, config and the parameters admission reads
+    - name: Failover namespace
       when: failover_enabled | bool
-      ansible.builtin.command: kubectl apply -f {{ failover_deploy }}/namespace.yaml -f {{ failover_deploy }}/config.yaml
+      ansible.builtin.command: kubectl apply -f {{ failover_deploy }}/namespace.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 

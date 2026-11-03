@@ -10,8 +10,8 @@ Files are in `tenant-workload/kyverno/`.
 
 | Policy | Checks | Namespaces | Action | If Kyverno is down |
 |---|---|---|---|---|
-| `disallow-latest-tag` | Every container, init container and ephemeral container has an explicit tag that is not `latest` | `application`, `node-agents`, `bedrock-failover` | Deny | Fail closed |
-| `require-resource-limits` | CPU and memory limits on containers and init containers | `application`, `node-agents`, `bedrock-failover` | Deny | Fail closed |
+| `disallow-latest-tag` | Every container, init container and ephemeral container has an explicit tag that is not `latest` | `application`, `node-agents` | Deny | Fail closed |
+| `require-resource-limits` | CPU and memory limits on containers and init containers | `application`, `node-agents` | Deny | Fail closed |
 | `harden-run-as-nonroot` | Fills in `runAsNonRoot`, `seccompProfile`, `allowPrivilegeEscalation: false` and `drop: ALL` | `application` | Mutate | Fail closed |
 | `registry-allowlist-strict` | Images come from an allowed publisher | `application`, `node-agents`, `reloader` | Deny | Fail closed |
 | `registry-allowlist-data` | Images come from an allowed publisher | `garage`, `falco`, `nats`, `redis`, `kafka`, `cluster-1`, `cluster-2`, `cluster-3`, `prometheus-operator`, `bedrock-failover` | Deny | Fail open |

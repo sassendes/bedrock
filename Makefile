@@ -1,6 +1,6 @@
 INVENTORY ?= tenant-workload/bootstrap/hosts.ini
 
-FAILOVER_IMAGE ?= ghcr.io/sassendes/bedrock-failover:0.1.0
+FAILOVER_IMAGE ?= ghcr.io/sassendes/bedrock-failover:0.2.0
 
 .PHONY: teardown deploy redeploy check failover-image print-failover-image rotate-proof-key
 teardown:

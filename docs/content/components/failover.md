@@ -71,7 +71,7 @@ The two observers on a node count as one vote:
 | Up, signed | anything | Up |
 | Down | Abstain or missing | Abstain |
 
-The node that runs the primary does not vote on it. Nodes in a DR zone do not vote. A vote counts only while it is fresh: the decider measures its age on its own clock from the moment its sequence number changed, and drops it after 6 seconds.
+The node that runs the primary does not vote on it. A vote counts only while it is fresh: the decider measures its age on its own clock from the moment its sequence number changed, and drops it after 6 seconds.
 
 ## Rounds and the verifier
 
@@ -122,7 +122,9 @@ Even when a primary is dead, the decider holds and pages instead of acting when:
 | One failover already ran in the last hour, across all primaries | Cap |
 | No live replica has a Ready instance | There is nothing safe to promote |
 
-The delayed replica, cluster-3, and any cluster in a DR zone are never promoted automatically.
+The delayed replica, cluster-3, is never promoted automatically. The verifier does not take the API's word for which replica is delayed: it asks the candidate's postgres for `recovery_min_apply_delay` and refuses anything but 0.
+
+A disaster recovery cluster in another datacenter is not part of this. It pulls from the primary from outside, and the controller never sees it.
 
 ## A failover run
 
@@ -132,7 +134,7 @@ The decider opens a run by writing `claim-<namespace>.<name>`. Writing it is a c
 
 | Step | The decider | It moves on when |
 |---|---|---|
-| Claimed | Waits for the verifier's approval | The approval is valid for this epoch and instance, and the verifier is still closing rounds |
+| Claimed | Waits for the verifier's approval | The approval is valid for this epoch and instance, and the verifier is still closing rounds. The step is saved as Fencing before cluster-1 is touched |
 | Fencing | Sets `cnpg.io/reconciliationLoop: disabled` and `cnpg.io/hibernation: "on"` on cluster-1, deletes its instance pods | No instance pod exists and every node that ran one has been Ready without a break since before the claim |
 | Fenced | Checks the fence again, then sets `spec.replica.enabled: false` on cluster-2 | The fence still holds and the patch is applied |
 | Promoting | Waits for cluster-2 | cluster-2 is healthy, or after 5 minutes with a page, since cluster-1 is fenced |
@@ -140,7 +142,7 @@ The decider opens a run by writing `claim-<namespace>.<name>`. Writing it is a c
 | Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done |
 | Flipped | Closes the claim | |
 
-A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages.
+A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages. Because the step is saved before the fence starts, a run never closes with cluster-1 half fenced. A cluster that carries a fence annotation with no open or halted run behind it pages.
 
 The verifier approves a run only when all of these hold:
 
@@ -149,13 +151,18 @@ The verifier approves a run only when all of these hold:
 - if cluster-1 has a Ready standby, the same instance was proven dead in every round for the last 60 seconds
 - the checker is not halting
 
-Then the verifier compares how far the candidate has replayed, read with `pg_last_wal_replay_lsn()`, with the highest WAL position postgres ever signed for cluster-1:
+Then the verifier checks the candidate itself. It refuses and pages when the candidate is not a live replica of cluster-1, has no Ready instance, cannot be read, or runs with a `recovery_min_apply_delay` other than 0. It then compares how far the candidate has replayed, read with `pg_last_wal_replay_lsn()`, with the highest WAL position postgres ever signed for cluster-1:
 
 | Candidate | The verifier |
 |---|---|
 | At or past the signed position | Approves at once. No signed write is lost |
-| Behind | Waits up to 30 seconds. cluster-2 keeps replaying the WAL cluster-1 archived to Garage before it died. It approves as soon as the candidate catches up |
-| Still behind after 30 seconds, or unreadable | Approves anyway, so the database is never left down waiting for a person, and reports the gap in bytes. `BedrockFailoverLostWrites` pages with it |
+| Behind, and its replay still moves | Waits. The candidate is still replaying WAL cluster-1 archived to Garage, so every second of waiting saves writes. This is also the case of a live replica bootstrapped again from Garage after an earlier failover: CloudNativePG reports it Ready while it replays, so the wait is what keeps those writes |
+| Behind, and its replay has not moved for 12 seconds | Approves, so the database is never left down waiting for a person, and reports the gap in bytes. Whatever is missing was never archived and cannot be replayed. `BedrockFailoverLostWrites` pages with it |
+| No signed position for cluster-1 to compare with | Follows the same rule: waits while the replay moves, approves once it stops, and reports the loss as unknown (-1). `BedrockFailoverLostWrites` pages with it |
+
+The 12 seconds assume Garage hands over each WAL segment faster than that. If it is slower, raise `-stall`.
+
+The approval names the candidate and the host `postgres-rw` may point at. A revoked or closed approval names neither.
 
 Until the fence starts, the run ends without a fence when a fresh up arrives, the verifier revokes, the checker halts, or CloudNativePG has moved the primary to another instance. After the fence starts, the old primary cannot sign, so the approval stands and the run is finished.
 
@@ -173,7 +180,8 @@ The decider has the permissions to fence and promote. Admission decides when it 
 | `bedrock-vote-owner` | An observer writes only `vote-<its node>-<its slot>`, with matching `node` and `slot` inside, and never deletes |
 | `bedrock-court-writers` | Only the verifier writes `bedrock-round` and `bedrock-approvals`, only the checker writes `bedrock-checker`, and neither writes anything else |
 | `bedrock-decider-holds-lease` | A decider write comes from the pod that holds the Lease, and its only ConfigMaps are claims |
-| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica` and nothing else. A fence on a cluster whose current primary is not the approved instance is refused. `postgres-rw` may only point at a name ending in `.svc.cluster.local`. A pod delete targets an instance pod of a cluster with a valid approval |
+| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica.enabled` and `spec.replica.source` and nothing else, and never turns a cluster into a replica. Only the cluster an approval names in `.candidate` is promoted. Only the approved target whose current primary is the approved instance is fenced. Only a follower is repointed. `postgres-rw` may only point at the approval's `.host`, which must end in `.svc.cluster.local`. A missing key denies. A pod delete targets an instance pod of a cluster with a valid approval |
+| `bedrock-failover-pods` | A pod in `bedrock-failover` runs only the `bedrock-failover` image pinned by digest, with cpu and memory limits. This lives in the API server and not in Kyverno, so the controller's pods can always be recreated even while Kyverno is down |
 | `bedrock-checker-halt` | While the checker holds any primary, every decider write to clusters, pods and Services is refused |
 
 The policies that read an object deny everything they match when the object is missing. That is why `admission.yaml` creates those objects first, why their deletion is refused, and why the policies only match namespaces labelled `bedrock.io/failover-scope: "true"`: `cluster-1`, `cluster-2`, `cluster-3`, `application` and `bedrock-failover`. To remove the controller, delete the policies and their bindings before the namespace.
@@ -249,7 +257,7 @@ Every value is a flag on the binary. The defaults are the values in use.
 | `-dead-witnesses` | verifier | 3 | Witnesses that must say dead |
 | `-cnpg-grace` | verifier, decider | 1m | CloudNativePG's time to promote inside the cluster |
 | `-max-stream-lag` | verifier | 10s | A replica stream older than this counts as gone |
-| `-catch-up` | verifier | 30s | How long a candidate behind the last signed position gets to replay from the archive |
+| `-stall` | verifier | 12s | A candidate behind the last signed position is approved once its replay has not moved for this long |
 | `-dead-after` | decider | 30s | Time suspect before dead, without a Ready standby |
 | `-freshness` | decider | 6s | How long a vote counts |
 | `-cooldown` | decider | 10m | No second failover of the same primary within this |
@@ -261,9 +269,7 @@ Every value is a flag on the binary. The defaults are the values in use.
 | `-promote-timeout` | decider | 5m | How long to wait for the promoted cluster to be healthy |
 | `-round-stale` | decider, checker | 15s | The verifier counts as stalled after this |
 | `-observers-per-node` | decider, verifier, checker | 2 | Observers folded into one node vote |
-| `-dr-zones` | all | empty | Zones whose nodes do not vote and whose clusters are never promoted |
-
-`-dr-zones` comes from the `bedrock-failover` ConfigMap in `tenant-workload/failover/config.yaml`.
+| `-flip-namespaces` | decider | application | The only namespaces whose `ExternalName` Services are repointed |
 
 ## Pausing failover
 
@@ -311,6 +317,9 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded. 
 | `Pairs` | Two observers per node: two liars anywhere cannot vote a live database down |
 | `Halt` | A stalled verifier with a recovered database never leads to a fence |
 | `Promotion` | Sign after commit, the CloudNativePG minute, the catch-up window, the instance pin, the stuck write page. No run ever waits for a person |
+| `Candidate` | Only a ready live replica with no apply delay is promoted, and only what the verifier checked. Fence, promote and flip are bound to the approval. A candidate is never promoted while its replay could still move |
+| `HalfFence` | The run is saved as fencing before the fence starts, so a half done fence is never orphaned |
+| `Signer` | A signature counts for the cluster it names, never a sibling sharing the system identifier |
 | `Decider`, `Exchange`, `Fallback` | The claim steps, the observer exchange, the earlier fallback design |
 
 ## What it does not do

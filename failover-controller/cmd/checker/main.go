@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/sassendes/bedrock/failover-controller/act"
 	"github.com/sassendes/bedrock/failover-controller/checker"
@@ -33,7 +34,7 @@ func main() {
 	common.Finish()
 	log := cli.Logger()
 
-	roots, _, err := cli.LoadCADir(caDir)
+	cas, err := cli.NewCABundle(caDir, "")
 	if err != nil {
 		log.Error("database cas", "err", err)
 		os.Exit(1)
@@ -43,10 +44,11 @@ func main() {
 	st.Namespace = common.Namespace
 	dyn, kube := common.Clients(log)
 	m := metrics.New()
-	c := checker.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), store.New(kube, st), cfg, roots, m, log)
+	c := checker.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), store.New(kube, st), cfg, cas.Pool, m, log)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	health := cli.NewHealth(3*cfg.Interval + cfg.Timeout)
 	common.Serve(m, health, log)
+	go cas.Watch(ctx, 30*time.Second, log)
 	c.Run(ctx, health.Mark)
 }

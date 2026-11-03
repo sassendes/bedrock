@@ -17,6 +17,7 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/store"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -184,21 +185,31 @@ func (d *Decider) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		c := byTarget[key]
 		if d.actor.Fenced(obj) {
+			if c == nil || (c.State == store.ClaimClosed && c.Step == store.StepClaimed) {
+				pages.Add(map[string]string{"target": key, "reason": "fenced with no failover that owns the fence, nothing watches it: a human must look"})
+			}
 			continue
 		}
-		if c := byTarget[key]; c != nil && c.State != store.ClaimClosed {
+		if c != nil && c.State != store.ClaimClosed {
 			continue
 		}
 		primaryNode, err := d.primaryNode(ctx, f.Primary)
 		if err != nil {
-			return err
+			pages.Add(map[string]string{"target": key, "reason": "cannot tell which node runs the primary, not deciding: " + err.Error()})
+			continue
+		}
+		standbys, err := d.actor.ReadyStandbys(ctx, f.Primary)
+		if err != nil {
+			pages.Add(map[string]string{"target": key, "reason": "cannot count ready standbys, not deciding: " + err.Error()})
+			continue
 		}
 		in := decide.Input{Target: key, Eligible: eligible(observerNodes, primaryNode)}
 		in.Observations = d.nodeObservations(key, ballots, round, now)
 		in.Paused = obj.GetAnnotations()[d.cfg.PauseAnnotation] == "true"
 		in.Transitioning = contains(d.cfg.TransitionalPhases, f.Primary.Phase)
-		in.StandbysReady = d.actor.ReadyStandbys(ctx, f.Primary) > 0
+		in.StandbysReady = standbys > 0
 		durability, _, _ := unstructured.NestedString(obj.Object, "spec", "postgresql", "synchronous", "dataDurability")
 		in.DurabilityRequired = durability == "required"
 		if c := byTarget[key]; c != nil && ran(c) {
@@ -285,17 +296,9 @@ func (d *Decider) observerNodes(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := d.kube.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	zone := map[string]string{}
-	for _, n := range nodes.Items {
-		zone[n.Name] = n.Labels[d.disc.ZoneLabel]
-	}
 	set := map[string]bool{}
 	for _, p := range pods.Items {
-		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || d.disc.DRZones[zone[p.Spec.NodeName]] {
+		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
 			continue
 		}
 		set[p.Spec.NodeName] = true
@@ -308,13 +311,18 @@ func (d *Decider) observerNodes(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
+// primaryNode is "" only when there is no primary pod to exclude. Any other error is returned: voting
+// without knowing the primary's node would let its own node's observers vote on it.
 func (d *Decider) primaryNode(ctx context.Context, m discovery.Member) (string, error) {
 	if m.CurrentPrimary == "" {
 		return "", nil
 	}
 	pod, err := d.kube.CoreV1().Pods(m.Namespace).Get(ctx, m.CurrentPrimary, metav1.GetOptions{})
-	if err != nil {
+	if apierrors.IsNotFound(err) {
 		return "", nil
+	}
+	if err != nil {
+		return "", err
 	}
 	return pod.Spec.NodeName, nil
 }
@@ -384,7 +392,7 @@ func (d *Decider) claim(ctx context.Context, f discovery.Family, prev *store.Cla
 		return fmt.Errorf("the old primary's pod %q is not in the API, it may still run on a node nobody can see", f.Primary.CurrentPrimary)
 	}
 	var followers []string
-	for _, group := range [][]discovery.Member{f.Live, f.Delayed, f.DR} {
+	for _, group := range [][]discovery.Member{f.Live, f.Delayed} {
 		for _, m := range group {
 			if m.Key() != cand.Key() {
 				followers = append(followers, m.Key())
@@ -471,12 +479,17 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 			d.log.Warn("approved but the verifier stopped closing rounds, not fencing on a stale view", "target", c.Target)
 			return nil
 		}
-		if err := d.actor.Fence(ctx, c.Target, c.Epoch); err != nil {
-			return err
-		}
+		// The step is saved before the cluster is touched: once a fence annotation can exist, no path
+		// above can close the claim and leave the cluster fenced with nothing watching it.
 		return d.move(ctx, c, store.StepFencing)
 
 	case store.StepFencing:
+		if err := d.actor.Fence(ctx, c.Target, c.Epoch); err != nil {
+			if now.Sub(c.StepAt) > d.cfg.FenceVerifyTimeout {
+				return d.halt(ctx, c, "fence could not be applied: "+err.Error())
+			}
+			return err
+		}
 		ok, reason, err := d.actor.VerifyFence(ctx, c.Target, c.Nodes, c.StartedAt.Add(-d.cfg.ClockOffset))
 		if err != nil {
 			return err

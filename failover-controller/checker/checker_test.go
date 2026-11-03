@@ -127,7 +127,7 @@ func run(t *testing.T, s setup) result {
 	cfg.Port, _ = strconv.Atoi(port)
 	ac := act.DefaultConfig()
 	m := metrics.New()
-	c := New(w.Kube, w.Dyn, ac.Discovery, act.New(w.Dyn, w.Kube, ac), st, cfg, pool, m, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	c := New(w.Kube, w.Dyn, ac.Discovery, act.New(w.Dyn, w.Kube, ac), st, cfg, func() *x509.CertPool { return pool }, m, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	c.now = func() time.Time { return now }
 	c.Round(ctx)
 	if s.stallFor > 0 {

@@ -2,8 +2,10 @@ package decider
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
@@ -672,5 +674,96 @@ func TestReadyStandbysGiveCnpgItsMinute(t *testing.T) {
 	l.run(d, 20, allDown)
 	if c := l.claim(); c == nil {
 		t.Fatal("never claimed after the cnpg minute")
+	}
+}
+
+func (l *lab) fenced(cluster string) bool {
+	return act.New(l.w.Dyn, l.w.Kube, act.DefaultConfig()).Fenced(l.w.Cluster(cluster))
+}
+
+// model/HalfFence.tla, HalfFenceSaveAfter: the annotation lands, the pod delete fails, an up arrives, and the
+// claim must not close with the cluster left fenced and unwatched.
+func TestAHalfDoneFenceIsNeverOrphaned(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	l.w.Kube.PrependReactor("delete", "pods", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.GetNamespace() == "cluster-1" {
+			return true, nil, errors.New("apiserver hiccup")
+		}
+		return false, nil, nil
+	})
+	up := allDown()
+	up["n5"] = observe.BallotUp
+	for i := 0; i < 200; i++ {
+		ballots := allDown
+		if l.fenced("cluster-1") {
+			ballots = func() map[string]observe.Ballot { return up }
+		}
+		l.run(d, 1, ballots)
+		if c := l.claim(); l.fenced("cluster-1") && (c == nil || c.State == store.ClaimClosed) {
+			t.Fatalf("cluster-1 is fenced and no open or halted claim owns it: %+v", c)
+		}
+	}
+	if c := l.claim(); c == nil || c.State != store.ClaimHalted {
+		t.Fatalf("a fence that cannot finish must halt and page, got %+v", c)
+	}
+}
+
+func TestAFencedClusterNobodyOwnsPages(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	obj := l.w.Cluster("cluster-1")
+	cfg := act.DefaultConfig()
+	obj.SetAnnotations(map[string]string{cfg.ReconcileAnnotation: cfg.ReconcileDisabled})
+	if _, err := l.w.Dyn.Resource(testenv.Clusters).Namespace("cluster-1").Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	l.run(d, 1, nil)
+	if v, ok := l.m.Get("bedrock_failover_page", map[string]string{"target": target, "reason": "fenced with no failover that owns the fence, nothing watches it: a human must look"}); !ok || v != 1 {
+		t.Fatal("a fenced cluster with no claim did not page")
+	}
+}
+
+func (l *lab) readyStandby() {
+	ctx := context.Background()
+	p, err := l.w.Kube.CoreV1().Pods("cluster-1").Get(ctx, "cluster-1-2", metav1.GetOptions{})
+	if err != nil {
+		l.t.Fatal(err)
+	}
+	p.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}
+	if _, err := l.w.Kube.CoreV1().Pods("cluster-1").UpdateStatus(ctx, p, metav1.UpdateOptions{}); err != nil {
+		l.t.Fatal(err)
+	}
+}
+
+// An unreadable count must not read as zero: zero skips the minute cnpg gets to promote its own standby.
+func TestAFailedStandbyCountDecidesNothing(t *testing.T) {
+	l := newLab(t)
+	l.readyStandby()
+	d := l.decider("decider-0")
+	l.w.Kube.PrependReactor("list", "pods", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.GetNamespace() == "cluster-1" && strings.Contains(string(debug.Stack()), "ReadyStandbys") {
+			return true, nil, errors.New("apiserver hiccup")
+		}
+		return false, nil, nil
+	})
+	l.run(d, 120, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("claimed on a standby count it could not read: %+v", c)
+	}
+}
+
+func TestAFailedPrimaryPodLookupDecidesNothing(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	l.w.Kube.PrependReactor("get", "pods", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.GetNamespace() == "cluster-1" {
+			return true, nil, errors.New("apiserver hiccup")
+		}
+		return false, nil, nil
+	})
+	l.run(d, 120, allDown)
+	if c := l.claim(); c != nil {
+		t.Fatalf("claimed without knowing which node runs the primary: %+v", c)
 	}
 }

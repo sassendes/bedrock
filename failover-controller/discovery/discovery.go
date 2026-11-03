@@ -23,7 +23,6 @@ type Config struct {
 	ClusterLabel     string
 	InstanceSelector string
 	ZoneLabel        string
-	DRZones          map[string]bool
 }
 
 func DefaultConfig() Config {
@@ -33,7 +32,6 @@ func DefaultConfig() Config {
 		ClusterLabel:     "cnpg.io/cluster",
 		InstanceSelector: "cnpg.io/podRole=instance",
 		ZoneLabel:        "topology.kubernetes.io/zone",
-		DRZones:          map[string]bool{},
 	}
 }
 
@@ -43,7 +41,6 @@ const (
 	RolePrimary Role = "primary"
 	RoleLive    Role = "live"
 	RoleDelayed Role = "delayed"
-	RoleDR      Role = "dr"
 )
 
 type Member struct {
@@ -66,7 +63,6 @@ type Family struct {
 	Primary Member
 	Live    []Member
 	Delayed []Member
-	DR      []Member
 }
 
 type Problem struct {
@@ -126,16 +122,9 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 		}
 		m.SourceHost = host
 
-		inDR, mixed := zoneClass(m.Zones, cfg.DRZones)
-		switch {
-		case mixed:
-			out.Problems = append(out.Problems, Problem{key, "instances spread across dr and main zones"})
-			continue
-		case inDR:
-			m.Role = RoleDR
-		case m.ApplyDelay != "":
+		if m.ApplyDelay != "" {
 			m.Role = RoleDelayed
-		default:
+		} else {
 			m.Role = RoleLive
 		}
 		members[key] = &m
@@ -173,8 +162,6 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 			f.Live = append(f.Live, *r)
 		case RoleDelayed:
 			f.Delayed = append(f.Delayed, *r)
-		case RoleDR:
-			f.DR = append(f.DR, *r)
 		}
 	}
 
@@ -187,7 +174,6 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 		f := families[k]
 		sortMembers(f.Live)
 		sortMembers(f.Delayed)
-		sortMembers(f.DR)
 		out.Families = append(out.Families, *f)
 	}
 	sort.Slice(out.Problems, func(i, j int) bool { return out.Problems[i].Cluster < out.Problems[j].Cluster })
@@ -206,9 +192,6 @@ func readMember(obj *unstructured.Unstructured) Member {
 	m.Phase, _, _ = unstructured.NestedString(obj.Object, "status", "phase")
 
 	delay, _, _ := unstructured.NestedString(obj.Object, "spec", "replica", "minApplyDelay")
-	if isZeroDelay(delay) {
-		delay, _, _ = unstructured.NestedString(obj.Object, "spec", "postgresql", "parameters", "recovery_min_apply_delay")
-	}
 	if !isZeroDelay(delay) {
 		m.ApplyDelay = delay
 	}
@@ -320,19 +303,6 @@ func clusterZones(ctx context.Context, kube kubernetes.Interface, cfg Config) (m
 		sort.Strings(out[key])
 	}
 	return out, nil
-}
-
-func zoneClass(zones []string, drZones map[string]bool) (inDR, mixed bool) {
-	if len(zones) == 0 || len(drZones) == 0 {
-		return false, false
-	}
-	dr := 0
-	for _, z := range zones {
-		if drZones[z] {
-			dr++
-		}
-	}
-	return dr == len(zones), dr > 0 && dr < len(zones)
 }
 
 func sortMembers(ms []Member) {

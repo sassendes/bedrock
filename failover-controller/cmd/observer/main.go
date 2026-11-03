@@ -69,14 +69,11 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Check.Password = strings.TrimSpace(string(pw))
+	var cas *cli.CABundle
 	if cfg.Check.TLSMode != "disable" {
-		_, bundle, err := cli.LoadCADir(caDir)
+		cas, err = cli.NewCABundle(caDir, cfg.Check.RootCA)
 		if err != nil {
 			log.Error("database cas", "err", err)
-			os.Exit(1)
-		}
-		if err := os.WriteFile(cfg.Check.RootCA, bundle, 0o600); err != nil {
-			log.Error("write ca bundle", "err", err)
 			os.Exit(1)
 		}
 	}
@@ -101,6 +98,9 @@ func main() {
 	defer stop()
 	health := cli.NewHealth(3*cfg.ProbeInterval + cfg.AskTimeout + 2*cfg.Check.Timeout)
 	common.Serve(m, health, log)
+	if cas != nil {
+		go cas.Watch(ctx, 30*time.Second, log)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.ExchangePort),

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -23,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 const target = "cluster-1/cluster-1"
@@ -37,6 +40,7 @@ type court struct {
 	t      *testing.T
 	world  *testenv.World
 	replay string
+	delay  int64
 	st     *store.Store
 	v      *Verifier
 	w      *fixed
@@ -57,8 +61,14 @@ func newCourt(t *testing.T) *court {
 		t.Fatal(err)
 	}
 	v.nonce = func() (string, error) { c.n++; return "challenge-" + string(rune('a'+c.n)), nil }
-	v.replay = func(context.Context, discovery.Member) (string, error) { return c.replay, nil }
+	v.standby = func(context.Context, discovery.Member) (observe.Standby, error) {
+		return observe.Standby{ReplayLSN: c.replay, ApplyDelayMs: c.delay}, nil
+	}
 	c.v = v
+	seed := store.Round{ProvenLSN: map[string]string{target: "0/1"}}
+	if err := st.PutRound(context.Background(), seed); err != nil {
+		t.Fatal(err)
+	}
 	return c
 }
 
@@ -450,7 +460,7 @@ func (c *court) provenAt(lsn string) *store.Round {
 	return c.tick()
 }
 
-func TestABehindCandidateGetsTheCatchUpWindowThenIsPromotedAnyway(t *testing.T) {
+func TestAStalledCandidateIsPromotedWithTheLossReported(t *testing.T) {
 	c := newCourt(t)
 	r := c.provenAt("0/100")
 	if r.ProvenLSN[target] != "0/100" {
@@ -459,17 +469,17 @@ func TestABehindCandidateGetsTheCatchUpWindowThenIsPromotedAnyway(t *testing.T) 
 	c.claim(1)
 	c.replay = "0/40"
 	c.dead(4)
-	for i := int64(0); i < c.v.cfg.CatchUpRounds; i++ {
+	for i := int64(0); i < c.v.cfg.StallRounds; i++ {
 		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
 		r = c.tick()
 		if a := c.approval(); a.State == store.ApprovalValid {
-			t.Fatalf("approved after %d rounds, inside the catch-up window", i+1)
+			t.Fatalf("approved after %d rounds, while it could still be moving", i+1)
 		}
 	}
 	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
 	c.tick()
 	if a := c.approval(); a.State != store.ApprovalValid {
-		t.Fatalf("held past the catch-up window: %+v", a)
+		t.Fatalf("held after the replay stopped moving: %+v", a)
 	}
 	if lost, _ := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); lost != 0xc0 {
 		t.Fatalf("reported %v bytes lost, want %v", lost, 0xc0)
@@ -498,21 +508,20 @@ func TestACandidateThatCatchesUpIsPromotedAtOnceWithNothingLost(t *testing.T) {
 	}
 }
 
-func TestACandidateThatCannotBeReadIsPromotedAfterTheWindowAsUnknown(t *testing.T) {
+func TestACandidateThatCannotBeReadIsNeverPromoted(t *testing.T) {
 	c := newCourt(t)
 	r := c.provenAt("0/100")
 	c.claim(1)
-	c.v.replay = func(context.Context, discovery.Member) (string, error) { return "", errors.New("refused") }
+	c.v.standby = func(context.Context, discovery.Member) (observe.Standby, error) {
+		return observe.Standby{}, errors.New("refused")
+	}
 	c.dead(4)
-	for i := int64(0); i <= c.v.cfg.CatchUpRounds; i++ {
+	for i := int64(0); i <= 3*c.v.cfg.StallRounds; i++ {
 		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
 		r = c.tick()
 	}
-	if a := c.approval(); a.State != store.ApprovalValid {
-		t.Fatalf("held forever on an unreadable candidate: %+v", a)
-	}
-	if lost, _ := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); lost != -1 {
-		t.Fatalf("reported %v, want -1 for unknown", lost)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("promoted a candidate whose position nobody could read: %+v", a)
 	}
 }
 
@@ -556,5 +565,198 @@ func TestTheWindowStartsOverForANewPrimary(t *testing.T) {
 	c.tick()
 	if a := c.approval(); a.State == store.ApprovalValid {
 		t.Fatal("the old primary's window was spent on the new one")
+	}
+}
+
+func (c *court) claimFor(epoch int64, candidate string) {
+	cl := &store.Claim{Target: target, Epoch: epoch, State: store.ClaimOpen, Step: store.StepClaimed, Instance: "cluster-1-1", Candidate: candidate, StartedAt: time.Now(), Times: map[string]string{}}
+	if err := c.st.Open(context.Background(), cl, nil); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+func (c *court) proveDeadFor(rounds int64) {
+	r := c.tick()
+	c.dead(4)
+	for i := int64(0); i < rounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+	}
+}
+
+func TestADelayedReplicaTheAPICallsLiveIsRefusedByPostgres(t *testing.T) {
+	c := newCourt(t)
+	c.claim(1)
+	c.delay = 300000
+	c.proveDeadFor(3 * c.v.cfg.StallRounds)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("approved a candidate postgres says runs with a 5 minute apply delay: %+v", a)
+	}
+	if n := c.m.Count("bedrock_verifier_page"); n == 0 {
+		t.Fatal("refused without a page")
+	}
+}
+
+func TestACandidateThatIsNotALiveReplicaOfTheFamilyIsRefused(t *testing.T) {
+	for _, cand := range []string{"cluster-3/cluster-3", "cluster-1/cluster-1", "elsewhere/x", ""} {
+		c := newCourt(t)
+		c.claimFor(1, cand)
+		c.proveDeadFor(3 * c.v.cfg.StallRounds)
+		if a := c.approval(); a.State == store.ApprovalValid {
+			t.Fatalf("approved candidate %q: %+v", cand, a)
+		}
+	}
+}
+
+func (c *court) waitsForTheStallThenApproves(r *store.Round, wantLost float64) {
+	c.t.Helper()
+	c.dead(4)
+	for i := int64(0); i < c.v.cfg.StallRounds; i++ {
+		c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+		r = c.tick()
+		if a := c.approval(); a.State == store.ApprovalValid {
+			c.t.Fatalf("approved after %d rounds, while it could still be moving", i+1)
+		}
+	}
+	c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+	c.tick()
+	if a := c.approval(); a.State != store.ApprovalValid {
+		c.t.Fatalf("held after the replay stopped moving, waiting on a person: %+v", a)
+	}
+	if lost, ok := c.m.Get("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": "1"}); !ok || lost != wantLost {
+		c.t.Fatalf("reported %v lost (%v), want %v", lost, ok, wantLost)
+	}
+}
+
+func TestFarBehindAndStalledIsPromotedWithTheLossReported(t *testing.T) {
+	c := newCourt(t)
+	r := c.provenAt("1/0")
+	c.claim(1)
+	c.replay = "0/40"
+	c.waitsForTheStallThenApproves(r, 0x100000000-0x40)
+}
+
+func TestNoSignedPositionWaitsForTheStallThenIsPromotedWithAnUnknownLoss(t *testing.T) {
+	c := newCourt(t)
+	if err := c.st.PutRound(context.Background(), store.Round{}); err != nil {
+		t.Fatal(err)
+	}
+	r := c.tick()
+	if r.ProvenLSN[target] != "" {
+		t.Fatalf("a signed position appeared from nowhere: %q", r.ProvenLSN[target])
+	}
+	c.claim(1)
+	c.replay = "0/40"
+	c.waitsForTheStallThenApproves(r, unknownLoss)
+}
+
+func TestNoSignedPositionStillRefusesWhatPostgresSaysIsDelayed(t *testing.T) {
+	c := newCourt(t)
+	if err := c.st.PutRound(context.Background(), store.Round{}); err != nil {
+		t.Fatal(err)
+	}
+	c.claim(1)
+	c.delay = 300000
+	c.proveDeadFor(3 * c.v.cfg.StallRounds)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("approved a delayed replica because no position was signed: %+v", a)
+	}
+}
+
+func TestNoSignedPositionStillRefusesACandidateThatCannotBeRead(t *testing.T) {
+	c := newCourt(t)
+	if err := c.st.PutRound(context.Background(), store.Round{}); err != nil {
+		t.Fatal(err)
+	}
+	c.claim(1)
+	c.v.standby = func(context.Context, discovery.Member) (observe.Standby, error) {
+		return observe.Standby{}, errors.New("connection refused")
+	}
+	c.proveDeadFor(3 * c.v.cfg.StallRounds)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("approved a candidate it never read because no position was signed: %+v", a)
+	}
+}
+
+func TestACandidateWithNoReadyInstanceIsRefused(t *testing.T) {
+	c := newCourt(t)
+	c.world.SetStatus("cluster-2", "Cluster in healthy state", 0)
+	c.claim(1)
+	c.proveDeadFor(3 * c.v.cfg.StallRounds)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("approved a candidate with no ready instance: %+v", a)
+	}
+}
+
+func TestTheApprovalNamesTheCandidateAndItsHostAndARevokeClearsThem(t *testing.T) {
+	c := newCourt(t)
+	c.claim(1)
+	c.proveDeadFor(1)
+	a := c.approval()
+	if a.State != store.ApprovalValid || a.Candidate != "cluster-2/cluster-2" || a.Host != "cluster-2-pooler-rw.cluster-2.svc.cluster.local" {
+		t.Fatalf("approval = %+v", a)
+	}
+	raw, err := c.world.Kube.CoreV1().ConfigMaps("bedrock-failover").Get(context.Background(), store.ApprovalsObject, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := raw.Data["cluster-1.cluster-1.candidate"]; got != "cluster-2.cluster-2" {
+		t.Fatalf("admission reads namespace.name, the slot holds %q", got)
+	}
+	c.dead(0)
+	r := c.tick()
+	s := sign(r.Challenge, "n2", "cluster-1@10.0.1.1")
+	c.vote("n2", observe.Vote{Challenge: r.Challenge, Ballot: observe.BallotUp, Proof: observe.Proof{Signed: s}})
+	c.tick()
+	a = c.approval()
+	if a.State != store.ApprovalRevoked || a.Candidate != "" || a.Host != "" {
+		t.Fatalf("a revoked slot still names a candidate or host: %+v", a)
+	}
+}
+
+func TestAFailedStandbyCountDecidesNothing(t *testing.T) {
+	c := newCourt(t)
+	c.claim(1)
+	c.world.Kube.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetNamespace() == "cluster-1" {
+			return true, nil, errors.New("apiserver hiccup")
+		}
+		return false, nil, nil
+	})
+	c.proveDeadFor(3)
+	if a := c.approval(); a.State == store.ApprovalValid {
+		t.Fatalf("approved on a standby count that could not be read: %+v", a)
+	}
+}
+
+func TestACandidateStillReplayingIsNeverPromotedWhileItMoves(t *testing.T) {
+	for _, proven := range []string{"1/0", ""} {
+		c := newCourt(t)
+		r := c.provenAt("1/0")
+		if proven == "" {
+			if err := c.st.PutRound(context.Background(), store.Round{}); err != nil {
+				t.Fatal(err)
+			}
+			r = c.tick()
+		}
+		c.claim(1)
+		c.dead(4)
+		at := uint64(0x40)
+		for i := int64(0); i < 10*c.v.cfg.StallRounds; i++ {
+			at += 0x1000
+			c.replay = fmt.Sprintf("0/%X", at)
+			c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+			r = c.tick()
+			if a := c.approval(); a.State == store.ApprovalValid {
+				t.Fatalf("signed %q: promoted at %s after %d rounds while its replay was still moving", proven, c.replay, i+1)
+			}
+		}
+		for i := int64(0); i <= c.v.cfg.StallRounds; i++ {
+			c.downs(r.Challenge, "n2", "n3", "n4", "n5")
+			r = c.tick()
+		}
+		if a := c.approval(); a.State != store.ApprovalValid {
+			t.Fatalf("signed %q: held after its replay stopped moving: %+v", proven, a)
+		}
 	}
 }

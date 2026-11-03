@@ -39,8 +39,6 @@ spec:
         - name: decider
           image: ghcr.io/sassendes/bedrock-failover:0.1.0@sha256:2deaf442b7e7dcd7f027a3920696e511213a8fce0391744ff44a284c9782e50a
           command: ["/decider"]
-          args:
-            - -dr-zones=$(DR_ZONES)
           env:
             - name: POD_NAME
               valueFrom:
@@ -50,11 +48,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: DR_ZONES
-              valueFrom:
-                configMapKeyRef:
-                  name: bedrock-failover
-                  key: dr-zones
           ports:
             - name: metrics
               containerPort: 9090

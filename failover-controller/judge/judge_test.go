@@ -44,7 +44,7 @@ func in(ballots map[string]observe.Vote, w map[Witness]Answer) Input {
 	for id := range ballots {
 		nodeOf[id] = id
 	}
-	return Input{Target: "cluster-1/cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 1, Witnesses: w, DeadNeeded: 3}
+	return Input{Target: "cluster-1/cluster-1", Cluster: "cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 1, Witnesses: w, DeadNeeded: 3}
 }
 
 func paired(ballots map[string]observe.Vote, w map[Witness]Answer) Input {
@@ -52,7 +52,7 @@ func paired(ballots map[string]observe.Vote, w map[Witness]Answer) Input {
 	for id := range ballots {
 		nodeOf[id] = id[:1]
 	}
-	return Input{Target: "cluster-1/cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 2, Witnesses: w, DeadNeeded: 3}
+	return Input{Target: "cluster-1/cluster-1", Cluster: "cluster-1", Challenge: "c2", Eligible: []string{"a", "b", "c"}, Ballots: ballots, NodeOf: nodeOf, PerNode: 2, Witnesses: w, DeadNeeded: 3}
 }
 
 func TestANodeIsDownOnlyWhenBothItsObserversAre(t *testing.T) {
@@ -160,5 +160,49 @@ func TestPrimarySignersAreCollected(t *testing.T) {
 	v := Judge(keys, in(map[string]observe.Vote{"a": a, "b": b}, witnesses(0)))
 	if len(v.PrimarySigners) != 2 {
 		t.Fatalf("signers %v", v.PrimarySigners)
+	}
+}
+
+func signedBy(instance, node string) observe.Vote {
+	return observe.Vote{Ballot: observe.BallotUp, Proof: observe.Proof{Signed: signed("c2", node, false, instance)}}
+}
+
+func TestASiblingPrimarySignatureIsNotAnUpForTheTarget(t *testing.T) {
+	v := Judge(keys, in(map[string]observe.Vote{"a": down(), "b": down(), "c": signedBy("cluster-2@10.0.1.1", "c")}, witnesses(3)))
+	if v.Outcome != ProvenDead || len(v.ValidUps) != 0 {
+		t.Fatalf("cluster-2 shares cluster-1's system id; its signature vetoed cluster-1's failover: %+v", v)
+	}
+	if v.RejectedProofs["c"] == "" {
+		t.Fatalf("the sibling signature was not reported: %+v", v)
+	}
+}
+
+func TestANameThatOnlyStartsLikeTheTargetIsRejected(t *testing.T) {
+	v := Judge(keys, in(map[string]observe.Vote{"c": signedBy("cluster-10@10.0.1.1", "c")}, witnesses(0)))
+	if len(v.ValidUps) != 0 {
+		t.Fatalf("cluster-10 counted as cluster-1: %+v", v)
+	}
+}
+
+func TestTheTargetSigningFromAnotherPodStillCounts(t *testing.T) {
+	v := Judge(keys, in(map[string]observe.Vote{"c": signedBy("cluster-1@10.0.9.9", "c")}, witnesses(3)))
+	if v.Outcome != Contradiction || len(v.ValidUps) != 1 {
+		t.Fatalf("a move inside the cluster must still count as up, see model/Signer.tla SignerBindIP: %+v", v)
+	}
+}
+
+func TestNoClusterNameRejectsEverything(t *testing.T) {
+	i := in(map[string]observe.Vote{"c": up("c2", "c")}, witnesses(0))
+	i.Cluster = ""
+	if v := Judge(keys, i); len(v.ValidUps) != 0 {
+		t.Fatalf("an empty expected cluster accepted a signature: %+v", v)
+	}
+}
+
+func TestTheClusterNameIsCoveredByTheMAC(t *testing.T) {
+	vote := up("c2", "c")
+	vote.Proof.Signed.Instance = "cluster-1@10.0.1.2"
+	if ok, _ := ValidUp(keys, "c2", "c", "cluster-1", vote); ok {
+		t.Fatal("a rewritten instance verified")
 	}
 }

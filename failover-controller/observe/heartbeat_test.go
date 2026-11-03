@@ -258,7 +258,7 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("a replica reports how far it replayed", func(t *testing.T) {
+	t.Run("a replica reports how far it replayed and its apply delay", func(t *testing.T) {
 		p := StrongCheckWithNonce(ctx, primary.observerConfig(2*time.Second), "node-1", "db/primary", "challenge-l")
 		if p.Signed == nil {
 			t.Fatal("no signature")
@@ -266,21 +266,53 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		want, _ := ParseLSN(p.Signed.LSN)
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			got, err := ReplayLSN(ctx, standby.observerConfig(2*time.Second))
+			got, err := ReadStandby(ctx, standby.observerConfig(2*time.Second))
 			if err != nil {
 				t.Fatal(err)
 			}
-			n, ok := ParseLSN(got)
+			if got.ApplyDelayMs != 0 {
+				t.Fatalf("a live standby reported an apply delay of %dms", got.ApplyDelayMs)
+			}
+			n, ok := ParseLSN(got.ReplayLSN)
 			if ok && n >= want {
 				break
 			}
 			if time.Now().After(deadline) {
-				t.Fatalf("replica at %s never reached %s", got, p.Signed.LSN)
+				t.Fatalf("replica at %s never reached %s", got.ReplayLSN, p.Signed.LSN)
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		if _, err := ReplayLSN(ctx, primary.observerConfig(2*time.Second)); err == nil {
+		if _, err := ReadStandby(ctx, primary.observerConfig(2*time.Second)); err == nil {
 			t.Fatal("a primary reported a replay position")
+		}
+	})
+
+	t.Run("a delayed standby reports its delay from postgres itself", func(t *testing.T) {
+		conn := standby.super(ctx)
+		defer conn.Close(ctx)
+		set := func(v string) {
+			if _, err := conn.Exec(ctx, "ALTER SYSTEM SET recovery_min_apply_delay = '"+v+"'"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := conn.Exec(ctx, "SELECT pg_reload_conf()"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		set("5min")
+		defer set("0")
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			got, err := ReadStandby(ctx, standby.observerConfig(2*time.Second))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.ApplyDelayMs == 5*60*1000 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("delay %dms, want 300000", got.ApplyDelayMs)
+			}
+			time.Sleep(50 * time.Millisecond)
 		}
 	})
 

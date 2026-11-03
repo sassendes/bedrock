@@ -2,6 +2,7 @@ package judge
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/sassendes/bedrock/failover-controller/observe"
 	"github.com/sassendes/bedrock/failover-controller/proof"
@@ -37,6 +38,7 @@ const (
 
 type Input struct {
 	Target     string
+	Cluster    string
 	Challenge  string
 	Eligible   []string
 	Ballots    map[string]observe.Vote
@@ -58,9 +60,14 @@ type Verdict struct {
 	ProvenDown     bool
 }
 
-// ValidUp is grade A: postgres signed this round's challenge, for this observer, as a primary.
-func ValidUp(keys proof.Keys, challenge, observer string, v observe.Vote) (bool, string) {
+// ValidUp is grade A: postgres signed this round's challenge, for this observer, as a primary of the cluster
+// being judged. Replicas of one primary share its system identifier, so the cluster is read from the signed
+// cluster_name, which cnpg sets and does not let a user override. The pod address is deliberately not
+// compared: after a move inside the cluster the API can still name the old pod, and refusing the new
+// primary's signature then would fail over a live cluster (model/Signer.tla, SignerBindIP).
+func ValidUp(keys proof.Keys, challenge, observer, cluster string, v observe.Vote) (bool, string) {
 	s := v.Proof.Signed
+	name, _, _ := strings.Cut(stringOr(s), "@")
 	switch {
 	case s == nil:
 		return false, "no signature"
@@ -70,6 +77,8 @@ func ValidUp(keys proof.Keys, challenge, observer string, v observe.Vote) (bool,
 		return false, "signed for another observer"
 	case s.InRecovery:
 		return false, "signed as a replica"
+	case cluster == "" || name != cluster:
+		return false, "signed by cluster " + name + ", not " + cluster
 	}
 	if err := keys.Verify(*s); err != nil {
 		return false, err.Error()
@@ -95,7 +104,7 @@ func Judge(keys proof.Keys, in Input) Verdict {
 	for _, id := range ids {
 		b := in.Ballots[id]
 		node, known := in.NodeOf[id]
-		ok, why := ValidUp(keys, in.Challenge, id, b)
+		ok, why := ValidUp(keys, in.Challenge, id, in.Cluster, b)
 		if ok {
 			v.ValidUps = append(v.ValidUps, id)
 			signers[b.Proof.Signed.Instance+"/"+b.Proof.Signed.SystemID] = true
@@ -146,4 +155,11 @@ func Judge(keys proof.Keys, in Input) Verdict {
 // a switchover: the old primary signs before it steps down.
 func SplitBrain(previous, current []string) bool {
 	return len(previous) > 1 && len(current) > 1
+}
+
+func stringOr(s *proof.Signed) string {
+	if s == nil {
+		return ""
+	}
+	return s.Instance
 }

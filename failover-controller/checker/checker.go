@@ -58,7 +58,7 @@ type Checker struct {
 	actor   *act.Actor
 	store   *store.Store
 	cfg     Config
-	roots   *x509.CertPool
+	roots   func() *x509.CertPool
 	metrics *metrics.Registry
 	log     *slog.Logger
 	now     func() time.Time
@@ -68,7 +68,7 @@ type Checker struct {
 	}
 }
 
-func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config, actor *act.Actor, st *store.Store, cfg Config, roots *x509.CertPool, m *metrics.Registry, log *slog.Logger) *Checker {
+func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config, actor *act.Actor, st *store.Store, cfg Config, roots func() *x509.CertPool, m *metrics.Registry, log *slog.Logger) *Checker {
 	return &Checker{kube: kube, dyn: dyn, disc: disc, actor: actor, store: st, cfg: cfg, roots: roots, metrics: m, log: log, now: time.Now}
 }
 
@@ -77,7 +77,7 @@ func New(kube kubernetes.Interface, dyn dynamic.Interface, disc discovery.Config
 func (c *Checker) client(serverName string) *http.Client {
 	tr := &http.Transport{DisableKeepAlives: true}
 	if c.cfg.Scheme == "https" {
-		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: c.roots, ServerName: serverName}
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: c.roots(), ServerName: serverName}
 	}
 	return &http.Client{Timeout: c.cfg.Timeout, Transport: tr}
 }
@@ -126,10 +126,13 @@ func (c *Checker) Round(ctx context.Context) bool {
 			continue
 		}
 		why := append([]string{}, broken...)
+		primaryNode, nodeErr := c.primaryNode(ctx, p)
 		switch {
 		case ballotsErr != nil || roundErr != nil || nodesErr != nil:
 			why = append(why, "votes unreadable")
-		case !c.quorum(target, ballots, round, without(nodes, c.primaryNode(ctx, p))):
+		case nodeErr != nil:
+			why = append(why, "primary node unknown: "+nodeErr.Error())
+		case !c.quorum(target, ballots, round, without(nodes, primaryNode)):
 			why = append(why, "observers lost quorum")
 		}
 		active := len(why) > 0
@@ -225,17 +228,9 @@ func (c *Checker) observerNodes(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := c.kube.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	zone := map[string]string{}
-	for _, n := range nodes.Items {
-		zone[n.Name] = n.Labels[c.disc.ZoneLabel]
-	}
 	set := map[string]bool{}
 	for _, p := range pods.Items {
-		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || c.disc.DRZones[zone[p.Spec.NodeName]] {
+		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
 			continue
 		}
 		set[p.Spec.NodeName] = true
@@ -248,15 +243,18 @@ func (c *Checker) observerNodes(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (c *Checker) primaryNode(ctx context.Context, m discovery.Member) string {
+func (c *Checker) primaryNode(ctx context.Context, m discovery.Member) (string, error) {
 	if m.CurrentPrimary == "" {
-		return ""
+		return "", nil
 	}
 	p, err := c.kube.CoreV1().Pods(m.Namespace).Get(ctx, m.CurrentPrimary, metav1.GetOptions{})
-	if err != nil {
-		return ""
+	if apierrors.IsNotFound(err) {
+		return "", nil
 	}
-	return p.Spec.NodeName
+	if err != nil {
+		return "", err
+	}
+	return p.Spec.NodeName, nil
 }
 
 func without(xs []string, x string) []string {

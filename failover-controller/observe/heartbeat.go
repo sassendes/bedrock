@@ -186,23 +186,36 @@ func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
 	return r
 }
 
-// ReplayLSN is how far a replica has replayed. It fails on an instance that is not in recovery.
-func ReplayLSN(ctx context.Context, cfg CheckConfig) (string, error) {
+// Standby is what a replica says about itself: how far it replayed and the apply delay it runs with.
+// Postgres answers both, so a wrong label in the API cannot change them.
+type Standby struct {
+	ReplayLSN    string
+	ApplyDelayMs int64
+}
+
+const standbySQL = `SELECT pg_last_wal_replay_lsn()::text,
+       (SELECT setting::bigint FROM pg_settings WHERE name = 'recovery_min_apply_delay')`
+
+func ReadStandby(ctx context.Context, cfg CheckConfig) (Standby, error) {
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
 	defer cancel()
 	conn, err := connect(ctx, cfg)
 	if err != nil {
-		return "", err
+		return Standby{}, err
 	}
 	defer conn.Close(context.Background())
 	var lsn *string
-	if err := conn.QueryRow(ctx, "SELECT pg_last_wal_replay_lsn()::text").Scan(&lsn); err != nil {
-		return "", err
+	var delay *int64
+	if err := conn.QueryRow(ctx, standbySQL).Scan(&lsn, &delay); err != nil {
+		return Standby{}, err
 	}
 	if lsn == nil {
-		return "", errors.New("not in recovery")
+		return Standby{}, errors.New("not in recovery")
 	}
-	return *lsn, nil
+	if delay == nil {
+		return Standby{}, errors.New("recovery_min_apply_delay is unreadable")
+	}
+	return Standby{ReplayLSN: *lsn, ApplyDelayMs: *delay}, nil
 }
 
 func ParseLSN(s string) (uint64, bool) {

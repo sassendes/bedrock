@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"flag"
@@ -31,11 +33,12 @@ func Env(name, fallback string) string {
 
 // Common holds every flag the three binaries share, so a name changed once is changed everywhere.
 type Common struct {
-	Kubeconfig  string
-	MetricsAddr string
-	Namespace   string
-	drZones     string
-	Act         act.Config
+	Kubeconfig     string
+	MetricsAddr    string
+	Namespace      string
+	Act            act.Config
+	flipNamespaces string
+	flipList       []string
 }
 
 func Register(fs *flag.FlagSet) *Common {
@@ -44,7 +47,6 @@ func Register(fs *flag.FlagSet) *Common {
 	fs.StringVar(&c.Kubeconfig, "kubeconfig", os.Getenv("KUBECONFIG"), "path to a kubeconfig, empty means in-cluster")
 	fs.StringVar(&c.MetricsAddr, "metrics-addr", ":9090", "address for /metrics and /healthz")
 	fs.StringVar(&c.Namespace, "namespace", Env("POD_NAMESPACE", "bedrock-failover"), "namespace of the failover components")
-	fs.StringVar(&c.drZones, "dr-zones", "", "comma separated zones that hold dr clusters")
 	fs.StringVar(&d.ClusterGVR.Group, "cluster-group", d.ClusterGVR.Group, "api group of the database cluster resource")
 	fs.StringVar(&d.ClusterGVR.Version, "cluster-version", d.ClusterGVR.Version, "api version of the database cluster resource")
 	fs.StringVar(&d.ClusterGVR.Resource, "cluster-resource", d.ClusterGVR.Resource, "plural resource name of the database cluster")
@@ -60,6 +62,7 @@ func Register(fs *flag.FlagSet) *Common {
 	fs.StringVar(&c.Act.HibernationOn, "hibernation-on", c.Act.HibernationOn, "value that turns hibernation on")
 	fs.StringVar(&c.Act.PrimaryServiceSelector, "primary-service-selector", c.Act.PrimaryServiceSelector, "selector a cluster's primary service carries")
 	fs.StringVar(&c.Act.FlipLabel, "flip-label", c.Act.FlipLabel, "label on the ExternalName services to repoint")
+	fs.StringVar(&c.flipNamespaces, "flip-namespaces", strings.Join(c.Act.FlipNamespaces, ","), "comma separated namespaces whose ExternalName services are repointed, and no others")
 	fs.StringVar(&c.Act.ClusterDomain, "cluster-domain", c.Act.ClusterDomain, "cluster dns domain")
 	fs.StringVar(&c.Act.HealthyPhase, "healthy-phase", c.Act.HealthyPhase, "phase of a healthy cluster")
 	return c
@@ -68,10 +71,13 @@ func Register(fs *flag.FlagSet) *Common {
 func (c *Common) Finish() {
 	c.Act.PoolerGVR.Group = c.Act.Discovery.ClusterGVR.Group
 	c.Act.PoolerGVR.Version = c.Act.Discovery.ClusterGVR.Version
-	for _, z := range strings.Split(c.drZones, ",") {
-		if z = strings.TrimSpace(z); z != "" {
-			c.Act.Discovery.DRZones[z] = true
+	for _, ns := range strings.Split(c.flipNamespaces, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			c.flipList = append(c.flipList, ns)
 		}
+	}
+	if len(c.flipList) > 0 {
+		c.Act.FlipNamespaces = c.flipList
 	}
 }
 
@@ -150,4 +156,70 @@ func LoadCADir(dir string) (*x509.CertPool, []byte, error) {
 		return nil, nil, errors.New("no *.crt in " + dir)
 	}
 	return pool, bundle.Bytes(), nil
+}
+
+// CABundle keeps the database CAs current. A new cluster's CA, or a renewed one, reaches the projected
+// volume without a restart; the bundle file postgres connections read is rewritten atomically when it changes.
+type CABundle struct {
+	dir  string
+	out  string
+	mu   sync.RWMutex
+	pool *x509.CertPool
+	sum  [32]byte
+}
+
+func NewCABundle(dir, out string) (*CABundle, error) {
+	b := &CABundle{dir: dir, out: out}
+	if err := b.Refresh(); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+func (b *CABundle) Pool() *x509.CertPool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.pool
+}
+
+func (b *CABundle) Refresh() error {
+	pool, bundle, err := LoadCADir(b.dir)
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(bundle)
+	b.mu.RLock()
+	same := b.pool != nil && sum == b.sum
+	b.mu.RUnlock()
+	if same {
+		return nil
+	}
+	if b.out != "" {
+		tmp := b.out + ".new"
+		if err := os.WriteFile(tmp, bundle, 0o600); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, b.out); err != nil {
+			return err
+		}
+	}
+	b.mu.Lock()
+	b.pool, b.sum = pool, sum
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *CABundle) Watch(ctx context.Context, every time.Duration, log *slog.Logger) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := b.Refresh(); err != nil {
+				log.Warn("database cas not reloaded, keeping the last good ones", "err", err)
+			}
+		}
+	}
 }

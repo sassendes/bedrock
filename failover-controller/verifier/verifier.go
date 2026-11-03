@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/store"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -26,13 +28,13 @@ type Config struct {
 	DeadNeeded        int
 	PerNode           int
 	GraceRounds       int64
-	CatchUpRounds     int64
+	StallRounds       int64
 	ObserverSelector  string
 	ObserverNamespace string
 }
 
 func DefaultConfig() Config {
-	return Config{DeadNeeded: 3, PerNode: 2, GraceRounds: 15, CatchUpRounds: 8, ObserverSelector: "app.kubernetes.io/name=bedrock-observer", ObserverNamespace: "bedrock-failover"}
+	return Config{DeadNeeded: 3, PerNode: 2, GraceRounds: 15, StallRounds: 3, ObserverSelector: "app.kubernetes.io/name=bedrock-observer", ObserverNamespace: "bedrock-failover"}
 }
 
 type Witnesses interface {
@@ -54,29 +56,32 @@ type Verifier struct {
 	log       *slog.Logger
 	now       func() time.Time
 	nonce     func() (string, error)
-	replay    func(ctx context.Context, m discovery.Member) (string, error)
+	standby   func(ctx context.Context, m discovery.Member) (observe.Standby, error)
 }
 
 func New(dyn dynamic.Interface, kube kubernetes.Interface, disc discovery.Config, st *store.Store, actor *act.Actor, w Witnesses, keys proof.Keys, cfg Config, m *metrics.Registry, log *slog.Logger) (*Verifier, error) {
 	if cfg.DeadNeeded < 1 || cfg.DeadNeeded > len(judge.AllWitnesses) {
 		return nil, errors.New("dead witnesses needed must be between 1 and 4")
 	}
-	if cfg.PerNode < 1 || cfg.GraceRounds < 0 || cfg.CatchUpRounds < 0 {
-		return nil, errors.New("observers per node must be at least 1 and the cnpg and catch-up windows not negative")
+	if cfg.PerNode < 1 || cfg.GraceRounds < 0 || cfg.StallRounds < 1 {
+		return nil, errors.New("observers per node must be at least 1, the cnpg window not negative and the stall at least one round")
 	}
-	return &Verifier{dyn: dyn, kube: kube, disc: disc, store: st, actor: actor, witnesses: w, keys: keys, cfg: cfg, metrics: m, log: log, now: time.Now, nonce: observe.NewNonce, replay: func(context.Context, discovery.Member) (string, error) { return "", errors.New("no replay reader") }}, nil
+	return &Verifier{dyn: dyn, kube: kube, disc: disc, store: st, actor: actor, witnesses: w, keys: keys, cfg: cfg, metrics: m, log: log, now: time.Now, nonce: observe.NewNonce, standby: func(context.Context, discovery.Member) (observe.Standby, error) {
+		return observe.Standby{}, errors.New("no standby reader")
+	}}, nil
 }
 
-// ReadReplayWith lets the verifier ask a candidate how far it replayed, with the observer login.
-func (v *Verifier) ReadReplayWith(check observe.CheckConfig) {
-	v.replay = func(ctx context.Context, m discovery.Member) (string, error) {
+// ReadStandbyWith lets the verifier ask a candidate itself how far it replayed and which apply delay it
+// runs with, with the observer login, so a wrong label in the API cannot get a delayed replica promoted.
+func (v *Verifier) ReadStandbyWith(check observe.CheckConfig) {
+	v.standby = func(ctx context.Context, m discovery.Member) (observe.Standby, error) {
 		ip, err := v.podIP(ctx, m.Namespace, m.CurrentPrimary)
 		if err != nil {
-			return "", err
+			return observe.Standby{}, err
 		}
 		c := check
 		c.Host = ip
-		return observe.ReplayLSN(ctx, c)
+		return observe.ReadStandby(ctx, c)
 	}
 }
 
@@ -151,10 +156,16 @@ func (v *Verifier) judge(ctx context.Context, round store.Round, next *store.Rou
 		if v.actor.Fenced(obj) {
 			continue
 		}
+		primaryNode, err := v.primaryNode(ctx, f.Primary)
+		if err != nil {
+			pages.Add(map[string]string{"target": target, "reason": "cannot tell which node runs the primary, not judging: " + err.Error()})
+			continue
+		}
 		in := judge.Input{
 			Target:     target,
+			Cluster:    f.Primary.Name,
 			Challenge:  round.Challenge,
-			Eligible:   without(nodes, v.primaryNode(ctx, f.Primary)),
+			Eligible:   without(nodes, primaryNode),
 			Ballots:    map[string]observe.Vote{},
 			NodeOf:     map[string]string{},
 			PerNode:    v.cfg.PerNode,
@@ -219,8 +230,10 @@ type gate struct {
 }
 
 // decide approves a claimed run on a proven death of the instance the claim names, with no checker halt,
-// once cnpg had its window when the cluster has standbys. A candidate behind the last signed position gets
-// the catch-up window to replay from the archive, then is approved anyway and the loss is reported.
+// once cnpg had its window when the cluster has standbys. The candidate is checked here, never trusted
+// from the claim: it must be a ready live replica of this family, postgres itself must report no apply
+// delay. A candidate behind the last position postgres signed, or one with no signed position to compare,
+// is waited on while its replay still moves, and approved once it catches up or stops moving.
 func (v *Verifier) decide(ctx context.Context, target string, verdict judge.Verdict, c *store.Claim, a store.Approval, round int64, g gate) error {
 	if c == nil || c.State != store.ClaimOpen || c.Step != store.StepClaimed {
 		return nil
@@ -245,54 +258,87 @@ func (v *Verifier) decide(ctx context.Context, target string, verdict judge.Verd
 	if verdict.Outcome != judge.ProvenDead || valid {
 		return nil
 	}
-	if standbys := v.actor.ReadyStandbys(ctx, g.family.Primary); standbys > 0 && round-g.mark.Round < v.cfg.GraceRounds {
+	standbys, err := v.actor.ReadyStandbys(ctx, g.family.Primary)
+	if err != nil {
+		g.pages.Add(map[string]string{"target": target, "reason": "cannot count ready standbys, not deciding: " + err.Error()})
+		return nil
+	}
+	if standbys > 0 && round-g.mark.Round < v.cfg.GraceRounds {
+		return nil
+	}
+	check := v.check(ctx, g.family, c.Candidate, g.proven)
+	if check.refuse != "" {
+		g.pages.Add(map[string]string{"target": target, "reason": "candidate " + c.Candidate + " refused: " + check.refuse})
 		return nil
 	}
 	lost := int64(0)
-	if behind, bytes, why := v.behind(ctx, g.family, c.Candidate, g.proven); behind {
+	if check.behind != 0 {
 		mark := g.behind
-		if mark.Instance != c.Instance || mark.Round == 0 {
-			mark = store.DeadMark{Instance: c.Instance, Round: round}
+		if mark.Instance != c.Instance || mark.LSN != check.replay || mark.Round == 0 {
+			mark = store.DeadMark{Instance: c.Instance, Round: round, LSN: check.replay}
 		}
 		g.next.Behind[target] = mark
-		if round-mark.Round < v.cfg.CatchUpRounds {
+		if round-mark.Round < v.cfg.StallRounds {
+			g.pages.Add(map[string]string{"target": target, "reason": "candidate " + c.Candidate + " is still replaying at " + check.replay + ", waiting until it catches up or stops moving"})
 			return nil
 		}
-		lost = bytes
-		v.log.Error("approved behind the last signed position, writes will be lost", "target", target, "epoch", c.Epoch, "why", why, "bytes", bytes)
+		lost = check.behind
+		if lost == unknownLoss {
+			v.log.Error("approved with no signed position to compare, writes may be lost", "target", target, "epoch", c.Epoch)
+		} else {
+			v.log.Error("approved behind the last signed position, writes will be lost", "target", target, "epoch", c.Epoch, "bytes", lost)
+		}
+	}
+	host, err := v.actor.StableHost(ctx, c.Candidate)
+	if err != nil {
+		g.pages.Add(map[string]string{"target": target, "reason": "no stable host for " + c.Candidate + ": " + err.Error()})
+		return nil
 	}
 	v.metrics.Set("bedrock_verifier_promoted_behind_bytes", map[string]string{"target": target, "epoch": strconv.FormatInt(c.Epoch, 10)}, float64(lost))
-	v.log.Warn("approved", "target", target, "epoch", c.Epoch, "round", round, "instance", c.Instance, "witnesses", verdict.DeadWitnesses, "downs", verdict.Downs)
-	return v.store.SetApproval(ctx, target, store.Approval{State: store.ApprovalValid, Epoch: c.Epoch, Round: round, Instance: c.Instance})
+	v.log.Warn("approved", "target", target, "epoch", c.Epoch, "round", round, "instance", c.Instance, "candidate", c.Candidate, "host", host, "witnesses", verdict.DeadWitnesses, "downs", verdict.Downs)
+	return v.store.SetApproval(ctx, target, store.Approval{State: store.ApprovalValid, Epoch: c.Epoch, Round: round, Instance: c.Instance, Candidate: c.Candidate, Host: host})
 }
 
-// behind reports how far the candidate is from the last signed position, in WAL bytes, or -1 when unknown.
-func (v *Verifier) behind(ctx context.Context, f discovery.Family, candidate, proven string) (bool, int64, string) {
-	if proven == "" {
-		return false, 0, ""
+const unknownLoss = -1
+
+type candidateCheck struct {
+	refuse string
+	replay string
+	behind int64
+}
+
+func (v *Verifier) check(ctx context.Context, f discovery.Family, candidate, proven string) candidateCheck {
+	var m *discovery.Member
+	for i := range f.Live {
+		if f.Live[i].Key() == candidate {
+			m = &f.Live[i]
+		}
+	}
+	switch {
+	case m == nil:
+		return candidateCheck{refuse: "not a live replica of " + f.Primary.Key()}
+	case m.ReadyInstances < 1 || m.CurrentPrimary == "":
+		return candidateCheck{refuse: "has no ready instance"}
+	}
+	s, err := v.standby(ctx, *m)
+	if err != nil {
+		return candidateCheck{refuse: "cannot read it: " + err.Error()}
+	}
+	if s.ApplyDelayMs != 0 {
+		return candidateCheck{refuse: fmt.Sprintf("postgres runs it with recovery_min_apply_delay %dms, a delayed replica is never promoted", s.ApplyDelayMs)}
+	}
+	got, ok := observe.ParseLSN(s.ReplayLSN)
+	if !ok {
+		return candidateCheck{refuse: "reported an unreadable position " + s.ReplayLSN}
 	}
 	want, ok := observe.ParseLSN(proven)
 	if !ok {
-		return true, -1, "the last proven position " + proven + " is unreadable"
+		return candidateCheck{replay: s.ReplayLSN, behind: unknownLoss}
 	}
-	for _, m := range f.Live {
-		if m.Key() != candidate {
-			continue
-		}
-		got, err := v.replay(ctx, m)
-		if err != nil {
-			return true, -1, "cannot read how far " + candidate + " replayed: " + err.Error()
-		}
-		n, ok := observe.ParseLSN(got)
-		if !ok {
-			return true, -1, candidate + " reported an unreadable position " + got
-		}
-		if n < want {
-			return true, int64(want - n), candidate + " replayed to " + got + ", the old primary proved " + proven
-		}
-		return false, 0, ""
+	if got >= want {
+		return candidateCheck{replay: s.ReplayLSN}
 	}
-	return true, -1, "the candidate " + candidate + " is not a live replica"
+	return candidateCheck{replay: s.ReplayLSN, behind: int64(want - got)}
 }
 
 func (v *Verifier) podIP(ctx context.Context, ns, name string) (string, error) {
@@ -344,17 +390,9 @@ func (v *Verifier) observerNodes(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	nodes, err := v.kube.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	zone := map[string]string{}
-	for _, n := range nodes.Items {
-		zone[n.Name] = n.Labels[v.disc.ZoneLabel]
-	}
 	set := map[string]bool{}
 	for _, p := range pods.Items {
-		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning || v.disc.DRZones[zone[p.Spec.NodeName]] {
+		if p.Spec.NodeName == "" || p.DeletionTimestamp != nil || p.Status.Phase != corev1.PodRunning {
 			continue
 		}
 		set[p.Spec.NodeName] = true
@@ -367,15 +405,18 @@ func (v *Verifier) observerNodes(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (v *Verifier) primaryNode(ctx context.Context, m discovery.Member) string {
+func (v *Verifier) primaryNode(ctx context.Context, m discovery.Member) (string, error) {
 	if m.CurrentPrimary == "" {
-		return ""
+		return "", nil
 	}
 	p, err := v.kube.CoreV1().Pods(m.Namespace).Get(ctx, m.CurrentPrimary, metav1.GetOptions{})
-	if err != nil {
-		return ""
+	if apierrors.IsNotFound(err) {
+		return "", nil
 	}
-	return p.Spec.NodeName
+	if err != nil {
+		return "", err
+	}
+	return p.Spec.NodeName, nil
 }
 
 func without(xs []string, x string) []string {

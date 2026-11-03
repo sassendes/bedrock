@@ -75,9 +75,7 @@ func rw(ns, cluster string) *corev1.Service {
 }
 
 func testConfig() Config {
-	cfg := DefaultConfig()
-	cfg.DRZones = map[string]bool{"offsite": true}
-	return cfg
+	return DefaultConfig()
 }
 
 func run(t *testing.T, cfg Config, clusters []runtime.Object, kube []runtime.Object) Discovery {
@@ -119,14 +117,14 @@ func TestFourClusterFamilyByFactsNotNames(t *testing.T) {
 	if f.Primary.Key() != "poop/poop" || f.Primary.Instances != 3 || f.Primary.CurrentPrimary != "poop-1" {
 		t.Errorf("primary = %+v", f.Primary)
 	}
-	if len(f.Live) != 1 || f.Live[0].Key() != "banana/banana" {
+	if len(f.Live) != 2 || f.Live[0].Key() != "banana/banana" || f.Live[1].Key() != "far/far" {
 		t.Errorf("live = %+v", f.Live)
 	}
 	if len(f.Delayed) != 1 || f.Delayed[0].Key() != "x/x" || f.Delayed[0].ApplyDelay != "5m" {
 		t.Errorf("delayed = %+v", f.Delayed)
 	}
-	if len(f.DR) != 1 || f.DR[0].Key() != "far/far" {
-		t.Errorf("dr = %+v, job pods must not count toward zones", f.DR)
+	if z := f.Live[1].Zones; len(z) != 1 || z[0] != "offsite" {
+		t.Errorf("zones of far/far = %v, job pods must not count toward zones", z)
 	}
 }
 
@@ -147,8 +145,11 @@ func TestDeadPodsDoNotCountTowardZones(t *testing.T) {
 		evicted, done, leaving,
 	}
 	got := run(t, testConfig(), clusters, kube)
-	if len(got.Problems) != 0 || len(got.Families[0].DR) != 1 {
-		t.Fatalf("dead pods on a main node must not split a dr cluster, got %+v", got)
+	if len(got.Problems) != 0 || len(got.Families[0].Live) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	if z := got.Families[0].Live[0].Zones; len(z) != 1 || z[0] != "offsite" {
+		t.Fatalf("dead pods must not count toward zones, got %v", z)
 	}
 }
 
@@ -168,7 +169,6 @@ func TestEverythingComesFromConfig(t *testing.T) {
 	cfg.ClusterLabel = "example/pg"
 	cfg.InstanceSelector = "example/role=db"
 	cfg.ZoneLabel = "example/site"
-	cfg.DRZones = map[string]bool{"cave": true}
 
 	far := replica("far", "far", "src.a", "")
 	far.SetAPIVersion("db.example.io/v9")
@@ -186,17 +186,20 @@ func TestEverythingComesFromConfig(t *testing.T) {
 		},
 	}
 	got := run(t, cfg, []runtime.Object{main, far}, kube)
-	if len(got.Problems) != 0 || len(got.Families) != 1 || len(got.Families[0].DR) != 1 {
+	if len(got.Problems) != 0 || len(got.Families) != 1 || len(got.Families[0].Live) != 1 {
 		t.Fatalf("got %+v", got)
+	}
+	if z := got.Families[0].Live[0].Zones; len(z) != 1 || z[0] != "cave" {
+		t.Fatalf("zone label from config not used, got %v", z)
 	}
 }
 
-func TestDelayFromPostgresParameter(t *testing.T) {
+func TestDelayComesOnlyFromMinApplyDelay(t *testing.T) {
 	r := replica("b", "b", "a-rw.a.svc", "")
 	_ = unstructured.SetNestedField(r.Object, "10min", "spec", "postgresql", "parameters", "recovery_min_apply_delay")
 	got := run(t, testConfig(), []runtime.Object{primary("a", "a", 3), r}, []runtime.Object{rw("a", "a")})
-	if len(got.Families[0].Delayed) != 1 {
-		t.Fatalf("want delayed via recovery_min_apply_delay, got %+v", got.Families[0])
+	if len(got.Families[0].Live) != 1 {
+		t.Fatalf("cnpg 1.30.1 blocks this parameter, discovery must not read it; postgres is asked instead, got %+v", got.Families[0])
 	}
 }
 
@@ -241,7 +244,6 @@ func TestProblemsAreRefusedNotGuessed(t *testing.T) {
 		replica("ext", "ext", "db.example.com", ""),
 		replica("stranger", "stranger", "plain.a.svc", ""),
 		replica("orphan", "orphan", "lost-rw.lost.svc", ""),
-		replica("split", "split", "a-rw.a.svc", ""),
 		distributed,
 		noExternal,
 		noEnabled,
@@ -250,15 +252,12 @@ func TestProblemsAreRefusedNotGuessed(t *testing.T) {
 		rw("a", "a"), rw("b", "b"),
 		service("a", "plain", "Deployment", "apps/v1", "web"),
 		service("lost", "lost-rw", "Cluster", "postgresql.cnpg.io/v1", "lost"),
-		node("n1", "main"), node("n13", "offsite"),
-		instancePod("split", "split", "split-1", "n1"),
-		instancePod("split", "split", "split-2", "n13"),
 	}
 	got := run(t, testConfig(), clusters, kube)
 
 	want := map[string]bool{
 		"c/c": true, "d/d": true, "e/e": true, "f/f": true, "ghost/ghost": true, "ip/ip": true,
-		"ext/ext": true, "stranger/stranger": true, "orphan/orphan": true, "split/split": true,
+		"ext/ext": true, "stranger/stranger": true, "orphan/orphan": true,
 	}
 	if len(got.Problems) != len(want) {
 		t.Fatalf("want %d problems, got %+v", len(want), got.Problems)

@@ -78,7 +78,7 @@ func newWorld(t *testing.T) *world {
 
 	cfg := DefaultConfig()
 	cfg.ManagerPort, _ = strconv.Atoi(port)
-	cfg.Roots = roots
+	cfg.Roots = func() *x509.CertPool { return roots }
 	cfg.Check.Timeout = time.Second
 	x.g = New(x.w.Kube, act.New(x.w.Dyn, x.w.Kube, act.DefaultConfig()), cfg)
 	x.g.receiver = func(_ context.Context, c observe.CheckConfig) observe.ReceiverState {

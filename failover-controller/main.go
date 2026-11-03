@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/sassendes/bedrock/failover-controller/discovery"
 
@@ -17,7 +16,6 @@ import (
 func main() {
 	cfg := discovery.DefaultConfig()
 	kubeconfig := flag.String("kubeconfig", os.Getenv("KUBECONFIG"), "path to a kubeconfig, empty means in-cluster")
-	drZones := flag.String("dr-zones", "", "comma separated zones that hold dr clusters")
 	flag.StringVar(&cfg.ClusterGVR.Group, "cluster-group", cfg.ClusterGVR.Group, "api group of the database cluster resource")
 	flag.StringVar(&cfg.ClusterGVR.Version, "cluster-version", cfg.ClusterGVR.Version, "api version of the database cluster resource")
 	flag.StringVar(&cfg.ClusterGVR.Resource, "cluster-resource", cfg.ClusterGVR.Resource, "plural resource name of the database cluster")
@@ -26,12 +24,6 @@ func main() {
 	flag.StringVar(&cfg.InstanceSelector, "instance-selector", cfg.InstanceSelector, "label selector for database instance pods")
 	flag.StringVar(&cfg.ZoneLabel, "zone-label", cfg.ZoneLabel, "node label holding the zone")
 	flag.Parse()
-
-	for _, z := range strings.Split(*drZones, ",") {
-		if z = strings.TrimSpace(z); z != "" {
-			cfg.DRZones[z] = true
-		}
-	}
 
 	rc, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
@@ -51,7 +43,7 @@ func main() {
 		p := f.Primary
 		fmt.Printf("family %s\n", p.Key())
 		fmt.Printf("  primary  %-28s %d/%d ready  current %s\n", p.Key(), p.ReadyInstances, p.Instances, p.CurrentPrimary)
-		for _, group := range [][]discovery.Member{f.Live, f.Delayed, f.DR} {
+		for _, group := range [][]discovery.Member{f.Live, f.Delayed} {
 			for _, m := range group {
 				fmt.Printf("  %-8s %-28s %d/%d ready  zones %v  delay %s\n", m.Role, m.Key(), m.ReadyInstances, m.Instances, m.Zones, m.ApplyDelay)
 			}

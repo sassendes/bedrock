@@ -24,11 +24,11 @@ func main() {
 	st := store.DefaultConfig()
 	cfg := verifier.DefaultConfig()
 	wcfg := witness.DefaultConfig()
-	var interval, cnpgGrace, catchUp time.Duration
+	var interval, cnpgGrace, stall time.Duration
 	var keyDir, caDir, passwordFile string
 	fs.DurationVar(&interval, "round", 4*time.Second, "length of a round; every round closes on this timer")
 	fs.DurationVar(&cnpgGrace, "cnpg-grace", time.Minute, "how long cnpg gets to promote inside a cluster that still has ready standbys")
-	fs.DurationVar(&catchUp, "catch-up", 30*time.Second, "how long a candidate behind the last signed position gets to replay from the archive before it is promoted anyway")
+	fs.DurationVar(&stall, "stall", 12*time.Second, "a candidate behind the last signed position is promoted once its replay has not moved for this long")
 	fs.IntVar(&cfg.PerNode, "observers-per-node", cfg.PerNode, "observers on every node, folded into the node's one vote")
 	fs.IntVar(&cfg.DeadNeeded, "dead-witnesses", cfg.DeadNeeded, "witnesses that must answer dead to prove a death")
 	fs.StringVar(&cfg.ObserverSelector, "observer-selector", cfg.ObserverSelector, "label selector of the observer pods")
@@ -54,7 +54,7 @@ func main() {
 	log := cli.Logger()
 	cfg.ObserverNamespace = common.Namespace
 	cfg.GraceRounds = int64((cnpgGrace + interval - 1) / interval)
-	cfg.CatchUpRounds = int64((catchUp + interval - 1) / interval)
+	cfg.StallRounds = int64((stall + interval - 1) / interval)
 	st.Namespace = common.Namespace
 
 	keys, err := proof.LoadKeys(keyDir)
@@ -62,16 +62,12 @@ func main() {
 		log.Error("proof keys", "err", err)
 		os.Exit(1)
 	}
-	roots, bundle, err := cli.LoadCADir(caDir)
+	cas, err := cli.NewCABundle(caDir, wcfg.Check.RootCA)
 	if err != nil {
 		log.Error("database cas", "err", err)
 		os.Exit(1)
 	}
-	wcfg.Roots = roots
-	if err := os.WriteFile(wcfg.Check.RootCA, bundle, 0o600); err != nil {
-		log.Error("write ca bundle", "err", err)
-		os.Exit(1)
-	}
+	wcfg.Roots = cas.Pool
 	pw, err := os.ReadFile(passwordFile)
 	if err != nil {
 		log.Error("read password", "err", err)
@@ -87,12 +83,13 @@ func main() {
 		log.Error("config", "err", err)
 		os.Exit(1)
 	}
-	v.ReadReplayWith(wcfg.Check)
+	v.ReadStandbyWith(wcfg.Check)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	health := cli.NewHealth(3 * interval)
 	common.Serve(m, health, log)
+	go cas.Watch(ctx, 30*time.Second, log)
 	log.Info("verifier started", "keys", len(keys), "round", interval)
 	t := time.NewTicker(interval)
 	defer t.Stop()

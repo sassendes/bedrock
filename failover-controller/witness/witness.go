@@ -30,7 +30,7 @@ type Config struct {
 	ManagerPort   int
 	ManagerPath   string
 	Container     string
-	Roots         *x509.CertPool
+	Roots         func() *x509.CertPool
 }
 
 func DefaultConfig() Config {
@@ -72,7 +72,7 @@ func (g *Gatherer) replicas(ctx context.Context, f discovery.Family) judge.Answe
 			ips = append(ips, p.Status.PodIP)
 		}
 	}
-	for _, group := range [][]discovery.Member{f.Live, f.Delayed, f.DR} {
+	for _, group := range [][]discovery.Member{f.Live, f.Delayed} {
 		for _, m := range group {
 			if ip := podIP(ctx, g.kube, m.Namespace, m.CurrentPrimary); ip != "" {
 				ips = append(ips, ip)
@@ -126,7 +126,7 @@ func (g *Gatherer) manager(ctx context.Context, m discovery.Member) judge.Answer
 		if err != nil {
 			return judge.Silent
 		}
-		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: g.cfg.Roots, ServerName: name}
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: g.cfg.Roots(), ServerName: name}
 	}
 	client := &http.Client{Timeout: g.cfg.Check.Timeout, Transport: tr}
 	url := fmt.Sprintf("%s://%s%s", g.cfg.ManagerScheme, net.JoinHostPort(ip, strconv.Itoa(g.cfg.ManagerPort)), g.cfg.ManagerPath)

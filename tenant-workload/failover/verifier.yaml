@@ -3,6 +3,8 @@ kind: Deployment
 metadata:
   name: bedrock-verifier
   namespace: bedrock-failover
+  annotations:
+    reloader.stakater.com/auto: "true"
   labels:
     app.kubernetes.io/name: bedrock-verifier
     app.kubernetes.io/part-of: bedrock-failover
@@ -18,8 +20,6 @@ spec:
       labels:
         app.kubernetes.io/name: bedrock-verifier
         app.kubernetes.io/part-of: bedrock-failover
-      annotations:
-        reloader.stakater.com/auto: "true"
     spec:
       serviceAccountName: bedrock-verifier
       priorityClassName: bedrock-data
@@ -36,18 +36,11 @@ spec:
         - name: verifier
           image: ghcr.io/sassendes/bedrock-failover:0.1.0@sha256:2deaf442b7e7dcd7f027a3920696e511213a8fce0391744ff44a284c9782e50a
           command: ["/verifier"]
-          args:
-            - -dr-zones=$(DR_ZONES)
           env:
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: DR_ZONES
-              valueFrom:
-                configMapKeyRef:
-                  name: bedrock-failover
-                  key: dr-zones
           ports:
             - name: metrics
               containerPort: 9090

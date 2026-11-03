@@ -31,6 +31,7 @@ type Config struct {
 	HibernationOn          string
 	PrimaryServiceSelector string
 	FlipLabel              string
+	FlipNamespaces         []string
 	ClusterDomain          string
 	HealthyPhase           string
 	EpochAnnotation        string
@@ -47,6 +48,7 @@ func DefaultConfig() Config {
 		HibernationOn:          "on",
 		PrimaryServiceSelector: "cnpg.io/instanceRole=primary",
 		FlipLabel:              "bedrock.io/points-at",
+		FlipNamespaces:         []string{"application"},
 		ClusterDomain:          "cluster.local",
 		HealthyPhase:           "Cluster in healthy state",
 		EpochAnnotation:        "bedrock.io/failover-epoch",
@@ -119,11 +121,13 @@ func (a *Actor) instanceSelector(name string) string {
 	return a.cfg.Discovery.InstanceSelector + "," + a.cfg.Discovery.ClusterLabel + "=" + name
 }
 
-func (a *Actor) ReadyStandbys(ctx context.Context, m discovery.Member) int {
+// ReadyStandbys returns its error instead of 0: a failed list is not "no standbys", and reading it as one
+// would skip the window cnpg gets to promote inside the cluster.
+func (a *Actor) ReadyStandbys(ctx context.Context, m discovery.Member) (int, error) {
 	d := a.cfg.Discovery
 	pods, err := a.kube.CoreV1().Pods(m.Namespace).List(ctx, metav1.ListOptions{LabelSelector: d.InstanceSelector + "," + d.ClusterLabel + "=" + m.Name})
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	n := 0
 	for _, p := range pods.Items {
@@ -136,7 +140,7 @@ func (a *Actor) ReadyStandbys(ctx context.Context, m discovery.Member) int {
 			}
 		}
 	}
-	return n
+	return n, nil
 }
 
 func (a *Actor) Instances(ctx context.Context, key string) (pods, nodes []string, err error) {
@@ -379,12 +383,16 @@ func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string, epoch i
 	if err != nil {
 		return nil, err
 	}
-	list, err := a.kube.CoreV1().Services(metav1.NamespaceAll).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + oldName})
-	if err != nil {
-		return nil, err
+	var services []corev1.Service
+	for _, ns := range a.cfg.FlipNamespaces {
+		list, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + oldName})
+		if err != nil {
+			return nil, err
+		}
+		services = append(services, list.Items...)
 	}
 	var flipped []string
-	for _, s := range list.Items {
+	for _, s := range services {
 		if s.Spec.Type != corev1.ServiceTypeExternalName {
 			continue
 		}

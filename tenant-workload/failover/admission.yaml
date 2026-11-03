@@ -210,12 +210,30 @@ spec:
       expression: params.?data.orValue({})
     - name: epoch
       expression: "object != null ? object.metadata.?annotations[?'bedrock.io/failover-epoch'].orValue('') : ''"
+    - name: slots
+      expression: "variables.epoch == '' ? [] : variables.approvals.filter(k, k.endsWith('.state') && variables.approvals[k] == 'valid' && variables.approvals[?(k.substring(0, k.size() - 6) + '.epoch')].orValue('') == variables.epoch).map(k, k.substring(0, k.size() - 6))"
     - name: approvedEpoch
-      expression: "variables.epoch != '' && variables.approvals.exists(k, k.endsWith('.state') && variables.approvals[k] == 'valid' && variables.approvals[?(k.substring(0, k.size() - 6) + '.epoch')].orValue('') == variables.epoch)"
+      expression: "size(variables.slots) > 0"
     - name: clusterKey
       expression: "request.namespace + '.' + request.name"
     - name: podTarget
       expression: "request.resource.resource == 'pods' && oldObject != null ? request.namespace + '.' + oldObject.metadata.?labels[?'cnpg.io/cluster'].orValue('') : ''"
+    - name: isClusterUpdate
+      expression: "request.resource.resource == 'clusters' && request.operation == 'UPDATE'"
+    - name: oldReplica
+      expression: "variables.isClusterUpdate ? oldObject.spec.?replica.orValue({}) : {}"
+    - name: newReplica
+      expression: "variables.isClusterUpdate ? object.spec.?replica.orValue({}) : {}"
+    - name: promotes
+      expression: "variables.oldReplica.?enabled.orValue(false) == true && variables.newReplica.?enabled.orValue(false) == false"
+    - name: repoints
+      expression: "variables.oldReplica.?source.orValue('') != variables.newReplica.?source.orValue('')"
+    - name: fences
+      expression: "variables.isClusterUpdate && ['cnpg.io/reconciliationLoop', 'cnpg.io/hibernation'].exists(a, object.metadata.?annotations[?a].orValue('') != oldObject.metadata.?annotations[?a].orValue(''))"
+    - name: candidates
+      expression: "variables.slots.map(s, variables.approvals[?(s + '.candidate')].orValue('')).filter(c, c != '')"
+    - name: hosts
+      expression: "variables.slots.map(s, variables.approvals[?(s + '.host')].orValue('')).filter(h, h != '')"
   validations:
     - expression: request.resource.resource != "clusters" || (request.operation == "UPDATE" && variables.approvedEpoch)
       message: a cluster write needs a valid approval for the epoch it carries
@@ -225,8 +243,20 @@ spec:
       message: during a failover the decider may change spec.replica and nothing else in a cluster
     - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || variables.approvals[?(variables.clusterKey + '.state')].orValue('') != 'valid' || oldObject.status.?currentPrimary.orValue('') == variables.approvals[?(variables.clusterKey + '.instance')].orValue('')"
       message: the approval names the instance that died; fencing a cluster whose primary moved since is refused
+    - expression: "!variables.isClusterUpdate || (variables.newReplica.all(k, k in ['enabled', 'source'] || (k in variables.oldReplica && variables.oldReplica[k] == variables.newReplica[k])) && variables.oldReplica.all(k, k in ['enabled', 'source'] || k in variables.newReplica))"
+      message: during a failover the decider may change spec.replica.enabled and spec.replica.source and nothing else in spec.replica
+    - expression: "!variables.isClusterUpdate || !(variables.oldReplica.?enabled.orValue(false) == false && variables.newReplica.?enabled.orValue(false) == true)"
+      message: the decider never turns a cluster into a replica
+    - expression: "!variables.promotes || variables.clusterKey in variables.candidates"
+      messageExpression: "'only the candidate the verifier checked may be promoted, ' + variables.clusterKey + ' is not it'"
+    - expression: "!variables.fences || (variables.clusterKey in variables.slots && oldObject.status.?currentPrimary.orValue('') == variables.approvals[?(variables.clusterKey + '.instance')].orValue(''))"
+      messageExpression: "'only the approved dead primary may be fenced, ' + variables.clusterKey + ' is not it'"
+    - expression: "!variables.repoints || (!(variables.clusterKey in variables.slots) && !(variables.clusterKey in variables.candidates))"
+      message: only a follower is repointed, never the fenced target or the promoted candidate
     - expression: "request.resource.resource != 'services' || request.operation != 'UPDATE' || (object.spec.type == 'ExternalName' && object.spec.?externalName.orValue('').endsWith('.svc.cluster.local'))"
       message: postgres-rw may only point inside the cluster
+    - expression: "request.resource.resource != 'services' || request.operation != 'UPDATE' || object.spec.?externalName.orValue('') in variables.hosts"
+      messageExpression: "'postgres-rw may only point at the host the verifier approved, not ' + object.spec.?externalName.orValue('')"
     - expression: request.resource.resource != "pods" || (request.operation == "DELETE" && oldObject.metadata.?labels[?'cnpg.io/podRole'].orValue('') == 'instance' && variables.approvals[?(variables.podTarget + '.state')].orValue('') == 'valid')
       message: the decider may only delete instance pods of a cluster with a valid approval
 ---
@@ -282,3 +312,35 @@ spec:
     name: bedrock-checker
     namespace: bedrock-failover
     parameterNotFoundAction: Deny
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bedrock-failover-pods
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: bedrock-failover
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: containers
+      expression: "object.spec.containers + object.spec.?initContainers.orValue([])"
+  validations:
+    - expression: "variables.containers.all(c, c.image.matches('^ghcr[.]io/sassendes/bedrock-failover:[A-Za-z0-9._-]+@sha256:[0-9a-f]{64}$'))"
+      message: a failover pod runs only the bedrock-failover image, pinned by digest
+    - expression: "variables.containers.all(c, 'memory' in c.?resources.?limits.orValue({}) && 'cpu' in c.?resources.?limits.orValue({}))"
+      message: cpu and memory limits are required on every container and init container
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bedrock-failover-pods
+spec:
+  policyName: bedrock-failover-pods
+  validationActions: ["Deny"]

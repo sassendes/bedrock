@@ -8,6 +8,7 @@ import (
 
 	"github.com/sassendes/bedrock/failover-controller/testenv"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
@@ -105,5 +106,31 @@ func TestPromotedNeedsHealthy(t *testing.T) {
 	w.SetStatus("cluster-2", "Cluster in healthy state", 1)
 	if ok, reason, _ := a.Promoted(ctx, "cluster-2/cluster-2"); !ok {
 		t.Fatal(reason)
+	}
+}
+
+func TestFlipOnlyTouchesTheConfiguredNamespaces(t *testing.T) {
+	w := testenv.New()
+	ctx := context.Background()
+	stray := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "someone-else", Name: "postgres-rw", Labels: map[string]string{"bedrock.io/points-at": "cluster-1"}},
+		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "elsewhere.example"},
+	}
+	if _, err := w.Kube.CoreV1().Services("someone-else").Create(ctx, stray, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	flipped, err := New(w.Dyn, w.Kube, DefaultConfig()).Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flipped) != 1 || !strings.HasPrefix(flipped[0], "application/postgres-rw") {
+		t.Fatalf("flipped %v", flipped)
+	}
+	got, err := w.Kube.CoreV1().Services("someone-else").Get(ctx, "postgres-rw", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.ExternalName != "elsewhere.example" || got.Labels["bedrock.io/points-at"] != "cluster-1" {
+		t.Fatalf("a service outside the flip namespaces was rewritten: %+v", got)
 	}
 }

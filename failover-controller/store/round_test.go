@@ -49,3 +49,23 @@ func TestOneApprovalSlotPerTargetIsOverwritten(t *testing.T) {
 		t.Fatalf("epoch 1 approval survived: %+v", a)
 	}
 }
+
+func TestOnlyAValidSlotNamesACandidateOrHost(t *testing.T) {
+	ctx := context.Background()
+	s := New(optimistic(), DefaultConfig())
+	for _, st := range []ApprovalState{ApprovalRevoked, ApprovalClosed} {
+		if err := s.SetApproval(ctx, "cluster-1/cluster-1", Approval{State: ApprovalValid, Epoch: 1, Candidate: "cluster-2/cluster-2", Host: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetApproval(ctx, "cluster-1/cluster-1", Approval{State: st, Epoch: 1, Candidate: "cluster-2/cluster-2", Host: "h"}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetApprovals(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a := got["cluster-1.cluster-1"]; a.State != st || a.Candidate != "" || a.Host != "" {
+			t.Fatalf("a %s slot still names %+v", st, a)
+		}
+	}
+}
