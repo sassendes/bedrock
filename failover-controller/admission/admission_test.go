@@ -224,9 +224,16 @@ func cluster(name string, replica map[string]any) *unstructured.Unstructured {
 	if replica != nil {
 		spec["replica"] = replica
 	}
+	role := "primary"
+	if replica != nil {
+		role = "live"
+		if replica["minApplyDelay"] != nil {
+			role = "delayed"
+		}
+	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster",
-		"metadata": map[string]any{"name": name, "namespace": name},
+		"metadata": map[string]any{"name": name, "namespace": name, "labels": map[string]any{"bedrock.io/db-role": role}},
 		"spec":     spec,
 	}}
 }
@@ -444,6 +451,14 @@ func TestAdmissionAgainstARealAPIServer(t *testing.T) {
 		w.approve(good(1))
 		denied(t, "dropping the apply delay", w.patchCluster("cluster-3", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"minApplyDelay": nil}}}), "nothing else in spec.replica")
 		denied(t, "turning the primary into a replica", w.patchCluster("cluster-1", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": true, "source": "cluster-2"}}}), "never turns a cluster into a replica")
+	})
+
+	t.Run("the role label moves only with the promotion", func(t *testing.T) {
+		w.approve(good(1))
+		denied(t, "relabelling the delayed replica live", w.patchCluster("cluster-3", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrock.io/db-role": "live"}}}), "only changes to primary")
+		denied(t, "crowning the candidate without promoting it", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrock.io/db-role": "primary"}}}), "only changes to primary")
+		denied(t, "promoting without the label", w.patchCluster("cluster-2", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}}), "sets bedrock.io/db-role to primary")
+		denied(t, "touching another label", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"team": "x"}}}), "changes no label but")
 	})
 
 	t.Run("only a follower is repointed", func(t *testing.T) {

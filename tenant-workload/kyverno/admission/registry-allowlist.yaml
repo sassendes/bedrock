@@ -89,3 +89,40 @@ spec:
     - expression: |-
         variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|ghcr\.io/sassendes/bedrock-failover|quay\.io/kiwigrid/k8s-sidecar|quay\.io/openbao/openbao|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
       message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"
+---
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
+metadata:
+  name: registry-allowlist-database
+spec:
+  validationActions:
+    - Deny
+  failurePolicy: Ignore
+  webhookConfiguration:
+    timeoutSeconds: 10
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        bedrock.io/database: "true"
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [pods]
+  variables:
+    - name: repos
+      expression: |-
+        (
+          object.spec.?ephemeralContainers.orValue([]).map(c, c.image) +
+          object.spec.?initContainers.orValue([]).map(c, c.image) +
+          object.spec.containers.map(c, c.image)
+        ).map(i, parseImageReference(i)).map(p,
+          (p.registry() == "index.docker.io" ? "docker.io" : p.registry()) + "/" + p.repository()
+        )
+  validations:
+    - expression: |-
+        variables.repos.all(p, p.matches(r'^(docker\.io/(library/)?(nats|redis)|docker\.io/dxflrs/garage|docker\.io/alpine/k8s|ghcr\.io/stakater/reloader|ghcr\.io/sassendes/bedrock-failover|quay\.io/kiwigrid/k8s-sidecar|quay\.io/openbao/openbao|registry\.k8s\.io/kube-state-metrics/kube-state-metrics|(docker\.io/(grafana|falcosecurity)|ghcr\.io/(cloudnative-pg|opencost)|quay\.io/(prometheus|prometheus-operator|strimzi))/[a-z0-9._-]+)$'))
+      message: "every image must come from an allowed publisher (kyverno/registry-allowlist.yaml)"

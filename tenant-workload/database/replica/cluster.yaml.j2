@@ -1,0 +1,136 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ replica }}
+  namespace: {{ replica }}
+  labels:
+    bedrock.io/db-role: live
+spec:
+  postgresql:
+    parameters:
+      log_statement: "ddl"
+    pg_hba:
+      - hostnossl all all all reject
+  monitoring:
+    enablePodMonitor: true
+  instances: {{ instances }}
+  priorityClassName: bedrock-data
+  imageName: {{ image }}
+  storage:
+    size: {{ storage }}
+    storageClass: longhorn-encrypted
+  enableSuperuserAccess: false
+  primaryUpdateStrategy: unsupervised
+  replicationSlots:
+    highAvailability:
+      enabled: true
+      slotPrefix: _cnpg_
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "1"
+  env:
+    - name: AWS_REQUEST_CHECKSUM_CALCULATION
+      value: when_required
+    - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+      value: when_required
+    - name: AWS_DEFAULT_REGION
+      value: garage
+  bootstrap:
+    recovery:
+      source: {{ source }}
+  replica:
+    enabled: true
+    source: {{ source }}
+  externalClusters:
+    - name: {{ source }}
+      connectionParameters:
+        host: {{ source }}-rw.{{ source_ns }}.svc
+        user: streaming_replica
+        dbname: app
+        sslmode: verify-ca
+      sslKey:
+        name: {{ source }}-replication
+        key: tls.key
+      sslCert:
+        name: {{ source }}-replication
+        key: tls.crt
+      sslRootCert:
+        name: {{ source }}-ca-crt
+        key: ca.crt
+      barmanObjectStore:
+        destinationPath: s3://{{ source }}-backups/wals
+        endpointURL: http://garage.garage.svc:3900
+        s3Credentials:
+          accessKeyId:
+            name: {{ source }}-backups-ro
+            key: AWS_ACCESS_KEY_ID
+          secretAccessKey:
+            name: {{ source }}-backups-ro
+            key: AWS_SECRET_ACCESS_KEY
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://{{ replica }}-backups/wals
+      endpointURL: http://garage.garage.svc:3900
+      s3Credentials:
+        accessKeyId:
+          name: {{ replica }}-backups
+          key: AWS_ACCESS_KEY_ID
+        secretAccessKey:
+          name: {{ replica }}-backups
+          key: AWS_SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+      data:
+        compression: gzip
+    retentionPolicy: "30d"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: {{ replica }}-pooler-rw
+  namespace: {{ replica }}
+spec:
+  template:
+    spec:
+      priorityClassName: bedrock-data
+      containers: []
+  cluster:
+    name: {{ replica }}
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "25"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ replica }}-pooler-rw
+  namespace: {{ replica }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      cnpg.io/poolerName: {{ replica }}-pooler-rw
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: {{ replica }}-scheduled-backup
+  namespace: {{ replica }}
+spec:
+  schedule: "0 0 */6 * * *"
+  immediate: true
+  backupOwnerReference: self
+  cluster:
+    name: {{ replica }}
+  method: barmanObjectStore

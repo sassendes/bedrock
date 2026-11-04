@@ -1,0 +1,9 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  name: {{ replica }}-seed
+  namespace: {{ source_ns }}
+spec:
+  method: barmanObjectStore
+  cluster:
+    name: {{ source }}

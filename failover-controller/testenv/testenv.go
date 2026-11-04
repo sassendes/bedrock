@@ -42,9 +42,16 @@ func cluster(name string, replica map[string]any, externals ...any) *unstructure
 	if len(externals) > 0 {
 		spec["externalClusters"] = externals
 	}
+	role := "primary"
+	if replica != nil && replica["enabled"] == true {
+		role = "live"
+		if replica["minApplyDelay"] != nil {
+			role = "delayed"
+		}
+	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster",
-		"metadata": map[string]any{"namespace": name, "name": name, "uid": name + "-uid"},
+		"metadata": map[string]any{"namespace": name, "name": name, "uid": name + "-uid", "labels": map[string]any{"bedrock.io/db-role": role}},
 		"spec":     spec,
 		"status":   map[string]any{"readyInstances": int64(2), "currentPrimary": name + "-1", "phase": "Cluster in healthy state"},
 	}}

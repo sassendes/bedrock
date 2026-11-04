@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 apt update
-apt install -y ansible python3-pip
+apt install -y ansible python3-pip jq
 pip3 install kubernetes --break-system-packages
 ansible-galaxy collection install kubernetes.core
 echo ">> deps done"

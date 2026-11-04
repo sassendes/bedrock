@@ -1,0 +1,122 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: garage-init-{{ replica }}
+  namespace: {{ replica }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ replica }}-backups", "{{ source }}-backups-ro"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init-{{ replica }}
+  namespace: {{ replica }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: garage-init-{{ replica }}
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-init-{{ replica }}
+  namespace: garage
+data:
+  init.sh: |
+    set -euo pipefail
+    A="http://garage.garage.svc:3903/v2"
+    R="{{ replica }}"
+    S="{{ source }}"
+    api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
+    mint() {
+      local name="$1" bid="$2" write="$3" secret="$4"
+      for OLD in $(api "$A/ListKeys" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id'); do
+        api -X POST "$A/DeleteKey?id=$OLD" >/dev/null
+      done
+      local K KID KS
+      K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$name\"}")
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$bid\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":$write,\"owner\":false}}" >/dev/null
+      kubectl -n "$R" create secret generic "$secret" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+    }
+    if ! kubectl -n "$R" get secret "$R-backups" >/dev/null 2>&1; then
+      if api "$A/GetBucketInfo?globalAlias=$R-backups" >/dev/null 2>&1; then
+        echo "bucket $R-backups already exists: it holds another database's wal, names are never reused"
+        exit 1
+      fi
+      BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
+      mint "$R-backups" "$BID" true "$R-backups"
+    fi
+    if ! kubectl -n "$R" get secret "$S-backups-ro" >/dev/null 2>&1; then
+      SID=$(api "$A/GetBucketInfo?globalAlias=$S-backups" | jq -r '.id')
+      if [ -z "$SID" ] || [ "$SID" = "null" ]; then echo "no bucket $S-backups to restore from"; exit 1; fi
+      mint "$S-backups-ro-$R" "$SID" false "$S-backups-ro"
+    fi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-init-{{ replica }}
+  namespace: garage
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: garage-init
+    spec:
+      serviceAccountName: garage-init
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: init
+          image: alpine/k8s:1.36.4@sha256:358ddfc2d6ff3f00dd461dbd79aaa6d6738709f225b8da0945bb63bd4dbc304e
+          command: ["bash", "/script/init.sh"]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: admin_token
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: script
+              mountPath: /script
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: garage-init-{{ replica }}
+        - name: tmp
+          emptyDir: {}

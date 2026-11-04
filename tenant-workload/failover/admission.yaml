@@ -230,6 +230,14 @@ spec:
       expression: "variables.oldReplica.?source.orValue('') != variables.newReplica.?source.orValue('')"
     - name: fences
       expression: "variables.isClusterUpdate && ['cnpg.io/reconciliationLoop', 'cnpg.io/hibernation'].exists(a, object.metadata.?annotations[?a].orValue('') != oldObject.metadata.?annotations[?a].orValue(''))"
+    - name: oldLabels
+      expression: "variables.isClusterUpdate ? oldObject.metadata.?labels.orValue({}) : {}"
+    - name: newLabels
+      expression: "variables.isClusterUpdate ? object.metadata.?labels.orValue({}) : {}"
+    - name: oldRole
+      expression: "variables.oldLabels[?'bedrock.io/db-role'].orValue('')"
+    - name: newRole
+      expression: "variables.newLabels[?'bedrock.io/db-role'].orValue('')"
     - name: candidates
       expression: "variables.slots.map(s, variables.approvals[?(s + '.candidate')].orValue('')).filter(c, c != '')"
     - name: hosts
@@ -247,6 +255,12 @@ spec:
       message: during a failover the decider may change spec.replica.enabled and spec.replica.source and nothing else in spec.replica
     - expression: "!variables.isClusterUpdate || !(variables.oldReplica.?enabled.orValue(false) == false && variables.newReplica.?enabled.orValue(false) == true)"
       message: the decider never turns a cluster into a replica
+    - expression: "!variables.isClusterUpdate || (variables.newLabels.all(k, k == 'bedrock.io/db-role' || (k in variables.oldLabels && variables.oldLabels[k] == variables.newLabels[k])) && variables.oldLabels.all(k, k == 'bedrock.io/db-role' || k in variables.newLabels))"
+      message: during a failover the decider changes no label but bedrock.io/db-role
+    - expression: "!variables.isClusterUpdate || variables.oldRole == variables.newRole || (variables.promotes && variables.newRole == 'primary')"
+      message: bedrock.io/db-role only changes to primary, in the same write that promotes
+    - expression: "!variables.promotes || variables.newRole == 'primary'"
+      message: a promotion sets bedrock.io/db-role to primary in the same write
     - expression: "!variables.promotes || variables.clusterKey in variables.candidates"
       messageExpression: "'only the candidate the verifier checked may be promoted, ' + variables.clusterKey + ' is not it'"
     - expression: "!variables.fences || (variables.clusterKey in variables.slots && oldObject.status.?currentPrimary.orValue('') == variables.approvals[?(variables.clusterKey + '.instance')].orValue(''))"

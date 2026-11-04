@@ -17,7 +17,7 @@ func primary(ns, name string, instances int64) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1",
 		"kind":       "Cluster",
-		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name},
+		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrock.io/db-role": "primary"}},
 		"spec":       map[string]any{"instances": instances},
 		"status":     map[string]any{"readyInstances": instances, "currentPrimary": name + "-1", "phase": "Cluster in healthy state"},
 	}}
@@ -28,10 +28,14 @@ func replica(ns, name, host, delay string) *unstructured.Unstructured {
 	if delay != "" {
 		rep["minApplyDelay"] = delay
 	}
+	role := "delayed"
+	if isZeroDelay(delay) {
+		role = "live"
+	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1",
 		"kind":       "Cluster",
-		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name},
+		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrock.io/db-role": role}},
 		"spec": map[string]any{
 			"instances": int64(3),
 			"replica":   rep,
@@ -269,6 +273,51 @@ func TestProblemsAreRefusedNotGuessed(t *testing.T) {
 	}
 	if len(got.Families) != 1 || len(got.Families[0].Live) != 1 || got.Families[0].Live[0].Key() != "b/b" {
 		t.Fatalf("family = %+v", got.Families)
+	}
+}
+
+func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
+	relabel := func(u *unstructured.Unstructured, role string) *unstructured.Unstructured {
+		if role == "" {
+			u.SetLabels(nil)
+		} else {
+			u.SetLabels(map[string]string{"bedrock.io/db-role": role})
+		}
+		return u
+	}
+	clusters := []runtime.Object{
+		primary("a", "a", 3),
+		replica("good", "good", "a-rw.a.svc", ""),
+		replica("keep", "keep", "a-rw.a.svc", "5m"),
+		relabel(replica("liar", "liar", "a-rw.a.svc", "5m"), "live"),
+		relabel(replica("shy", "shy", "a-rw.a.svc", ""), ""),
+		relabel(replica("crown", "crown", "a-rw.a.svc", ""), "primary"),
+		relabel(replica("slow", "slow", "a-rw.a.svc", ""), "delayed"),
+		relabel(primary("b", "b", 3), "live"),
+		replica("b2", "b2", "b-rw.b.svc", ""),
+		relabel(primary("c", "c", 3), ""),
+	}
+	kube := []runtime.Object{rw("a", "a"), rw("b", "b"), rw("c", "c")}
+	got := run(t, testConfig(), clusters, kube)
+
+	want := map[string]bool{"liar/liar": true, "shy/shy": true, "crown/crown": true, "slow/slow": true, "b/b": true, "b2/b2": true, "c/c": true}
+	if len(got.Problems) != len(want) {
+		t.Fatalf("want %d problems, got %+v", len(want), got.Problems)
+	}
+	for _, p := range got.Problems {
+		if !want[p.Cluster] {
+			t.Errorf("unexpected problem %+v", p)
+		}
+	}
+	if len(got.Families) != 1 {
+		t.Fatalf("a primary whose label disagrees must not form a family, got %+v", got.Families)
+	}
+	f := got.Families[0]
+	if len(f.Live) != 1 || f.Live[0].Key() != "good/good" {
+		t.Errorf("a delayed replica labelled live must never be a candidate, live = %+v", f.Live)
+	}
+	if len(f.Delayed) != 1 || f.Delayed[0].Key() != "keep/keep" {
+		t.Errorf("delayed = %+v", f.Delayed)
 	}
 }
 

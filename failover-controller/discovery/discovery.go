@@ -23,6 +23,7 @@ type Config struct {
 	ClusterLabel     string
 	InstanceSelector string
 	ZoneLabel        string
+	RoleLabel        string
 }
 
 func DefaultConfig() Config {
@@ -32,6 +33,7 @@ func DefaultConfig() Config {
 		ClusterLabel:     "cnpg.io/cluster",
 		InstanceSelector: "cnpg.io/podRole=instance",
 		ZoneLabel:        "topology.kubernetes.io/zone",
+		RoleLabel:        "bedrock.io/db-role",
 	}
 }
 
@@ -55,6 +57,7 @@ type Member struct {
 	ApplyDelay     string
 	Zones          []string
 	SourceHost     string
+	Declared       string
 }
 
 func (m Member) Key() string { return m.Namespace + "/" + m.Name }
@@ -95,6 +98,7 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 	for i := range list.Items {
 		obj := &list.Items[i]
 		m := readMember(obj)
+		m.Declared = obj.GetLabels()[cfg.RoleLabel]
 		m.Zones = zones[m.Key()]
 		key := m.Key()
 
@@ -111,6 +115,10 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 		}
 		if !enabled {
 			m.Role = RolePrimary
+			if reason := disagree(cfg, m); reason != "" {
+				out.Problems = append(out.Problems, Problem{key, reason})
+				continue
+			}
 			members[key] = &m
 			continue
 		}
@@ -126,6 +134,10 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 			m.Role = RoleDelayed
 		} else {
 			m.Role = RoleLive
+		}
+		if reason := disagree(cfg, m); reason != "" {
+			out.Problems = append(out.Problems, Problem{key, reason})
+			continue
 		}
 		members[key] = &m
 		replicas = append(replicas, &m)
@@ -178,6 +190,19 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 	}
 	sort.Slice(out.Problems, func(i, j int) bool { return out.Problems[i].Cluster < out.Problems[j].Cluster })
 	return out, nil
+}
+
+// disagree is the badge against the fingerprint: the label declares the role, the spec proves it. A missing
+// label or one the facts contradict is refused, never guessed, so a relabel by hand never promotes a delayed
+// replica and a cluster nobody declared is never acted on.
+func disagree(cfg Config, m Member) string {
+	switch {
+	case m.Declared == "":
+		return fmt.Sprintf("no %s label, a role is declared, never guessed", cfg.RoleLabel)
+	case m.Declared != string(m.Role):
+		return fmt.Sprintf("%s says %s but the spec says %s", cfg.RoleLabel, m.Declared, m.Role)
+	}
+	return ""
 }
 
 func readMember(obj *unstructured.Unstructured) Member {

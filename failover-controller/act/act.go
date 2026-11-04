@@ -242,8 +242,13 @@ func nodeReady(n *corev1.Node) (bool, time.Time) {
 	return false, time.Time{}
 }
 
+// Promote flips the role label in the same write that ends replica mode, so the label and the spec never
+// disagree, whatever dies after it.
 func (a *Actor) Promote(ctx context.Context, key string, epoch int64) error {
-	return a.patch(ctx, key, epoch, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}})
+	return a.patch(ctx, key, epoch, map[string]any{
+		"metadata": map[string]any{"labels": map[string]any{a.cfg.Discovery.RoleLabel: string(discovery.RolePrimary)}},
+		"spec":     map[string]any{"replica": map[string]any{"enabled": false}},
+	})
 }
 
 func (a *Actor) Promoted(ctx context.Context, key string) (bool, string, error) {

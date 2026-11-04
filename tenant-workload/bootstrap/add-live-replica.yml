@@ -1,0 +1,235 @@
+---
+- name: Add a live replica behind the current primary
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
+    repo_root: "{{ playbook_dir }}/.."
+    tpl: "{{ repo_root }}/database/replica"
+    instances: 2
+    storage: 10Gi
+    image: ghcr.io/cloudnative-pg/postgresql:17.4@sha256:3c0ba08ea353c9705a755c113e4ae395be76553e0ed68076e5410cb09b9d17d9
+    failover_workloads:
+      - daemonset/bedrock-observer-a
+      - daemonset/bedrock-observer-b
+      - deployment/bedrock-verifier
+      - deployment/bedrock-checker
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  tasks:
+    - name: The replica name is a dns label
+      ansible.builtin.assert:
+        that:
+          - replica is defined
+          - replica is match('^[a-z0-9]([-a-z0-9]{0,38}[a-z0-9])?$')
+        fail_msg: "set REPLICA to a lowercase name like cluster-4"
+
+    - name: Ask for the replica's namespace
+      ansible.builtin.command: kubectl get namespace {{ replica }} --ignore-not-found -o name
+      register: existing_ns
+      changed_when: false
+
+    - name: Names are never reused
+      ansible.builtin.assert:
+        that: existing_ns.stdout == ""
+        fail_msg: "namespace {{ replica }} already exists, pick a new name"
+
+    - name: Find the primary by its label, confirmed by its spec, never a fenced one
+      ansible.builtin.shell: |
+        set -euo pipefail
+        kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary -o json | jq -c '[.items[]
+          | select(.spec.replica.enabled != true)
+          | select((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") != "disabled")
+          | select((.metadata.annotations["cnpg.io/hibernation"] // "") != "on")
+          | {ns: .metadata.namespace, name: .metadata.name, phase: (.status.phase // "")}]'
+      args:
+        executable: /bin/bash
+      register: primaries
+      changed_when: false
+
+    - name: Exactly one healthy primary
+      ansible.builtin.assert:
+        that:
+          - (primaries.stdout | from_json | length) == 1
+          - (primaries.stdout | from_json)[0].phase == 'Cluster in healthy state'
+        fail_msg: "want exactly one healthy, unfenced primary labelled bedrock.io/db-role=primary, found {{ primaries.stdout }}"
+
+    - name: Remember the source
+      ansible.builtin.set_fact:
+        source: "{{ (primaries.stdout | from_json)[0].name }}"
+        source_ns: "{{ (primaries.stdout | from_json)[0].ns }}"
+
+    - name: Say what is about to happen
+      ansible.builtin.debug:
+        msg: "{{ replica }} will stream from {{ source_ns }}/{{ source }}"
+
+    - name: Namespace, labelled as a database
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/namespace.yaml.j2"
+
+    - name: Network policies, before anything runs in it
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/netpol.yaml.j2"
+
+    - name: Garage bucket and keys for the replica
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/garage.yaml.j2"
+
+    - name: Wait for the garage job
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Job
+        namespace: garage
+        name: garage-init-{{ replica }}
+      register: gjob
+      until: >
+        gjob.resources | default([]) | length > 0 and
+        ((gjob.resources[0].status.succeeded | default(0)) >= 1 or
+         (gjob.resources[0].status.failed | default(0)) > 3)
+      retries: 40
+      delay: 10
+
+    - name: The garage job succeeded
+      ansible.builtin.assert:
+        that: (gjob.resources[0].status.succeeded | default(0)) >= 1
+        fail_msg: "garage-init-{{ replica }} failed, read: kubectl -n garage logs job/garage-init-{{ replica }}"
+
+    - name: Revoke the garage job's secret access
+      ansible.builtin.command: kubectl -n {{ replica }} delete rolebinding/garage-init-{{ replica }} role/garage-init-{{ replica }} --ignore-not-found
+      changed_when: true
+
+    - name: Sync the source's ca and replication certificate in, and the replica's ca out to failover
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/sync.yaml.j2"
+      register: sync
+      until: sync is succeeded
+      retries: 10
+      delay: 6
+
+    - name: Wait for every secret the replica reads
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: "{{ replica }}"
+        name: "{{ item }}"
+      register: synced
+      until: synced.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
+      loop:
+        - "{{ source }}-ca-crt"
+        - "{{ source }}-replication"
+        - "{{ source }}-backups-ro"
+        - "{{ replica }}-backups"
+
+    - name: A fresh base backup of the source, so the replica restores from this timeline
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/seed-backup.yaml.j2"
+
+    - name: Wait for the seed backup
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: postgresql.cnpg.io/v1
+        kind: Backup
+        namespace: "{{ source_ns }}"
+        name: "{{ replica }}-seed"
+      register: seed
+      until: >
+        seed.resources | default([]) | length > 0 and
+        (seed.resources[0].status.phase | default('')) in ['completed', 'failed']
+      retries: 60
+      delay: 15
+
+    - name: The seed backup completed
+      ansible.builtin.assert:
+        that: seed.resources[0].status.phase == 'completed'
+        fail_msg: "seed backup failed: {{ seed.resources[0].status.error | default('no error recorded') }}"
+
+    - name: Let the failover decider act on the replica once it is promoted
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/failover.yaml.j2"
+
+    - name: The replica cluster, its pooler and its backups
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/cluster.yaml.j2"
+
+    - name: Wait for the replica to be healthy
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: "{{ replica }}"
+        name: "{{ replica }}"
+      register: rc
+      until: >
+        rc.resources | default([]) | length > 0 and
+        (rc.resources[0].status.readyInstances | default(0)) >= (instances | int) and
+        (rc.resources[0].status.phase | default('')) == 'Cluster in healthy state'
+      retries: 80
+      delay: 15
+
+    - name: Wait for the replica's ca in bedrock-failover
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: bedrock-failover
+        name: "{{ replica }}-ca-crt"
+      register: fca
+      until: fca.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Mount the replica's ca in every failover component that talks to postgres
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for w in {{ failover_workloads | join(' ') }}; do
+          j=$(kubectl -n bedrock-failover get "$w" -o json)
+          if echo "$j" | jq -e --arg s "{{ replica }}-ca-crt" '.spec.template.spec.volumes[] | select(.name == "pg-ca") | .projected.sources[] | select(.secret.name == $s)' >/dev/null; then
+            continue
+          fi
+          i=$(echo "$j" | jq '.spec.template.spec.volumes | map(.name) | index("pg-ca")')
+          test "$i" != "null"
+          kubectl -n bedrock-failover patch "$w" --type json -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/$i/projected/sources/-\",\"value\":{\"secret\":{\"name\":\"{{ replica }}-ca-crt\",\"items\":[{\"key\":\"ca.crt\",\"path\":\"{{ replica }}.crt\"}]}}}]"
+          echo "patched $w"
+        done
+      args:
+        executable: /bin/bash
+      register: ca_patch
+      changed_when: "'patched' in ca_patch.stdout"
+
+    - name: Wait for the failover components to roll
+      ansible.builtin.command: kubectl -n bedrock-failover rollout status {{ item }} --timeout=300s
+      loop: "{{ failover_workloads }}"
+      changed_when: false
+
+    - name: Confirm the replica streams from the source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        p=$(kubectl get cluster {{ replica }} -n {{ replica }} -o jsonpath='{.status.currentPrimary}')
+        kubectl exec -n {{ replica }} "$p" -c postgres -- psql -tA -d postgres -c "SELECT status FROM pg_stat_wal_receiver"
+      args:
+        executable: /bin/bash
+      register: stream
+      until: stream.stdout | trim == 'streaming'
+      retries: 20
+      delay: 10
+      changed_when: false
+
+    - name: Done
+      ansible.builtin.debug:
+        msg: "{{ replica }} is a live replica of {{ source_ns }}/{{ source }}. The failover workloads were patched live: add {{ replica }}-ca-crt to their pg-ca volumes in tenant-workload/failover/ before the next bootstrap, or it is dropped."

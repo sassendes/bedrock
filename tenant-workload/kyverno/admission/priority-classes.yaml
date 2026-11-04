@@ -25,7 +25,7 @@ spec:
   validations:
     - expression: variables.priorityClass != "bedrock-storage" || variables.namespace == "garage"
       message: "bedrock-storage is reserved for garage"
-    - expression: variables.priorityClass != "bedrock-data" || variables.namespace in ["cluster-1", "cluster-2", "cluster-3", "falco", "bedrock-failover"]
+    - expression: variables.priorityClass != "bedrock-data" || variables.namespace in ["cluster-1", "cluster-2", "cluster-3", "falco", "bedrock-failover"] || namespaceObject.metadata.?labels[?"bedrock.io/database"].orValue("") == "true"
       message: "bedrock-data is reserved for the database clusters, their poolers, their failover and falco"
     - expression: '!(variables.priorityClass in ["system-cluster-critical", "system-node-critical"]) || variables.namespace in ["kube-system", "kyverno"]'
       message: "system-cluster-critical and system-node-critical are reserved for kube-system and kyverno"

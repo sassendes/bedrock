@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bedrock-decider-act
+  namespace: {{ replica }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bedrock-decider-act
+subjects:
+  - kind: ServiceAccount
+    name: bedrock-decider
+    namespace: bedrock-failover
