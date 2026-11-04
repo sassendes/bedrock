@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: bedrock-failover
-  namespace: bedrock-failover
-data:
-  dr-zones: ""
