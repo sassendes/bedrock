@@ -1,22 +1,23 @@
+{% for ns in ro_keys | map(attribute='ns') | list | union([replica]) | unique %}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: garage-init-{{ replica }}
-  namespace: {{ replica }}
+  namespace: {{ ns }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["{{ replica }}-backups", "{{ source }}-backups-ro"]
+    resourceNames: [{% for k in ro_keys if k.ns == ns %}"{{ k.bucket }}-backups-ro", {% endfor %}"{{ replica }}-backups"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: garage-init-{{ replica }}
-  namespace: {{ replica }}
+  namespace: {{ ns }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -26,6 +27,7 @@ subjects:
     name: garage-init
     namespace: garage
 ---
+{% endfor %}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -36,10 +38,9 @@ data:
     set -euo pipefail
     A="http://garage.garage.svc:3903/v2"
     R="{{ replica }}"
-    S="{{ source }}"
     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
     mint() {
-      local name="$1" bid="$2" write="$3" secret="$4"
+      local name="$1" bid="$2" write="$3" secret="$4" ns="$5"
       for OLD in $(api "$A/ListKeys" | jq -r --arg n "$name" '.[] | select(.name == $n) | .id'); do
         api -X POST "$A/DeleteKey?id=$OLD" >/dev/null
       done
@@ -48,7 +49,7 @@ data:
       KID=$(echo "$K" | jq -r '.accessKeyId')
       KS=$(echo "$K" | jq -r '.secretAccessKey')
       api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$bid\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":$write,\"owner\":false}}" >/dev/null
-      kubectl -n "$R" create secret generic "$secret" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+      kubectl -n "$ns" create secret generic "$secret" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
     }
     if ! kubectl -n "$R" get secret "$R-backups" >/dev/null 2>&1; then
       if api "$A/GetBucketInfo?globalAlias=$R-backups" >/dev/null 2>&1; then
@@ -56,13 +57,16 @@ data:
         exit 1
       fi
       BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
-      mint "$R-backups" "$BID" true "$R-backups"
+      mint "$R-backups" "$BID" true "$R-backups" "$R"
     fi
-    if ! kubectl -n "$R" get secret "$S-backups-ro" >/dev/null 2>&1; then
-      SID=$(api "$A/GetBucketInfo?globalAlias=$S-backups" | jq -r '.id')
-      if [ -z "$SID" ] || [ "$SID" = "null" ]; then echo "no bucket $S-backups to restore from"; exit 1; fi
-      mint "$S-backups-ro-$R" "$SID" false "$S-backups-ro"
-    fi
+    for pair in {% for k in ro_keys %}{{ k.bucket }}:{{ k.ns }} {% endfor %}; do
+      SRC=${pair%%:*}
+      NS=${pair##*:}
+      if kubectl -n "$NS" get secret "$SRC-backups-ro" >/dev/null 2>&1; then continue; fi
+      SID=$(api "$A/GetBucketInfo?globalAlias=$SRC-backups" | jq -r '.id')
+      if [ -z "$SID" ] || [ "$SID" = "null" ]; then echo "no bucket $SRC-backups"; exit 1; fi
+      mint "$SRC-backups-ro-$NS" "$SID" false "$SRC-backups-ro" "$NS"
+    done
 ---
 apiVersion: batch/v1
 kind: Job

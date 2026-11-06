@@ -101,6 +101,8 @@ If two different instances sign as primary in two consecutive rounds, the verifi
 
 ## Deciding to act
 
+Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
+
 The leading decider ticks every second. A primary becomes suspect when a majority of eligible nodes vote down and no node votes up. It is declared dead after it stays suspect for:
 
 | Cluster-1 has | Wait |
@@ -178,9 +180,9 @@ The decider has the permissions to fence and promote. Admission decides when it 
 |---|---|
 | `bedrock-failover-params-stay` | Nobody deletes the Lease, `bedrock-approvals` or `bedrock-checker`, because the policies below read them |
 | `bedrock-vote-owner` | An observer writes only `vote-<its node>-<its slot>`, with matching `node` and `slot` inside, and never deletes |
-| `bedrock-court-writers` | Only the verifier writes `bedrock-round` and `bedrock-approvals`, only the checker writes `bedrock-checker`, and neither writes anything else |
+| `bedrock-court-writers` | Only the verifier writes `bedrock-round` and `bedrock-approvals`, only the checker writes `bedrock-checker`, only an observer writes `vote-*`, only the decider writes `claim-*`, only Kyverno's background controller writes `db-ca-*`, and none of them writes anything else here |
 | `bedrock-decider-holds-lease` | A decider write comes from the pod that holds the Lease, and its only ConfigMaps are claims |
-| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica.enabled` and `spec.replica.source` and nothing else, and never turns a cluster into a replica. Only the cluster an approval names in `.candidate` is promoted. Only the approved target whose current primary is the approved instance is fenced. Only a follower is repointed. `postgres-rw` may only point at the approval's `.host`, which must end in `.svc.cluster.local`. A missing key denies. A pod delete targets an instance pod of a cluster with a valid approval |
+| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica.enabled` and `spec.replica.source` and nothing else, and never turns a cluster into a replica. Only the cluster an approval names in `.candidate` is promoted. Only the approved target whose current primary is the approved instance is fenced. Only a follower is repointed. The only label a decider changes is `bedrock.io/db-role`, only to `primary`, and only in the write that promotes; a promotion that does not set it is refused. `postgres-rw` may only point at the approval's `.host`, which must end in `.svc.cluster.local`. A missing key denies. A pod delete targets an instance pod of a cluster with a valid approval |
 | `bedrock-failover-pods` | A pod in `bedrock-failover` runs only the `bedrock-failover` image pinned by digest, with cpu and memory limits. This lives in the API server and not in Kyverno, so the controller's pods can always be recreated even while Kyverno is down |
 | `bedrock-checker-halt` | While the checker holds any primary, every decider write to clusters, pods and Services is refused |
 
@@ -216,6 +218,7 @@ A primary that answers but cannot commit is not proven dead: the replicas, the i
 | `bedrock-approvals` | ConfigMap | Verifier | One slot per primary: state, epoch, round and the approved instance |
 | `bedrock-checker` | ConfigMap | Checker | One halt flag per primary |
 | `claim-<namespace>.<name>` | ConfigMap | Leading decider | One run: epoch, step, instance, candidate, followers, nodes, timings, notes |
+| `db-ca-<cluster>` | ConfigMap | Kyverno | The `ca.crt` of every database cluster, copied out of each namespace labelled `bedrock.io/database: "true"`. Observers, the verifier and the checker list them by the label `bedrock.io/db-ca` every 30 seconds, so a cluster added later is trusted without editing any volume. The CA keys are never copied |
 | `bedrock-decider` | Lease | Deciders | Which decider leads |
 
 ## Secrets
@@ -223,7 +226,6 @@ A primary that answers but cannot commit is not proven dead: the replicas, the i
 | Secret | Used by | Source |
 |---|---|---|
 | `bedrock-observer` | Observers, verifier | Copied from `cluster-1` by Kyverno (`tenant-workload/kyverno/generate/failover-secret-sync.yaml`) |
-| `cluster-1-ca-crt`, `cluster-2-ca-crt`, `cluster-3-ca-crt` | Observers, verifier, checker | Each cluster's `ca.crt`, copied by Kyverno. The CA keys are never copied |
 | `bedrock-proof-keys` | Verifier | Created by the bootstrap from `~/.bedrock/failover/proof-keys` on the controller machine |
 | `bedrock-observer-exchange` | Observers | Created by the bootstrap from a CA and certificate generated once in `~/.bedrock/failover/exchange` |
 
@@ -326,5 +328,5 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded. 
 
 - It does not handle a bad `DROP`, `DELETE` or `UPDATE`. Pausing cluster-3's replay and rolling it forward is done by a person.
 - It does not handle a dead node. CloudNativePG promotes a standby inside cluster-1.
-- After a failover, cluster-1 stays fenced and there is no live replica left until one is added, so a second failover cannot happen yet.
+- It does not add a live replica after a failover. cluster-1 stays fenced and there is no live replica left, so `BedrockNoLiveReplica` pages and a person runs `make add-replica REPLICA=<new name>`. The new replica streams from the current primary, and every other replica is prepared to follow it if it is promoted later.
 - It does not fail over a primary that is alive but not writing. It pages.

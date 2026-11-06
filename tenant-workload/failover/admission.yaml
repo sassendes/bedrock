@@ -116,7 +116,21 @@ spec:
       expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-checker"
     - name: serviceAccount
       expression: request.userInfo.username.startsWith("system:serviceaccount:")
+    - name: observer
+      expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-observer"
+    - name: decider
+      expression: request.userInfo.username == "system:serviceaccount:bedrock-failover:bedrock-decider"
+    - name: kyverno
+      expression: request.userInfo.username == "system:serviceaccount:kyverno:kyverno-background-controller"
   validations:
+    - expression: "!variables.name.startsWith('vote-') || variables.observer || !variables.serviceAccount"
+      message: no workload but an observer writes votes
+    - expression: "!variables.name.startsWith('claim-') || variables.decider || !variables.serviceAccount"
+      message: no workload but the decider writes claims
+    - expression: "!variables.name.startsWith('db-ca-') || variables.kyverno || !variables.serviceAccount"
+      message: no workload but kyverno writes the database cas
+    - expression: "!variables.kyverno || variables.name.startsWith('db-ca-')"
+      message: kyverno writes nothing here but the database cas
     - expression: "!(variables.name in ['bedrock-round', 'bedrock-approvals']) || variables.verifier || !variables.serviceAccount"
       message: no workload but the verifier writes rounds and approvals
     - expression: "!variables.verifier || (variables.name in ['bedrock-round', 'bedrock-approvals'] && request.operation != 'DELETE')"

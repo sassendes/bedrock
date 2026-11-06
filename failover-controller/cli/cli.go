@@ -19,6 +19,7 @@ import (
 	"github.com/sassendes/bedrock/failover-controller/act"
 	"github.com/sassendes/bedrock/failover-controller/metrics"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -133,45 +134,83 @@ func (c *Common) Serve(m *metrics.Registry, h *Health, log *slog.Logger) {
 
 func Logger() *slog.Logger { return slog.New(slog.NewJSONHandler(os.Stdout, nil)) }
 
-// LoadCADir reads every *.crt in dir. The database CAs of all clusters that can become primary live there.
-func LoadCADir(dir string) (*x509.CertPool, []byte, error) {
-	files, err := filepath.Glob(filepath.Join(dir, "*.crt"))
-	if err != nil {
-		return nil, nil, err
+// CASource returns the database CA certificates, one PEM blob per cluster, in a stable order.
+type CASource func(ctx context.Context) ([]NamedPEM, error)
+
+type NamedPEM struct {
+	Name string
+	PEM  []byte
+}
+
+// DirCAs reads every *.crt in dir.
+func DirCAs(dir string) CASource {
+	return func(context.Context) ([]NamedPEM, error) {
+		files, err := filepath.Glob(filepath.Join(dir, "*.crt"))
+		if err != nil {
+			return nil, err
+		}
+		sort.Strings(files)
+		var out []NamedPEM
+		for _, f := range files {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, NamedPEM{Name: f, PEM: b})
+		}
+		return out, nil
 	}
-	sort.Strings(files)
+}
+
+// ConfigMapCAs lists the CA ConfigMaps kyverno copies out of every database namespace. A CA is public, so it
+// travels in a ConfigMap the failover components can already read, never in a Secret they would need list on,
+// and a cluster added later is picked up without editing any volume.
+func ConfigMapCAs(kube kubernetes.Interface, namespace, selector, key string) CASource {
+	return func(ctx context.Context) ([]NamedPEM, error) {
+		list, err := kube.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+		if err != nil {
+			return nil, err
+		}
+		var out []NamedPEM
+		for _, cm := range list.Items {
+			if v := cm.Data[key]; v != "" {
+				out = append(out, NamedPEM{Name: cm.Name, PEM: []byte(v)})
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+		return out, nil
+	}
+}
+
+func buildPool(cas []NamedPEM) (*x509.CertPool, []byte, error) {
+	if len(cas) == 0 {
+		return nil, nil, errors.New("no database ca found")
+	}
 	pool := x509.NewCertPool()
 	var bundle bytes.Buffer
-	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			return nil, nil, err
+	for _, c := range cas {
+		if !pool.AppendCertsFromPEM(c.PEM) {
+			return nil, nil, errors.New(c.Name + " holds no certificate")
 		}
-		if !pool.AppendCertsFromPEM(b) {
-			return nil, nil, errors.New(f + " holds no certificate")
-		}
-		bundle.Write(bytes.TrimSpace(b))
+		bundle.Write(bytes.TrimSpace(c.PEM))
 		bundle.WriteByte('\n')
-	}
-	if len(files) == 0 {
-		return nil, nil, errors.New("no *.crt in " + dir)
 	}
 	return pool, bundle.Bytes(), nil
 }
 
-// CABundle keeps the database CAs current. A new cluster's CA, or a renewed one, reaches the projected
-// volume without a restart; the bundle file postgres connections read is rewritten atomically when it changes.
+// CABundle keeps the database CAs current. A new cluster's CA, or a renewed one, is picked up without a
+// restart; the bundle file postgres connections read is rewritten atomically when it changes.
 type CABundle struct {
-	dir  string
+	src  CASource
 	out  string
 	mu   sync.RWMutex
 	pool *x509.CertPool
 	sum  [32]byte
 }
 
-func NewCABundle(dir, out string) (*CABundle, error) {
-	b := &CABundle{dir: dir, out: out}
-	if err := b.Refresh(); err != nil {
+func NewCABundle(ctx context.Context, src CASource, out string) (*CABundle, error) {
+	b := &CABundle{src: src, out: out}
+	if err := b.Refresh(ctx); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -183,8 +222,12 @@ func (b *CABundle) Pool() *x509.CertPool {
 	return b.pool
 }
 
-func (b *CABundle) Refresh() error {
-	pool, bundle, err := LoadCADir(b.dir)
+func (b *CABundle) Refresh(ctx context.Context) error {
+	cas, err := b.src(ctx)
+	if err != nil {
+		return err
+	}
+	pool, bundle, err := buildPool(cas)
 	if err != nil {
 		return err
 	}
@@ -218,9 +261,32 @@ func (b *CABundle) Watch(ctx context.Context, every time.Duration, log *slog.Log
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := b.Refresh(); err != nil {
+			if err := b.Refresh(ctx); err != nil {
 				log.Warn("database cas not reloaded, keeping the last good ones", "err", err)
 			}
 		}
 	}
+}
+
+// CAFlags picks where the database CAs come from: a directory when one is given, otherwise the labelled
+// ConfigMaps in the failover namespace.
+type CAFlags struct {
+	Dir      string
+	Selector string
+	Key      string
+}
+
+func RegisterCA(fs *flag.FlagSet) *CAFlags {
+	f := &CAFlags{}
+	fs.StringVar(&f.Dir, "ca-dir", "", "directory of database ca certificates; empty reads the labelled configmaps instead")
+	fs.StringVar(&f.Selector, "ca-selector", "bedrock.io/db-ca=true", "label selector of the database ca configmaps")
+	fs.StringVar(&f.Key, "ca-key", "ca.crt", "key holding the certificate in each ca configmap")
+	return f
+}
+
+func (f *CAFlags) Source(kube kubernetes.Interface, namespace string) CASource {
+	if f.Dir != "" {
+		return DirCAs(f.Dir)
+	}
+	return ConfigMapCAs(kube, namespace, f.Selector, f.Key)
 }

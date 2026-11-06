@@ -25,7 +25,7 @@ func main() {
 	cfg := verifier.DefaultConfig()
 	wcfg := witness.DefaultConfig()
 	var interval, cnpgGrace, stall time.Duration
-	var keyDir, caDir, passwordFile string
+	var keyDir, passwordFile string
 	fs.DurationVar(&interval, "round", 4*time.Second, "length of a round; every round closes on this timer")
 	fs.DurationVar(&cnpgGrace, "cnpg-grace", time.Minute, "how long cnpg gets to promote inside a cluster that still has ready standbys")
 	fs.DurationVar(&stall, "stall", 12*time.Second, "a candidate behind the last signed position is promoted once its replay has not moved for this long")
@@ -33,7 +33,7 @@ func main() {
 	fs.IntVar(&cfg.DeadNeeded, "dead-witnesses", cfg.DeadNeeded, "witnesses that must answer dead to prove a death")
 	fs.StringVar(&cfg.ObserverSelector, "observer-selector", cfg.ObserverSelector, "label selector of the observer pods")
 	fs.StringVar(&keyDir, "key-dir", "/etc/bedrock/proof-keys", "directory of proof keys, one hex file per key id")
-	fs.StringVar(&caDir, "ca-dir", "/etc/bedrock/pg-ca", "directory of database ca certificates")
+	caFlags := cli.RegisterCA(fs)
 	fs.StringVar(&passwordFile, "pg-password-file", "/etc/bedrock/pg/password", "file holding the observer password, used to read replica streams")
 	fs.IntVar(&wcfg.Check.Port, "pg-port", 5432, "postgres port")
 	fs.StringVar(&wcfg.Check.Database, "pg-database", "app", "database holding the bedrock functions")
@@ -62,12 +62,6 @@ func main() {
 		log.Error("proof keys", "err", err)
 		os.Exit(1)
 	}
-	cas, err := cli.NewCABundle(caDir, wcfg.Check.RootCA)
-	if err != nil {
-		log.Error("database cas", "err", err)
-		os.Exit(1)
-	}
-	wcfg.Roots = cas.Pool
 	pw, err := os.ReadFile(passwordFile)
 	if err != nil {
 		log.Error("read password", "err", err)
@@ -76,6 +70,14 @@ func main() {
 	wcfg.Check.Password = strings.TrimSpace(string(pw))
 
 	dyn, kube := common.Clients(log)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	cas, err := cli.NewCABundle(ctx, caFlags.Source(kube, common.Namespace), wcfg.Check.RootCA)
+	if err != nil {
+		log.Error("database cas", "err", err)
+		os.Exit(1)
+	}
+	wcfg.Roots = cas.Pool
 	m := metrics.New()
 	actor := act.New(dyn, kube, common.Act)
 	v, err := verifier.New(dyn, kube, common.Act.Discovery, store.New(kube, st), actor, witness.New(kube, actor, wcfg), keys, cfg, m, log)
@@ -85,8 +87,6 @@ func main() {
 	}
 	v.ReadStandbyWith(wcfg.Check)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	health := cli.NewHealth(3 * interval)
 	common.Serve(m, health, log)
 	go cas.Watch(ctx, 30*time.Second, log)

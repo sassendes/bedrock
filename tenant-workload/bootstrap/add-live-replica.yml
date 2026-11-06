@@ -10,11 +10,6 @@
     instances: 2
     storage: 10Gi
     image: ghcr.io/cloudnative-pg/postgresql:17.4@sha256:3c0ba08ea353c9705a755c113e4ae395be76553e0ed68076e5410cb09b9d17d9
-    failover_workloads:
-      - daemonset/bedrock-observer-a
-      - daemonset/bedrock-observer-b
-      - deployment/bedrock-verifier
-      - deployment/bedrock-checker
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
   tasks:
@@ -35,34 +30,73 @@
         that: existing_ns.stdout == ""
         fail_msg: "namespace {{ replica }} already exists, pick a new name"
 
-    - name: Find the primary by its label, confirmed by its spec, never a fenced one
+    - name: Read every database cluster's declared role, the facts behind it and whether it is fenced
       ansible.builtin.shell: |
         set -euo pipefail
-        kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary -o json | jq -c '[.items[]
-          | select(.spec.replica.enabled != true)
-          | select((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") != "disabled")
-          | select((.metadata.annotations["cnpg.io/hibernation"] // "") != "on")
-          | {ns: .metadata.namespace, name: .metadata.name, phase: (.status.phase // "")}]'
+        kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role -o json | jq -c '[.items[] | {
+          ns: .metadata.namespace,
+          name: .metadata.name,
+          label: .metadata.labels["bedrock.io/db-role"],
+          fact: ((.spec.replica.minApplyDelay // "") as $d |
+                 if .spec.replica.enabled != true then "primary"
+                 elif ($d == "" or (($d | test("^[0.]+[a-z]*$")) and ($d | test("[1-9]") | not))) then "live"
+                 else "delayed" end),
+          fenced: (((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") == "disabled") or
+                   ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")),
+          phase: (.status.phase // "")
+        } | .liar = (.label != .fact)]'
       args:
         executable: /bin/bash
-      register: primaries
+      register: clusters_raw
       changed_when: false
+
+    - name: Sort the clusters into roles
+      ansible.builtin.set_fact:
+        clusters: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | list }}"
+        liars: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | selectattr('liar') | list }}"
+
+    - name: Every label agrees with its spec
+      ansible.builtin.assert:
+        that: liars | length == 0
+        fail_msg: "these clusters' bedrock.io/db-role disagrees with their spec, fix them first: {{ liars }}"
+
+    - name: Pick the primary, the live replicas and the delayed ones
+      ansible.builtin.set_fact:
+        primaries: "{{ clusters | selectattr('label', 'equalto', 'primary') | list }}"
+        lives: "{{ clusters | selectattr('label', 'equalto', 'live') | list }}"
+        delays: "{{ clusters | selectattr('label', 'equalto', 'delayed') | list }}"
 
     - name: Exactly one healthy primary
       ansible.builtin.assert:
         that:
-          - (primaries.stdout | from_json | length) == 1
-          - (primaries.stdout | from_json)[0].phase == 'Cluster in healthy state'
-        fail_msg: "want exactly one healthy, unfenced primary labelled bedrock.io/db-role=primary, found {{ primaries.stdout }}"
+          - primaries | length == 1
+          - primaries[0].phase == 'Cluster in healthy state'
+        fail_msg: "want exactly one healthy, unfenced primary, found {{ primaries }}"
 
-    - name: Remember the source
+    - name: Work out who follows whom
       ansible.builtin.set_fact:
-        source: "{{ (primaries.stdout | from_json)[0].name }}"
-        source_ns: "{{ (primaries.stdout | from_json)[0].ns }}"
+        source: "{{ primaries[0].name }}"
+        source_ns: "{{ primaries[0].ns }}"
+        me: {name: "{{ replica }}", ns: "{{ replica }}"}
+        peers: "{{ primaries + lives }}"
+        followers: "{{ lives + delays }}"
+
+    - name: A read only key on every peer's bucket for the replica
+      ansible.builtin.set_fact:
+        ro_keys: "{{ ro_keys | default([]) + [{'bucket': item.name, 'ns': replica}] }}"
+      loop: "{{ peers }}"
+
+    - name: A read only key on the replica's bucket for every follower
+      ansible.builtin.set_fact:
+        ro_keys: "{{ ro_keys + [{'bucket': replica, 'ns': item.ns}] }}"
+      loop: "{{ followers }}"
 
     - name: Say what is about to happen
       ansible.builtin.debug:
-        msg: "{{ replica }} will stream from {{ source_ns }}/{{ source }}"
+        msg:
+          - "{{ replica }} bootstraps from {{ source_ns }}/{{ source }}"
+          - "it can follow: {{ peers | map(attribute='name') | join(', ') }}"
+          - "these will be able to follow it: {{ followers | map(attribute='name') | join(', ') or 'none' }}"
 
     - name: Namespace, labelled as a database
       kubernetes.core.k8s:
@@ -70,13 +104,13 @@
         state: present
         template: "{{ tpl }}/namespace.yaml.j2"
 
-    - name: Network policies, before anything runs in it
+    - name: The replica's own network policies
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
         template: "{{ tpl }}/netpol.yaml.j2"
 
-    - name: Garage bucket and keys for the replica
+    - name: Garage bucket for the replica and a read only key for every pair
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
@@ -102,20 +136,39 @@
         fail_msg: "garage-init-{{ replica }} failed, read: kubectl -n garage logs job/garage-init-{{ replica }}"
 
     - name: Revoke the garage job's secret access
-      ansible.builtin.command: kubectl -n {{ replica }} delete rolebinding/garage-init-{{ replica }} role/garage-init-{{ replica }} --ignore-not-found
+      ansible.builtin.command: kubectl -n {{ item }} delete rolebinding/garage-init-{{ replica }} role/garage-init-{{ replica }} --ignore-not-found
+      loop: "{{ ro_keys | map(attribute='ns') | list | union([replica]) | unique }}"
       changed_when: true
 
-    - name: Sync the source's ca and replication certificate in, and the replica's ca out to failover
+    - name: The replica follows every peer that can become primary
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        template: "{{ tpl }}/sync.yaml.j2"
-      register: sync
-      until: sync is succeeded
+        template: "{{ tpl }}/pair.yaml.j2"
+      vars:
+        follower: "{{ me }}"
+        peer: "{{ item }}"
+      loop: "{{ peers }}"
+      register: pair_in
+      until: pair_in is succeeded
       retries: 10
       delay: 6
 
-    - name: Wait for every secret the replica reads
+    - name: Every replica can follow the new one once it is promoted
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        template: "{{ tpl }}/pair.yaml.j2"
+      vars:
+        follower: "{{ item }}"
+        peer: "{{ me }}"
+      loop: "{{ followers }}"
+      register: pair_out
+      until: pair_out is succeeded
+      retries: 10
+      delay: 6
+
+    - name: Wait for every peer's certificates and read only key in the replica
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Secret
@@ -125,11 +178,18 @@
       until: synced.resources | default([]) | length > 0
       retries: 30
       delay: 10
-      loop:
-        - "{{ source }}-ca-crt"
-        - "{{ source }}-replication"
-        - "{{ source }}-backups-ro"
-        - "{{ replica }}-backups"
+      loop: "{{ peers | map(attribute='name') | product(['-ca-crt', '-replication', '-backups-ro']) | map('join') | list }}"
+
+    - name: Wait for the replica's own backup key
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: "{{ replica }}"
+        name: "{{ replica }}-backups"
+      register: own_key
+      until: own_key.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
 
     - name: A fresh base backup of the source, so the replica restores from this timeline
       kubernetes.core.k8s:
@@ -183,40 +243,6 @@
       retries: 80
       delay: 15
 
-    - name: Wait for the replica's ca in bedrock-failover
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Secret
-        namespace: bedrock-failover
-        name: "{{ replica }}-ca-crt"
-      register: fca
-      until: fca.resources | default([]) | length > 0
-      retries: 30
-      delay: 10
-
-    - name: Mount the replica's ca in every failover component that talks to postgres
-      ansible.builtin.shell: |
-        set -euo pipefail
-        for w in {{ failover_workloads | join(' ') }}; do
-          j=$(kubectl -n bedrock-failover get "$w" -o json)
-          if echo "$j" | jq -e --arg s "{{ replica }}-ca-crt" '.spec.template.spec.volumes[] | select(.name == "pg-ca") | .projected.sources[] | select(.secret.name == $s)' >/dev/null; then
-            continue
-          fi
-          i=$(echo "$j" | jq '.spec.template.spec.volumes | map(.name) | index("pg-ca")')
-          test "$i" != "null"
-          kubectl -n bedrock-failover patch "$w" --type json -p "[{\"op\":\"add\",\"path\":\"/spec/template/spec/volumes/$i/projected/sources/-\",\"value\":{\"secret\":{\"name\":\"{{ replica }}-ca-crt\",\"items\":[{\"key\":\"ca.crt\",\"path\":\"{{ replica }}.crt\"}]}}}]"
-          echo "patched $w"
-        done
-      args:
-        executable: /bin/bash
-      register: ca_patch
-      changed_when: "'patched' in ca_patch.stdout"
-
-    - name: Wait for the failover components to roll
-      ansible.builtin.command: kubectl -n bedrock-failover rollout status {{ item }} --timeout=300s
-      loop: "{{ failover_workloads }}"
-      changed_when: false
-
     - name: Confirm the replica streams from the source
       ansible.builtin.shell: |
         set -euo pipefail
@@ -230,6 +256,65 @@
       delay: 10
       changed_when: false
 
+    - name: Wait for the new replica's certificates and read only key in every follower
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: "{{ item.0.ns }}"
+        name: "{{ replica }}{{ item.1 }}"
+      register: out_synced
+      until: out_synced.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
+      loop: "{{ followers | product(['-ca-crt', '-replication', '-backups-ro']) | list }}"
+
+    - name: Give every follower an externalClusters entry for the new replica, so the decider can repoint it
+      ansible.builtin.shell: |
+        set -euo pipefail
+        j=$(kubectl -n {{ item.ns }} get cluster {{ item.name }} -o json)
+        if echo "$j" | jq -e '.spec.externalClusters[]? | select(.name == "{{ replica }}")' >/dev/null; then
+          echo kept
+          exit 0
+        fi
+        if ! echo "$j" | jq -e '.spec.externalClusters' >/dev/null; then
+          kubectl -n {{ item.ns }} patch cluster {{ item.name }} --type json -p '[{"op":"add","path":"/spec/externalClusters","value":[]}]'
+        fi
+        kubectl -n {{ item.ns }} patch cluster {{ item.name }} --type json -p '[{"op":"add","path":"/spec/externalClusters/-","value":{{ entry | to_json }}}]'
+        echo patched
+      args:
+        executable: /bin/bash
+      vars:
+        entry:
+          name: "{{ replica }}"
+          connectionParameters:
+            host: "{{ replica }}-rw.{{ replica }}.svc"
+            user: streaming_replica
+            dbname: app
+            sslmode: verify-ca
+          sslKey: {name: "{{ replica }}-replication", key: tls.key}
+          sslCert: {name: "{{ replica }}-replication", key: tls.crt}
+          sslRootCert: {name: "{{ replica }}-ca-crt", key: ca.crt}
+          barmanObjectStore:
+            destinationPath: "s3://{{ replica }}-backups/wals"
+            endpointURL: http://garage.garage.svc:3900
+            s3Credentials:
+              accessKeyId: {name: "{{ replica }}-backups-ro", key: AWS_ACCESS_KEY_ID}
+              secretAccessKey: {name: "{{ replica }}-backups-ro", key: AWS_SECRET_ACCESS_KEY}
+      loop: "{{ followers }}"
+      register: entry_patch
+      changed_when: "'patched' in entry_patch.stdout"
+
+    - name: Wait for the replica's ca to reach the failover components
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: ConfigMap
+        namespace: bedrock-failover
+        name: "db-ca-{{ replica }}"
+      register: fca
+      until: fca.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
+
     - name: Done
       ansible.builtin.debug:
-        msg: "{{ replica }} is a live replica of {{ source_ns }}/{{ source }}. The failover workloads were patched live: add {{ replica }}-ca-crt to their pg-ca volumes in tenant-workload/failover/ before the next bootstrap, or it is dropped."
+        msg: "{{ replica }} is a live replica of {{ source_ns }}/{{ source }}, and {{ followers | map(attribute='name') | join(', ') or 'no other replica' }} can follow it after a failover"

@@ -763,14 +763,32 @@
       delay: 10
       loop: "{{ ['cluster-2', 'cluster-3'] | product(['cluster-1-ca-crt', 'cluster-1-replication', 'cluster-1-backups-ro']) | list }}"
 
-    - name: Apply replica clusters 2 and 3
+    - name: Apply the live replica, cluster-2
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
-        src: "{{ item }}"
+        src: "{{ repo_root }}/database/cluster-2.yaml"
+
+    - name: Wait for cluster-2's certificates and read only key in cluster-3, so it can follow cluster-2 after a failover
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: cluster-3
+        name: "{{ item }}"
+      register: peer_synced
+      until: peer_synced.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
       loop:
-        - "{{ repo_root }}/database/cluster-2.yaml"
-        - "{{ repo_root }}/database/cluster-3.yaml"
+        - cluster-2-ca-crt
+        - cluster-2-replication
+        - cluster-2-backups-ro
+
+    - name: Apply the delayed replica, cluster-3
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/cluster-3.yaml"
 
     - name: Apply pooler + scheduled backups
       kubernetes.core.k8s:
@@ -988,22 +1006,33 @@
       retries: 10
       delay: 6
 
-    - name: Wait for the synced secrets in bedrock-failover
+    - name: Wait for the synced observer password in bedrock-failover
       when: failover_enabled | bool
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Secret
         namespace: bedrock-failover
-        name: "{{ item }}"
+        name: bedrock-observer
       register: failover_synced
       until: failover_synced.resources | default([]) | length > 0
       retries: 30
       delay: 10
+
+    - name: Wait for the database cas in bedrock-failover
+      when: failover_enabled | bool
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: ConfigMap
+        namespace: bedrock-failover
+        name: "db-ca-{{ item }}"
+      register: failover_cas
+      until: failover_cas.resources | default([]) | length > 0
+      retries: 30
+      delay: 10
       loop:
-        - bedrock-observer
-        - cluster-1-ca-crt
-        - cluster-2-ca-crt
-        - cluster-3-ca-crt
+        - cluster-1
+        - cluster-2
+        - cluster-3
 
     - name: Proof keys for the verifier
       when: failover_enabled | bool

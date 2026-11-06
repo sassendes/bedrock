@@ -72,7 +72,7 @@ tenant-workload/bootstrap/       ansible playbooks, RKE2 and Cilium config, audi
 tenant-workload/platform/        reloader, namespaces, priority classes
 tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
 tenant-workload/kyverno/         admission policies and secret syncs
-tenant-workload/database/        CloudNativePG clusters, poolers, backups
+tenant-workload/database/        CloudNativePG clusters, poolers, backups, the add-replica templates
 tenant-workload/failover/        the failover controller: deployment, admission, network policy, alerts
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco

@@ -1,0 +1,87 @@
+apiVersion: policies.kyverno.io/v1
+kind: GeneratingPolicy
+metadata:
+  name: bedrock-peer-{{ peer.name }}-to-{{ follower.name }}
+spec:
+  webhookConfiguration:
+    timeoutSeconds: 10
+  evaluation:
+    generateExisting:
+      enabled: true
+    synchronize:
+      enabled: true
+  matchConstraints:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: In
+          values:
+            - {{ peer.ns }}
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [secrets]
+        resourceNames: [{{ peer.name }}-ca, {{ peer.name }}-replication]
+  variables:
+    - name: copy
+      expression: |-
+        object.metadata.name == "{{ peer.name }}-ca" ?
+        [
+          {
+            "apiVersion": dyn("v1"),
+            "kind": dyn("Secret"),
+            "metadata": dyn({"name": "{{ peer.name }}-ca-crt"}),
+            "type": dyn("Opaque"),
+            "data": dyn({"ca.crt": object.data["ca.crt"]})
+          }
+        ] :
+        [
+          {
+            "apiVersion": dyn("v1"),
+            "kind": dyn("Secret"),
+            "metadata": dyn({"name": "{{ peer.name }}-replication"}),
+            "type": dyn(object.type),
+            "data": dyn(object.data)
+          }
+        ]
+  generate:
+    - expression: generator.Apply("{{ follower.ns }}", variables.copy)
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: follows-{{ peer.name }}
+  namespace: {{ follower.ns }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ peer.ns }}
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: followed-by-{{ follower.name }}
+  namespace: {{ peer.ns }}
+spec:
+  endpointSelector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: {{ follower.ns }}
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP

@@ -48,6 +48,14 @@ spec:
                 path: "/metrics"
     - fromEndpoints:
         - matchLabels:
+            k8s:io.kubernetes.pod.namespace: cluster-3
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
             k8s:io.kubernetes.pod.namespace: bedrock-failover
             app.kubernetes.io/name: bedrock-observer
         - matchLabels:

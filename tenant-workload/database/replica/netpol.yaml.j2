@@ -83,39 +83,12 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ source_ns }}
-            cnpg.io/podRole: instance
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
               protocol: ANY
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ replica }}-streams-in
-  namespace: {{ source_ns }}
-spec:
-  endpointSelector:
-    matchLabels:
-      cnpg.io/podRole: instance
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ replica }}
-            cnpg.io/podRole: instance
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
 ---
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy

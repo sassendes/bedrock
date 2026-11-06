@@ -145,6 +145,8 @@ func (a *apiserver) as(user, pod string) *rest.Config {
 
 const deciderUser = "system:serviceaccount:bedrock-failover:bedrock-decider"
 const deciderPod = "bedrock-decider-0"
+const kyvernoUser = "system:serviceaccount:kyverno:kyverno-background-controller"
+const strangerUser = "system:serviceaccount:application:grafana"
 
 type world struct {
 	t       *testing.T
@@ -155,6 +157,7 @@ type world struct {
 	dKube   kubernetes.Interface
 	dDyn    dynamic.Interface
 	decider *act.Actor
+	api     *apiserver
 }
 
 func mustApply(t *testing.T, ctx context.Context, dyn dynamic.Interface, obj *unstructured.Unstructured) {
@@ -309,6 +312,7 @@ func setup(t *testing.T) *world {
 
 	rb := []string{
 		`{"apiVersion":"rbac.authorization.k8s.io/v1","kind":"ClusterRoleBinding","metadata":{"name":"decider-all"},"roleRef":{"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"cluster-admin"},"subjects":[{"kind":"User","name":"` + deciderUser + `"}]}`,
+		`{"apiVersion":"rbac.authorization.k8s.io/v1","kind":"ClusterRoleBinding","metadata":{"name":"others-all"},"roleRef":{"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"cluster-admin"},"subjects":[{"kind":"User","name":"` + kyvernoUser + `"},{"kind":"User","name":"` + strangerUser + `"}]}`,
 	}
 	for _, r := range rb {
 		obj := decode(t, []byte(r))[0]
@@ -318,7 +322,7 @@ func setup(t *testing.T) *world {
 	}
 
 	dc := a.as(deciderUser, deciderPod)
-	w := &world{t: t, ctx: ctx, admin: store.New(kube, store.DefaultConfig()), kube: kube, dyn: dyn,
+	w := &world{t: t, ctx: ctx, api: a, admin: store.New(kube, store.DefaultConfig()), kube: kube, dyn: dyn,
 		dKube: kubernetes.NewForConfigOrDie(dc), dDyn: dynamic.NewForConfigOrDie(dc)}
 	w.decider = act.New(w.dDyn, w.dKube, act.DefaultConfig())
 
@@ -459,6 +463,21 @@ func TestAdmissionAgainstARealAPIServer(t *testing.T) {
 		denied(t, "crowning the candidate without promoting it", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrock.io/db-role": "primary"}}}), "only changes to primary")
 		denied(t, "promoting without the label", w.patchCluster("cluster-2", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}}), "sets bedrock.io/db-role to primary")
 		denied(t, "touching another label", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"team": "x"}}}), "changes no label but")
+	})
+
+	t.Run("only their owners write votes, claims and database cas", func(t *testing.T) {
+		write := func(user, name string) error {
+			kc := kubernetes.NewForConfigOrDie(w.api.as(user, "some-pod"))
+			_, err := kc.CoreV1().ConfigMaps("bedrock-failover").Create(w.ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name}, Data: map[string]string{"ca.crt": "x"}}, metav1.CreateOptions{})
+			return err
+		}
+		allowed(t, "kyverno writing a database ca", write(kyvernoUser, "db-ca-cluster-9"))
+		denied(t, "kyverno writing a vote", write(kyvernoUser, "vote-n1-a"), "no workload but an observer writes votes")
+		denied(t, "kyverno writing a claim", write(kyvernoUser, "claim-cluster-1.cluster-1"), "no workload but the decider writes claims")
+		denied(t, "kyverno writing anything else", write(kyvernoUser, "something"), "kyverno writes nothing here but the database cas")
+		denied(t, "another workload writing a database ca", write(strangerUser, "db-ca-cluster-8"), "no workload but kyverno writes the database cas")
+		denied(t, "another workload writing a claim", write(strangerUser, "claim-cluster-2.cluster-2"), "no workload but the decider writes claims")
+		denied(t, "another workload writing a vote", write(strangerUser, "vote-n2-b"), "no workload but an observer writes votes")
 	})
 
 	t.Run("only a follower is repointed", func(t *testing.T) {

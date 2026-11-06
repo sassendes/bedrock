@@ -767,3 +767,22 @@ func TestAFailedPrimaryPodLookupDecidesNothing(t *testing.T) {
 		t.Fatalf("claimed without knowing which node runs the primary: %+v", c)
 	}
 }
+
+func TestAFamilyWithNoLiveReplicaIsReported(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	l.run(d, 1, nil)
+	if l.m.Count("bedrock_failover_no_live_replica") != 0 {
+		t.Fatal("cluster-1 has a ready live replica, nothing to report")
+	}
+	l.w.SetStatus("cluster-2", "Cluster in healthy state", 0)
+	l.run(d, 1, nil)
+	if v, ok := l.m.Get("bedrock_failover_no_live_replica", map[string]string{"target": target}); !ok || v != 1 {
+		t.Fatal("a primary whose live replica has no ready instance must be reported: the next failure has nothing to promote")
+	}
+	l.w.SetStatus("cluster-2", "Cluster in healthy state", 2)
+	l.run(d, 1, nil)
+	if l.m.Count("bedrock_failover_no_live_replica") != 0 {
+		t.Fatal("the report must clear once a live replica is ready again")
+	}
+}

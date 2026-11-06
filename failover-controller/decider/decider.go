@@ -179,6 +179,8 @@ func (d *Decider) Tick(ctx context.Context) error {
 
 	var inputs []decide.Input
 	families := map[string]discovery.Family{}
+	bare := metrics.NewSet()
+	defer func() { d.metrics.Replace("bedrock_failover_no_live_replica", bare) }()
 	for _, f := range disc.Families {
 		key := f.Primary.Key()
 		obj, err := d.actor.Get(ctx, key)
@@ -191,6 +193,9 @@ func (d *Decider) Tick(ctx context.Context) error {
 				pages.Add(map[string]string{"target": key, "reason": "fenced with no failover that owns the fence, nothing watches it: a human must look"})
 			}
 			continue
+		}
+		if _, ok := candidate(f); !ok {
+			bare.Add(map[string]string{"target": key})
 		}
 		if c != nil && c.State != store.ClaimClosed {
 			continue

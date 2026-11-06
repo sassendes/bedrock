@@ -26,7 +26,7 @@ func main() {
 	common := cli.Register(fs)
 	st := store.DefaultConfig()
 	cfg := observer.Config{}
-	var passwordFile, certFile, keyFile, caFile, serverName, caDir string
+	var passwordFile, certFile, keyFile, caFile, serverName string
 	fs.StringVar(&cfg.Node, "node", cli.Env("NODE_NAME", ""), "name of the node this observer runs on")
 	fs.StringVar(&cfg.Slot, "slot", cli.Env("OBSERVER_SLOT", ""), "which of the node's observers this is")
 	fs.StringVar(&cfg.SlotLabel, "slot-label", "bedrock.io/observer-slot", "pod label holding an observer's slot")
@@ -40,7 +40,7 @@ func main() {
 	fs.StringVar(&cfg.Check.User, "pg-user", "bedrock_observer", "login of the observer")
 	fs.StringVar(&passwordFile, "pg-password-file", "/etc/bedrock/pg/password", "file holding the observer password")
 	fs.StringVar(&cfg.Check.TLSMode, "pg-sslmode", "verify-ca", "postgres sslmode")
-	fs.StringVar(&caDir, "pg-ca-dir", "/etc/bedrock/pg-ca", "directory of database ca certificates, one per cluster that can become primary")
+	caFlags := cli.RegisterCA(fs)
 	fs.StringVar(&cfg.Check.RootCA, "pg-ca-bundle", "/run/bedrock/pg-ca.crt", "where the joined ca bundle is written")
 	fs.DurationVar(&cfg.Check.Timeout, "check-timeout", time.Second, "deadline of one strong check")
 	fs.StringVar(&certFile, "tls-cert", "/etc/bedrock/exchange/tls.crt", "exchange certificate")
@@ -69,14 +69,6 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Check.Password = strings.TrimSpace(string(pw))
-	var cas *cli.CABundle
-	if cfg.Check.TLSMode != "disable" {
-		cas, err = cli.NewCABundle(caDir, cfg.Check.RootCA)
-		if err != nil {
-			log.Error("database cas", "err", err)
-			os.Exit(1)
-		}
-	}
 
 	serverTLS, clientTLS, err := transport.LoadTLS(certFile, keyFile, caFile, serverName)
 	if err != nil {
@@ -90,12 +82,20 @@ func main() {
 	}
 
 	dyn, kube := common.Clients(log)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	var cas *cli.CABundle
+	if cfg.Check.TLSMode != "disable" {
+		cas, err = cli.NewCABundle(ctx, caFlags.Source(kube, common.Namespace), cfg.Check.RootCA)
+		if err != nil {
+			log.Error("database cas", "err", err)
+			os.Exit(1)
+		}
+	}
 	m := metrics.New()
 	tr := transport.NewHTTP(clientTLS, cfg.AskTimeout)
 	o := observer.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), store.New(kube, st), cfg, key, tr, tr, m, log)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	health := cli.NewHealth(3*cfg.ProbeInterval + cfg.AskTimeout + 2*cfg.Check.Timeout)
 	common.Serve(m, health, log)
 	if cas != nil {

@@ -46,31 +46,33 @@ spec:
     enabled: true
     source: {{ source }}
   externalClusters:
-    - name: {{ source }}
+{% for p in peers %}
+    - name: {{ p.name }}
       connectionParameters:
-        host: {{ source }}-rw.{{ source_ns }}.svc
+        host: {{ p.name }}-rw.{{ p.ns }}.svc
         user: streaming_replica
         dbname: app
         sslmode: verify-ca
       sslKey:
-        name: {{ source }}-replication
+        name: {{ p.name }}-replication
         key: tls.key
       sslCert:
-        name: {{ source }}-replication
+        name: {{ p.name }}-replication
         key: tls.crt
       sslRootCert:
-        name: {{ source }}-ca-crt
+        name: {{ p.name }}-ca-crt
         key: ca.crt
       barmanObjectStore:
-        destinationPath: s3://{{ source }}-backups/wals
+        destinationPath: s3://{{ p.name }}-backups/wals
         endpointURL: http://garage.garage.svc:3900
         s3Credentials:
           accessKeyId:
-            name: {{ source }}-backups-ro
+            name: {{ p.name }}-backups-ro
             key: AWS_ACCESS_KEY_ID
           secretAccessKey:
-            name: {{ source }}-backups-ro
+            name: {{ p.name }}-backups-ro
             key: AWS_SECRET_ACCESS_KEY
+{% endfor %}
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname

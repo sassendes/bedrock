@@ -72,6 +72,31 @@ spec:
           secretAccessKey:
             name: cluster-1-backups-ro
             key: AWS_SECRET_ACCESS_KEY
+    - name: cluster-2
+      connectionParameters:
+        host: cluster-2-rw.cluster-2.svc
+        user: streaming_replica
+        dbname: app
+        sslmode: verify-ca
+      sslKey:
+        name: cluster-2-replication
+        key: tls.key
+      sslCert:
+        name: cluster-2-replication
+        key: tls.crt
+      sslRootCert:
+        name: cluster-2-ca-crt
+        key: ca.crt
+      barmanObjectStore:
+        destinationPath: s3://cluster-2-backups/wals
+        endpointURL: http://garage.garage.svc:3900
+        s3Credentials:
+          accessKeyId:
+            name: cluster-2-backups-ro
+            key: AWS_ACCESS_KEY_ID
+          secretAccessKey:
+            name: cluster-2-backups-ro
+            key: AWS_SECRET_ACCESS_KEY
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname

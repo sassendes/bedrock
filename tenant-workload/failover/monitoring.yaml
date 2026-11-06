@@ -101,6 +101,22 @@ spec:
           annotations:
             summary: "the checker has not finished a round for a minute"
             description: "the last fallback is blind"
+        - alert: BedrockNoLiveReplica
+          expr: max by (target) (bedrock_failover_no_live_replica) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }} has no ready live replica"
+            description: "the next failure of this primary has nothing to promote; add one with make add-replica REPLICA=<new name>"
+        - alert: BedrockCheckerHoldsFailover
+          expr: max(bedrock_failover_checker_halts) > 0
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "the checker has held every failover for 10 minutes"
+            description: "a halt in the bedrock-checker configmap blocks the decider at admission; if the checker is silent or the normal path is healthy again, the halt is stale: read the checker's logs, then clear the object by hand"
         - alert: BedrockObserverBlind
           expr: min by (pod) (bedrock_observer_up) == 0 or min by (pod) (bedrock_observer_publish_ok) == 0
           for: 2m

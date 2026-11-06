@@ -14,7 +14,7 @@ rules:
     verbs: ["create"]
   - apiGroups: [""]
     resources: ["secrets"]
-    resourceNames: ["cluster-1-backups", "cluster-2-backups", "cluster-3-backups", "loki-data", "tempo-data", "cluster-1-backups-ro"]
+    resourceNames: ["cluster-1-backups", "cluster-2-backups", "cluster-3-backups", "loki-data", "tempo-data", "cluster-1-backups-ro", "cluster-2-backups-ro"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -126,6 +126,22 @@ data:
         kubectl -n "$NS" create secret generic cluster-1-backups-ro --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
       done
     fi
+    for pair in cluster-2:cluster-3; do
+      SRC=${pair%%:*}
+      NS=${pair##*:}
+      if kubectl -n "$NS" get secret "$SRC-backups-ro" >/dev/null 2>&1; then continue; fi
+      BID=$(api "$A/GetBucketInfo?globalAlias=$SRC-backups" | jq -r '.id')
+      NAME="$SRC-backups-ro-$NS"
+      KEYS=$(api "$A/ListKeys")
+      for OLD in $(echo "$KEYS" | jq -r --arg n "$NAME" '.[] | select(.name == $n) | .id'); do
+        api -X POST "$A/DeleteKey?id=$OLD" >/dev/null
+      done
+      K=$(api -X POST "$A/CreateKey" -d "{\"name\":\"$NAME\"}")
+      KID=$(echo "$K" | jq -r '.accessKeyId')
+      KS=$(echo "$K" | jq -r '.secretAccessKey')
+      api -X POST "$A/AllowBucketKey" -d "{\"bucketId\":\"$BID\",\"accessKeyId\":\"$KID\",\"permissions\":{\"read\":true,\"write\":false,\"owner\":false}}" >/dev/null
+      kubectl -n "$NS" create secret generic "$SRC-backups-ro" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+    done
 ---
 apiVersion: batch/v1
 kind: Job

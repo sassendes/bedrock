@@ -80,9 +80,6 @@ spec:
             - name: pg-password
               mountPath: /etc/bedrock/pg
               readOnly: true
-            - name: pg-ca
-              mountPath: /etc/bedrock/pg-ca
-              readOnly: true
             - name: run
               mountPath: /run/bedrock
       volumes:
@@ -96,24 +93,6 @@ spec:
             items:
               - key: password
                 path: password
-        - name: pg-ca
-          projected:
-            sources:
-              - secret:
-                  name: cluster-1-ca-crt
-                  items:
-                    - key: ca.crt
-                      path: cluster-1.crt
-              - secret:
-                  name: cluster-2-ca-crt
-                  items:
-                    - key: ca.crt
-                      path: cluster-2.crt
-              - secret:
-                  name: cluster-3-ca-crt
-                  items:
-                    - key: ca.crt
-                      path: cluster-3.crt
         - name: run
           emptyDir:
             medium: Memory
