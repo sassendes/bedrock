@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: verifier
-          image: ghcr.io/sassendes/bedrock-failover:0.2.0@sha256:4a85955ff7de38f27a5f0c09e47392e431117c9d29ec5c915d71892073bb9bff
+          image: ghcr.io/sassendes/bedrock-failover:0.3.0@sha256:1f1c355b41102c810da50e35a5cc579bdc7d5d8669c77ba07f2d24908b94fb3b
           command: ["/verifier"]
           env:
             - name: POD_NAMESPACE
