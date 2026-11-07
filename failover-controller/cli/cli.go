@@ -55,7 +55,7 @@ func Register(fs *flag.FlagSet) *Common {
 	fs.StringVar(&d.ClusterLabel, "cluster-label", d.ClusterLabel, "pod label holding the cluster name")
 	fs.StringVar(&d.InstanceSelector, "instance-selector", d.InstanceSelector, "label selector for database instance pods")
 	fs.StringVar(&d.ZoneLabel, "zone-label", d.ZoneLabel, "node label holding the zone")
-	fs.StringVar(&d.RoleLabel, "role-label", d.RoleLabel, "cluster label declaring primary, live or delayed; it must agree with the spec")
+	fs.StringVar(&d.RoleLabel, "db-role-label", d.RoleLabel, "cluster label declaring primary, live or delayed; it must agree with the spec")
 	fs.StringVar(&c.Act.PoolerGVR.Resource, "pooler-resource", c.Act.PoolerGVR.Resource, "plural resource name of the pooler")
 	fs.StringVar(&c.Act.PoolerKind, "pooler-kind", c.Act.PoolerKind, "kind that owns a pooler's service")
 	fs.StringVar(&c.Act.ReconcileAnnotation, "reconcile-annotation", c.Act.ReconcileAnnotation, "annotation that stops the operator reconciling a cluster")

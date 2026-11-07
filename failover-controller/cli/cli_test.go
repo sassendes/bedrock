@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"flag"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -103,5 +104,16 @@ func TestDirCAsStillWork(t *testing.T) {
 	}
 	if _, err := NewCABundle(context.Background(), DirCAs(dir), ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEveryBinaryCanAddItsOwnFlagsOnTopOfTheCommonOnes(t *testing.T) {
+	for _, name := range []string{"role-label", "claim-prefix", "vote-prefix", "observer-selector", "pg-sslmode", "key-dir"} {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		Register(fs)
+		RegisterCA(fs)
+		if fs.Lookup(name) != nil {
+			t.Fatalf("the common flags already define -%s, so a binary that adds its own panics at startup", name)
+		}
 	}
 }

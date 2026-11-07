@@ -23,7 +23,7 @@ func main() {
 	flag.StringVar(&cfg.ClusterLabel, "cluster-label", cfg.ClusterLabel, "pod label holding the cluster name")
 	flag.StringVar(&cfg.InstanceSelector, "instance-selector", cfg.InstanceSelector, "label selector for database instance pods")
 	flag.StringVar(&cfg.ZoneLabel, "zone-label", cfg.ZoneLabel, "node label holding the zone")
-	flag.StringVar(&cfg.RoleLabel, "role-label", cfg.RoleLabel, "cluster label declaring primary, live or delayed")
+	flag.StringVar(&cfg.RoleLabel, "db-role-label", cfg.RoleLabel, "cluster label declaring primary, live or delayed")
 	flag.Parse()
 
 	rc, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
