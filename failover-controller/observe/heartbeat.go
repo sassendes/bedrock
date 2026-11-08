@@ -231,10 +231,13 @@ func ParseLSN(s string) (uint64, bool) {
 	return h<<32 | l, true
 }
 
-func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {
-	dsn := ""
+// connConfig puts the host in the dsn itself: pgx decides TLS while parsing, and with no host it parses the
+// default unix socket (/tmp exists even in distroless), drops TLS for it, and setting Host afterwards keeps
+// that plaintext config for a tcp address.
+func connConfig(cfg CheckConfig) (*pgx.ConnConfig, error) {
+	dsn := "host=" + cfg.Host + " port=" + strconv.Itoa(cfg.Port)
 	if cfg.TLSMode != "" {
-		dsn = "sslmode=" + cfg.TLSMode
+		dsn += " sslmode=" + cfg.TLSMode
 	}
 	if cfg.RootCA != "" {
 		dsn += " sslrootcert=" + cfg.RootCA
@@ -243,8 +246,14 @@ func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
-	connCfg.Host = cfg.Host
-	connCfg.Port = uint16(cfg.Port)
+	return connCfg, nil
+}
+
+func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {
+	connCfg, err := connConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	connCfg.Database = cfg.Database
 	connCfg.User = cfg.User
 	connCfg.Password = cfg.Password
