@@ -133,3 +133,11 @@ spec:
           annotations:
             summary: "observer {{ $labels.pod }} reaches no peers"
             description: "it can only abstain when its own check fails"
+        - alert: BedrockFailoverBlind
+          expr: max by (target) (bedrock_verifier_outcome{outcome="unknown"}) == 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.target }}: the failover cannot tell whether the primary is up or dead"
+            description: "no signed up and no proof of death for 2 minutes: observers cannot reach or sign, or the network is split. A real failover cannot happen until this clears"
