@@ -59,19 +59,11 @@ func (g *Gatherer) Gather(ctx context.Context, f discovery.Family) map[judge.Wit
 	}
 }
 
-// replicas are the instances streaming straight from the primary: its own standbys and the designated
-// primary of every replica cluster. Dead only when every one of them answers that its stream is gone.
+// replicas are the designated primaries of the replica clusters, never the dead cluster's own standbys:
+// a live standby means cnpg promotes inside the cluster and this controller stays out, and a dead one dies
+// with its cluster and could only ever block. Dead only when every replica cluster says its stream is gone.
 func (g *Gatherer) replicas(ctx context.Context, f discovery.Family) judge.Answer {
 	var ips []string
-	pods, err := g.kube.CoreV1().Pods(f.Primary.Namespace).List(ctx, metav1.ListOptions{LabelSelector: g.actor.Config().Discovery.InstanceSelector + "," + g.actor.Config().Discovery.ClusterLabel + "=" + f.Primary.Name})
-	if err != nil {
-		return judge.Silent
-	}
-	for _, p := range pods.Items {
-		if p.Name != f.Primary.CurrentPrimary && p.Status.PodIP != "" && p.DeletionTimestamp == nil {
-			ips = append(ips, p.Status.PodIP)
-		}
-	}
 	for _, group := range [][]discovery.Member{f.Live, f.Delayed} {
 		for _, m := range group {
 			if ip := podIP(ctx, g.kube, m.Namespace, m.CurrentPrimary); ip != "" {

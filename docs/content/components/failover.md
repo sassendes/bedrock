@@ -81,7 +81,7 @@ For each primary, the verifier counts the node votes and asks four witnesses:
 
 | Witness | Says dead when | Says alive when | Silent when |
 |---|---|---|---|
-| Replicas | Every replica streaming from the primary reports its stream gone or older than 10 seconds | Any of them streams | None can be reached |
+| Replicas | Every replica cluster (cluster-2, cluster-3) reports its stream from the primary gone or older than 10 seconds. The dead cluster's own standbys are never asked: a live one means CloudNativePG promotes it, a dead one died with the cluster | Any of them streams | None can be reached |
 | Instance manager | `/readyz` on port 8000 answers anything but 200, over TLS checked against the cluster's CA | `/readyz` answers 200 | It cannot be reached |
 | Kubelet | The postgres container is terminated, waiting or not Ready, read from the pod status in the API | The container is running and Ready | The node is not Ready, so its report is stale |
 | API | CloudNativePG recorded the instance as not primary | It recorded it as primary | Nothing is recorded |

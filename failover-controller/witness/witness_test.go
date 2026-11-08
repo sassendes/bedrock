@@ -75,6 +75,15 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	x.setReported(true)
+	for ns, ips := range map[string]map[string]string{"cluster-1": {"cluster-1-2": "10.1.2.1"}, "cluster-2": {"cluster-2-1": "10.2.1.1"}, "cluster-3": {"cluster-3-1": "10.3.1.1"}} {
+		for name, ip := range ips {
+			q, _ := x.w.Kube.CoreV1().Pods(ns).Get(ctx, name, metav1.GetOptions{})
+			q.Status.PodIP = ip
+			if _, err := x.w.Kube.CoreV1().Pods(ns).Update(ctx, q, metav1.UpdateOptions{}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	cfg := DefaultConfig()
 	cfg.ManagerPort, _ = strconv.Atoi(port)
@@ -114,7 +123,7 @@ func (x *world) setContainer(s corev1.ContainerStatus) {
 }
 
 func (x *world) allStreamsGone() {
-	for _, ip := range []string{"10.0.2.1", "10.0.1.1"} {
+	for _, ip := range []string{"10.2.1.1", "10.3.1.1"} {
 		x.streams[ip] = observe.ReceiverState{}
 	}
 }
@@ -160,7 +169,7 @@ func TestHungPrimaryIsDeadToTheKubelet(t *testing.T) {
 
 func TestOneStreamingReplicaMeansAlive(t *testing.T) {
 	x := newWorld(t)
-	x.streams["10.0.2.1"] = observe.ReceiverState{}
+	x.streams["10.2.1.1"] = observe.ReceiverState{}
 	if got := x.g.Gather(context.Background(), x.family)[judge.Replicas]; got != judge.Alive {
 		t.Fatalf("got %s", got)
 	}
@@ -168,8 +177,8 @@ func TestOneStreamingReplicaMeansAlive(t *testing.T) {
 
 func TestUnreachableWitnessesAreSilentNotDead(t *testing.T) {
 	x := newWorld(t)
-	x.streams["10.0.2.1"] = observe.ReceiverState{Err: "connect: timeout"}
-	x.streams["10.0.1.1"] = observe.ReceiverState{}
+	x.streams["10.2.1.1"] = observe.ReceiverState{Err: "connect: timeout"}
+	x.streams["10.3.1.1"] = observe.ReceiverState{}
 	x.w.SetNodeReady("n1", false, time.Now())
 	got := x.g.Gather(context.Background(), x.family)
 	if got[judge.Replicas] != judge.Silent || got[judge.Kubelet] != judge.Silent {
@@ -179,9 +188,32 @@ func TestUnreachableWitnessesAreSilentNotDead(t *testing.T) {
 
 func TestStaleStreamIsDead(t *testing.T) {
 	x := newWorld(t)
-	x.streams["10.0.2.1"] = observe.ReceiverState{Status: "streaming", AgeMs: 60_000}
-	x.streams["10.0.1.1"] = observe.ReceiverState{Status: "waiting", AgeMs: 100}
+	x.streams["10.2.1.1"] = observe.ReceiverState{Status: "streaming", AgeMs: 60_000}
+	x.streams["10.3.1.1"] = observe.ReceiverState{Status: "waiting", AgeMs: 100}
 	if got := x.g.Gather(context.Background(), x.family)[judge.Replicas]; got != judge.Dead {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestTheDeadClustersOwnStandbyIsNeverAsked(t *testing.T) {
+	for _, own := range []observe.ReceiverState{{Err: "connect: connection refused"}, {Status: "streaming", AgeMs: 100}} {
+		x := newWorld(t)
+		x.allStreamsGone()
+		x.streams["10.1.2.1"] = own
+		if got := x.g.Gather(context.Background(), x.family)[judge.Replicas]; got != judge.Dead {
+			t.Fatalf("cluster-1's own standby answering %+v turned the replica clusters' dead into %s", own, got)
+		}
+	}
+}
+
+func TestAWholeClusterDeathIsProvenByThreeWitnesses(t *testing.T) {
+	x := newWorld(t)
+	x.allStreamsGone()
+	x.streams["10.1.2.1"] = observe.ReceiverState{Err: "connect: connection refused"}
+	x.health = http.StatusInternalServerError
+	x.setContainer(corev1.ContainerStatus{Ready: false, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}})
+	got := x.g.Gather(context.Background(), x.family)
+	if dead(got) != 3 || got[judge.API] != judge.Alive {
+		t.Fatalf("a fenced cluster-1, the operator still calling it primary: %v", got)
 	}
 }
