@@ -37,7 +37,7 @@ spec:
               topologyKey: kubernetes.io/hostname
       containers:
         - name: decider
-          image: ghcr.io/sassendes/bedrock-failover:0.3.0@sha256:0b45155c1034558031dc4c0e354ebc0e285fda9954ea9b0dd8996a9bf67bb41f
+          image: ghcr.io/sassendes/bedrock-failover:0.3.2@sha256:0b45155c1034558031dc4c0e354ebc0e285fda9954ea9b0dd8996a9bf67bb41f
           command: ["/decider"]
           env:
             - name: POD_NAME
