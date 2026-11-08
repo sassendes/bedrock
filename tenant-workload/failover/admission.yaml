@@ -238,6 +238,14 @@ spec:
       expression: "variables.isClusterUpdate ? oldObject.spec.?replica.orValue({}) : {}"
     - name: newReplica
       expression: "variables.isClusterUpdate ? object.spec.?replica.orValue({}) : {}"
+    - name: oldPg
+      expression: "variables.isClusterUpdate ? oldObject.spec.?postgresql.orValue({}) : {}"
+    - name: newPg
+      expression: "variables.isClusterUpdate ? object.spec.?postgresql.orValue({}) : {}"
+    - name: oldParams
+      expression: "variables.oldPg.?parameters.orValue({})"
+    - name: newParams
+      expression: "variables.newPg.?parameters.orValue({})"
     - name: promotes
       expression: "variables.oldReplica.?enabled.orValue(false) == true && variables.newReplica.?enabled.orValue(false) == false"
     - name: repoints
@@ -261,8 +269,12 @@ spec:
       message: a cluster write needs a valid approval for the epoch it carries
     - expression: request.resource.resource != "services" || (request.operation == "UPDATE" && variables.approvedEpoch)
       message: a service write needs a valid approval for the epoch it carries
-    - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || (oldObject.spec.all(k, k == 'replica' || (k in object.spec && object.spec[k] == oldObject.spec[k])) && object.spec.all(k, k == 'replica' || k in oldObject.spec))"
+    - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || (oldObject.spec.all(k, k == 'replica' || k == 'postgresql' || (k in object.spec && object.spec[k] == oldObject.spec[k])) && object.spec.all(k, k == 'replica' || k == 'postgresql' || k in oldObject.spec))"
       message: during a failover the decider may change spec.replica and nothing else in a cluster
+    - expression: "!variables.isClusterUpdate || (variables.oldPg.all(k, k == 'parameters' || (k in variables.newPg && variables.newPg[k] == variables.oldPg[k])) && variables.newPg.all(k, k == 'parameters' || k in variables.oldPg) && variables.oldParams.all(k, k == 'archive_mode' || (k in variables.newParams && variables.newParams[k] == variables.oldParams[k])) && variables.newParams.all(k, k == 'archive_mode' || k in variables.oldParams))"
+      message: during a failover the decider may change nothing in spec.postgresql but the archive_mode cnpg sets on promotion
+    - expression: "!variables.isClusterUpdate || variables.oldParams[?'archive_mode'].orValue('') == variables.newParams[?'archive_mode'].orValue('') || (variables.promotes && variables.newParams[?'archive_mode'].orValue('') == 'on')"
+      message: archive_mode only changes to on, in the write that promotes
     - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || variables.approvals[?(variables.clusterKey + '.state')].orValue('') != 'valid' || oldObject.status.?currentPrimary.orValue('') == variables.approvals[?(variables.clusterKey + '.instance')].orValue('')"
       message: the approval names the instance that died; fencing a cluster whose primary moved since is refused
     - expression: "!variables.isClusterUpdate || (variables.newReplica.all(k, k in ['enabled', 'source'] || (k in variables.oldReplica && variables.oldReplica[k] == variables.newReplica[k])) && variables.oldReplica.all(k, k in ['enabled', 'source'] || k in variables.newReplica))"
