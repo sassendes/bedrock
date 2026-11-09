@@ -29,7 +29,7 @@ func caFile(t *testing.T) string {
 	return p
 }
 
-// The cluster refused every check with "no encryption": pgx built the config for its default unix socket,
+// the cluster refused every check with "no encryption": pgx built the config for its default unix socket,
 // which never uses TLS, and the tcp host was only set afterwards.
 func TestATCPCheckUsesTLSAndNeverFallsBackToPlaintext(t *testing.T) {
 	if err := os.MkdirAll("/tmp", 0o1777); err != nil {
