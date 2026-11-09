@@ -5,7 +5,7 @@ weight: 1
 description: "The problem bedrock solves, who it is for and what it does today."
 ---
 
-bedrock is a self-hosted Kubernetes platform for managed service providers (MSPs). An MSP runs IT for other organisations: clinics, law firms, small banks, local government. bedrock gives each of those organisations, called a **tenant**, a complete Kubernetes cluster of its own, already hardened, monitored and backed up.
+bedrock is a production-grade Kubernetes platform for managed service providers (MSPs). An MSP runs IT for other organisations: clinics, law firms, small banks, local government. bedrock gives each of those organisations, called a **tenant**, a complete Kubernetes cluster of its own, already hardened, monitored and backed up.
 
 ## The problem
 
@@ -15,7 +15,7 @@ Regulated organisations often need more than that. A clinic or a bank has to sho
 
 ## The approach
 
-bedrock gives every tenant its own cluster on dedicated nodes. Nothing is shared between tenants: not the nodes, not the storage, not the databases, not the monitoring stack and, once the edge layer exists, not the firewall or the network either. One tenant's failure or breach stays inside that tenant.
+bedrock gives every tenant its own cluster on dedicated nodes. Nothing is shared between tenants: not the nodes, not the storage, not the databases, not the monitoring stack. One tenant's failure or breach stays inside that tenant.
 
 Inside each cluster, bedrock installs the same tested stack:
 
@@ -31,7 +31,7 @@ Inside each cluster, bedrock installs the same tested stack:
 | Runtime threat detection | Falco |
 | Event buses, when a tenant needs them | NATS, Redis, Kafka |
 
-The tenant chooses **what** it needs: which buses, how big, which compliance regime. bedrock decides **how** each part is built. Fewer free choices means fewer combinations to test, so every tenant runs a configuration that has been tested as a whole.
+The operator chooses **what** a tenant needs, such as which event buses it runs. bedrock decides **how** each part is built. Fewer free choices means fewer combinations to test, so every tenant runs a configuration that has been tested as a whole.
 
 ## Who it is for
 
@@ -39,6 +39,4 @@ bedrock is written for the people who operate it: the engineers at an MSP. A ten
 
 ## What exists today
 
-bedrock is designed as a set of layers. The **tenant layer**, the cluster each tenant receives, is built, deploys from empty machines with one command and passes the CIS Kubernetes benchmark. The layers above it, which create tenants on demand and manage them as a fleet, are designed but not built yet. The [tier model]({{< relref "tiers" >}}) explains the full design and the [roadmap]({{< relref "/roadmap" >}}) shows the order of work.
-
-Everything in these docs describes the tenant layer unless a page says otherwise.
+The **tenant layer**, the cluster each tenant receives, is built, deploys from empty machines with one command and passes the CIS Kubernetes benchmark. These docs describe the tenant layer. What comes next is on the [roadmap]({{< relref "/roadmap" >}}).

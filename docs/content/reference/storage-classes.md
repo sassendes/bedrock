@@ -6,42 +6,45 @@ description: "The Longhorn storage classes, their settings and which components 
 
 ## Classes
 
-| | `longhorn` | `longhorn-local` |
-|---|---|---|
-| Defined by | Longhorn's manifest | `tenant-workload/storage/longhorn/longhorn-local.yaml` |
-| Default class | Yes | No |
-| Replicas | Longhorn's default, spread across nodes | 1 |
-| Data locality | Off | `strict-local`, the replica stays on the pod's node |
-| Encrypted | No | Yes, LUKS with the key in `longhorn-crypto` |
-| Binding | Immediate | `WaitForFirstConsumer` |
-| Expansion | Allowed | Allowed |
-| Reclaim policy | Delete | Delete |
+bedrock's two classes are defined in `tenant-workload/storage/longhorn/`.
 
-`longhorn-local` binds only when the pod is scheduled, so the volume is created on the node the pod lands on. Garage runs one pod per node, so each Garage node owns the disk beside it.
+| | `longhorn-encrypted` | `longhorn-local` | `longhorn` |
+|---|---|---|---|
+| Defined by | `longhorn-encrypted.yaml` | `longhorn-local.yaml` | Longhorn's manifest |
+| Default class | No | No | Yes |
+| Replicas | 3, spread across nodes | 1 | Longhorn's default, spread across nodes |
+| Data locality | Off | `strict-local` | Off |
+| Encrypted | Yes, LUKS with the key in `longhorn-crypto` | Yes, LUKS with the key in `longhorn-crypto` | No |
+| Binding | Immediate | `WaitForFirstConsumer` | Immediate |
+| Expansion | Allowed | Allowed | Allowed |
+| Reclaim policy | Delete | Delete | Delete |
+
+`longhorn-local` binds only when the pod is scheduled, so the volume is created on the node the pod lands on, and `strict-local` keeps its one replica on that node. Garage and OpenBao run one pod per node, so each pod owns the disk beside it.
 
 ## Who uses which
 
 | Class | Used by |
 |---|---|
-| `longhorn` | Database clusters, Prometheus, Loki, Tempo, Grafana, NATS, Redis, Kafka |
-| `longhorn-local` | Garage |
+| `longhorn-encrypted` | Database clusters, Prometheus, Loki, Tempo, Grafana, NATS, Redis, Kafka |
+| `longhorn-local` | Garage, OpenBao |
+| `longhorn` | Nothing in bedrock |
 
-Garage replicates every object across its own nodes, so its volumes need no Longhorn replication. Everything else relies on Longhorn for its copies.
+Garage replicates every object across its own nodes and OpenBao replicates its data over raft, so their volumes need no Longhorn replication. Everything else relies on Longhorn for its copies.
 
 ## Encryption key
 
-The encrypted class passes the `longhorn-crypto` Secret to the CSI driver at stage, publish and expand time:
+Both encrypted classes pass the `longhorn-crypto` Secret to the CSI driver at stage, publish and expand time:
 
 | Field | Value |
 |---|---|
 | `CRYPTO_KEY_PROVIDER` | `secret` |
 | `CRYPTO_KEY_CIPHER` | `aes-xts-plain64` |
 | `CRYPTO_KEY_HASH` | `sha256` |
-| `CRYPTO_KEY_SIZE` | `256` |
-| `CRYPTO_PBKDF` | `argon2i` |
+| `CRYPTO_KEY_SIZE` | `512` |
+| `CRYPTO_PBKDF` | `pbkdf2` |
 | `CRYPTO_KEY_VALUE` | The passphrase. Set it before the first deploy. |
 
-The class has no provisioner secret parameters on purpose. Encryption happens on the node, so only the node stages need the key.
+The classes have no provisioner secret parameters on purpose. Encryption happens on the node, so only the node stages need the key.
 
 ## Longhorn settings
 

@@ -13,6 +13,7 @@ description: "The files, variables and stages of the bootstrap and teardown play
 | `make redeploy` | Teardown, then deploy |
 | `make check` | Syntax check of the bootstrap playbook |
 | `make rotate-proof-key` | Rotates the failover controller's proof key with an overlap, no downtime |
+| `make add-replica REPLICA=<name>` | Adds a live replica behind the current primary, see [add a live replica]({{< relref "/tasks/add-replica" >}}) |
 
 Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 
@@ -49,7 +50,7 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 | 7 | Placeholder secrets |
 | 8 | Longhorn, with its RBAC rewritten without wildcards |
 | 9 | CloudNativePG operator and prometheus-operator |
-| 10 | Longhorn encryption key and storage class, Garage, the bucket job |
+| 10 | Longhorn encryption key and storage classes, Garage, the bucket job, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed |
 | 11 | cluster-1, the failover functions and the proof key loaded into it, its first backup, the certificate sync, then cluster-2 and cluster-3 |
 | 12 | Poolers, scheduled backups and disruption budgets |
 | 13 | Event buses, if enabled |
@@ -69,3 +70,11 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 | `/etc/modules-load.d/dm_crypt.conf` | Loads `dm_crypt` at boot for volume encryption |
 | `/etc/profile.d/rke2.sh` | Sets `KUBECONFIG` and `CRI_CONFIG_FILE` at login |
 | `/var/lib/rancher/rke2/server/logs/audit.log` | The API audit log, shipped to Loki |
+
+## Files the bootstrap writes on the controller
+
+| Path | Contents |
+|---|---|
+| `~/.bedrock/kubeconfig` | The admin kubeconfig |
+| `~/.bedrock/openbao-init.json` | OpenBao's unseal key shares and root token, mode 0600 |
+| `~/.bedrock/failover/` | The failover controller's proof keys and exchange certificates |

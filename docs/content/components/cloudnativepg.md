@@ -14,7 +14,7 @@ CloudNativePG 1.30.1 runs PostgreSQL 17.4. The operator lives in `cnpg-system` a
 | Instances | 2 | 2 | 2 |
 | Created by | `initdb` (database `app`, owner `appuser`) | Recovery from cluster-1's backups | Recovery from cluster-1's backups |
 | Replication | Synchronous inside the cluster | Streams from cluster-1 | Streams from cluster-1, 5 minutes behind |
-| Volume | 10 GiB on `longhorn` | 10 GiB | 10 GiB |
+| Volume | 10 GiB on `longhorn-encrypted` | 10 GiB on `longhorn-encrypted` | 10 GiB on `longhorn-encrypted` |
 | Priority class | `bedrock-data` | `bedrock-data` | `bedrock-data` |
 
 Each instance requests 256 MiB and 100m of CPU, with limits of 1 GiB and 1 CPU.

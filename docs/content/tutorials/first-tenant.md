@@ -8,7 +8,7 @@ In this tutorial you deploy a complete bedrock tenant on your machines, check th
 
 ## What you need
 
-- **Three machines** running Debian 12, each with at least 4 vCPU, 9 GB of RAM and 200 GB of disk. Virtual machines are fine.
+- **Three machines** running Debian 12, each with at least 4 vCPU, 12 GB of RAM and 200 GB of disk, and more RAM if you turn on event buses. Virtual machines are fine.
 - **SSH access** to each machine with a key, for a user that has passwordless `sudo`.
 - **A controller**: any Linux machine that can reach every node over SSH. Your laptop works.
 - **Network access** from the nodes to GitHub and the container registries, to download releases and images.

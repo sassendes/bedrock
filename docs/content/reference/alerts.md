@@ -4,7 +4,7 @@ weight: 5
 description: "Every alert rule that ships with a tenant, with its severity and how long the condition must hold."
 ---
 
-Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as one `PrometheusRule`. Falco's rules live next to Falco in `tenant-workload/observability/falco/falco.yaml`. One more rule, `PostgresDropStatement`, is a Loki rule in `tenant-workload/observability/loki/loki.yaml` that fires as soon as a database logs a `DROP` statement.
+Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as one `PrometheusRule`. Falco's rules live next to Falco in `tenant-workload/observability/falco/falco.yaml`. Three more, `PostgresDropStatement`, `FalcoCriticalEventLog` and `AuditLogSilent`, are Loki rules in `tenant-workload/observability/loki/loki.yaml`. They read log lines instead of metrics.
 
 ## Nodes
 
@@ -53,6 +53,11 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as 
 | `EndpointDown` | critical | 2m | A blackbox probe fails |
 | `KyvernoAdmissionDegraded` | critical | 2m | Fewer than a majority of Kyverno admission replicas are ready |
 | `KyvernoAdmissionDown` | critical | 1m | No Kyverno admission replica is ready |
+| `RuleEvaluationFailing` | critical | 5m | Prometheus or Loki's ruler fails to evaluate a rule group. A rule that cannot evaluate can never fire |
+| `AlertSendingFailing` | critical | 10m | Prometheus or Loki's ruler cannot deliver alerts to Alertmanager |
+| `AlertmanagerNotificationsFailing` | critical | 10m | Alertmanager fails to deliver through one of its integrations |
+| `PrometheusConfigReloadFailed` | warning | 10m | Prometheus rejected its last configuration and keeps the previous one |
+| `AlertmanagerConfigReloadFailed` | warning | 10m | Alertmanager rejected its last configuration and keeps the previous one |
 | `Watchdog` | none | always | Always. It proves the alerting pipeline works. |
 
 ## Storage, certificates and etcd
@@ -77,6 +82,7 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as 
 | `FalcoCriticalEvent` | critical | immediately | A Falco rule of priority Emergency, Alert or Critical matched in the last 5 minutes |
 | `FalcoWarningEvent` | warning | immediately | A Falco rule of priority Error or Warning matched in the last 15 minutes |
 | `FalcoDown` | critical | 5m | Falco on a node cannot be scraped |
+| `FalcoCriticalEventLog` | critical | immediately | A Falco event of priority Emergency, Alert or Critical, or a reverse shell, appears in Loki in the last 5 minutes. It reads the event itself, so it fires on the very first one |
 
 ## Failover
 
@@ -96,10 +102,16 @@ These live in `tenant-workload/failover/monitoring.yaml`.
 | `BedrockCheckerSilent` | warning | 1m | The checker has not finished a round for a minute |
 | `BedrockObserverBlind` | warning | 2m | An observer cannot discover the clusters or publish its vote |
 | `BedrockObserverAlone` | warning | 5m | An observer reaches no peers |
+| `BedrockFailoverBlind` | critical | 2m | The verifier has neither a signed up nor a proof of death for a primary, so a real failover cannot happen |
+| `BedrockNoLiveReplica` | critical | 10m | A primary has no ready live replica to promote. Add one with `make add-replica` |
+| `BedrockCheckerHoldsFailover` | critical | 10m | The checker has held every failover for ten minutes |
 
 ## Logs
 
 | Alert | Severity | For | Fires when |
 |---|---|---|---|
 | `PostgresDropStatement` | critical | immediately | A database cluster logs a `DROP` statement |
+| `AuditLogSilent` | critical | 5m | No API audit log line has reached Loki for 15 minutes. `PostgresDropStatement` cannot fire while this fires |
+| `AlloyDroppingLogs` | critical | immediately | Alloy gave up on log lines after every retry, in the last 10 minutes |
+| `AlloyPushFailing` | warning | 10m | Alloy's pushes to Loki get a non-2xx answer. A 403 means a layer 7 rule refuses the push |
 

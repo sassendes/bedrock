@@ -99,6 +99,13 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 | Garage | Kubernetes API (node discovery) | any |
 | The nodes | Garage S3 | 3900 |
 
+## Secrets
+
+| From | To | Port |
+|---|---|---|
+| OpenBao | OpenBao (API and raft) | 8200, 8201 |
+| The nodes | OpenBao | 8200 |
+
 ## Admission webhooks
 
 | From | To | Port |

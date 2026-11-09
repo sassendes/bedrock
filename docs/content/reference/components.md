@@ -29,7 +29,13 @@ All images are pinned by digest in the repository. Upstream bundles are checked 
 | Garage | v2.4.1 | `garage` |
 | CloudNativePG operator | 1.30.1 | `cnpg-system` |
 | PostgreSQL | 17.4 | `cluster-1`, `cluster-2`, `cluster-3` |
-| Failover controller | 0.1.0, built in this repository | `bedrock-failover` |
+| Failover controller | 0.3.3, built in this repository | `bedrock-failover` |
+
+## Secrets
+
+| Component | Version | Namespace |
+|---|---|---|
+| OpenBao | 2.7.2 | `openbao` |
 
 ## Observability
 

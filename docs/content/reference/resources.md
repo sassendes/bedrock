@@ -13,7 +13,7 @@ When a node runs out of room, Kubernetes evicts lower priority pods first. bedro
 | Class | Value | Reserved for |
 |---|---|---|
 | `bedrock-storage` | 90000000 | Garage |
-| `bedrock-data` | 80000000 | Database clusters, their poolers and Falco |
+| `bedrock-data` | 80000000 | Database clusters, their poolers, Falco and the failover controller |
 | `bedrock-workload` | 50000000 | Event buses |
 | `bedrock-default` | 10000000 | Everything else. This is the global default. |
 
@@ -26,6 +26,25 @@ Kubernetes components and Kyverno's admission controller run at the built-in sys
 | Garage | `garage` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-storage` |
 | Database clusters | `postgres` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
 | Falco | `falco` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
+
+The PgBouncer poolers have no requests or limits set. CloudNativePG creates their pods and nothing in their namespaces requires limits.
+
+## Failover controller
+
+All run at `bedrock-data`.
+
+| Workload | Container | Requests | Limits |
+|---|---|---|---|
+| Observers, a and b | `observer` | 20m, 32Mi | 200m, 128Mi |
+| Deciders | `decider` | 20m, 48Mi | 300m, 192Mi |
+| Verifier | `verifier` | 20m, 48Mi | 300m, 192Mi |
+| Checker | `checker` | 10m, 24Mi | 100m, 96Mi |
+
+## Secrets
+
+| Workload | Container | Requests | Limits | Priority |
+|---|---|---|---|---|
+| OpenBao | `openbao` | 100m, 256Mi | 1 CPU, 512Mi | `bedrock-default` |
 
 ## Monitoring
 

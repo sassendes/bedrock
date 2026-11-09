@@ -19,8 +19,7 @@ noClasses = false
 
 [params]
 repo = "https://github.com/sassendes/bedrock"
-version = "tenant layer"
-description = "Self-hosted Kubernetes platform for managed service providers. One hardened cluster per tenant, nothing shared."
+description = "Production-grade Kubernetes platform for managed service providers. One hardened cluster per tenant, nothing shared."
 
 [[menu.main]]
 name = "Documentation"

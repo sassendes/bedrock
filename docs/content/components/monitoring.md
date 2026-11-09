@@ -15,7 +15,7 @@ Managed by prometheus-operator v0.93.1, which runs in its own `prometheus-operat
 | Version | v3.13.1, set explicitly with its digest |
 | Replicas | 2, scraping the same targets independently |
 | Retention | 15 days or 16 GB, whichever comes first |
-| Volume | 20 GiB on `longhorn` |
+| Volume | 20 GiB on `longhorn-encrypted` |
 | Resources | 400 MiB and 100m requested, 1 GiB and 1 CPU limit |
 | Disruption budget | Keeps 1 |
 | Selectors | All ServiceMonitors, PodMonitors, Probes and rules in every namespace |
@@ -24,7 +24,7 @@ Its ClusterRole can read nodes, services, endpoints, endpoint slices and pods, a
 
 ## Alertmanager
 
-v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbox exporter can reach it, so no other pod can create a silence. Running it without replicas is enough because the Watchdog alert reveals a dead Alertmanager as soon as delivery to the provisioner exists.
+v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbox exporter can reach it, so no other pod can create a silence. It runs as a single replica.
 
 ## Loki
 

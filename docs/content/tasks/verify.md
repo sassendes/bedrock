@@ -59,7 +59,7 @@ kubectl -n longhorn-system get volumes.longhorn.io \
   -o custom-columns=NAME:.metadata.name,ENCRYPTED:.spec.encrypted
 ```
 
-Every Garage volume shows `true`. Other volumes use the default storage class and show `false` or nothing.
+Every volume shows `true`.
 
 ## Run the CIS benchmark
 

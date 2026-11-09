@@ -8,7 +8,7 @@ Many programs read their configuration file once at startup. Updating the Config
 
 ## Before you begin
 
-Reloader watches the `application` and `node-agents` namespaces, and only ConfigMaps. It ignores Secrets on purpose until OpenBao manages them.
+Reloader watches the `application` and `node-agents` namespaces, and only ConfigMaps. It ignores Secrets on purpose.
 
 ## Add the annotation
 

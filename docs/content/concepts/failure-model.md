@@ -47,6 +47,6 @@ A process should not be the only judge of whether it is healthy, so the decision
 - **A fallback that only stops things.** When the normal path is broken, a simple checker asks the database itself. If it is up, every failover action is blocked. If it is down, a person is paged.
 - **Stuck writes page, never fail over.** A primary that answers but cannot commit for two minutes pages a person.
 
-{{< note "planned" >}}
-For bad data, pausing cluster-3's replay and rolling it forward to just before the mistake is still done by a person. After a failover, a new live replica is added by a playbook that is designed but not merged yet.
+{{< note >}}
+For bad data, pausing cluster-3's replay and rolling it forward to just before the mistake is done by a person. After a failover, a new live replica is added with one command, as described in [add a live replica]({{< relref "/tasks/add-replica" >}}).
 {{< /note >}}

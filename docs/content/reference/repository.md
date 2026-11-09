@@ -12,15 +12,18 @@ description: "Where each part of a tenant lives in the repository."
 | `tenant-workload/netpols/` | Cilium network policies, one file per namespace, plus the cluster-wide default deny |
 | `tenant-workload/storage/` | Garage, the bucket job, Longhorn settings and storage classes |
 | `tenant-workload/database/` | The CloudNativePG clusters, poolers, scheduled backups and the certificate sync |
+| `tenant-workload/database/replica/` | Templates `make add-replica` renders for a new live replica |
 | `tenant-workload/observability/` | Prometheus and exporters, Loki and Alloy, Tempo, Grafana and dashboards, alerting, OpenCost, Falco |
 | `tenant-workload/event-buses/` | NATS, Redis and Kafka |
 | `tenant-workload/failover/` | The failover controller's deployment, admission policies, network policy and alerts |
-| `tenant-workload/openbao/` | OpenBao |
-| `tenant-workload/secrets/` | Placeholder secrets, to be replaced by OpenBao |
+| `tenant-workload/openbao/` | OpenBao: three pods on raft |
+| `tenant-workload/secrets/` | Placeholder secrets |
 | `tenant-workload/bootstrap/dependencies/` | Controller setup |
 | `failover-controller/` | The failover controller's Go code, its Dockerfile and its TLA+ models |
 | `.github/workflows/` | Builds and publishes the failover controller's image |
 | `docs/` | This documentation site |
+| `reports/` | The CIS 1.9 self-assessment |
+| `Makefile` | The `make` commands listed in the [bootstrap reference]({{< relref "bootstrap" >}}) |
 
 ## Conventions
 

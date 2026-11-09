@@ -14,10 +14,11 @@ The bootstrap installs `open-iscsi`, `nfs-common`, `lvm2` and `cryptsetup` on ev
 
 | Class | Replicas | Placement | Encrypted | Used by |
 |---|---|---|---|---|
-| `longhorn` (default) | 3 | anywhere | no | Databases, Prometheus, Loki, Tempo, Grafana, the buses |
-| `longhorn-local` | 1 | same node as the pod | yes | Garage |
+| `longhorn-encrypted` | 3 | anywhere | yes | Databases, Prometheus, Loki, Tempo, Grafana, the buses |
+| `longhorn-local` | 1 | same node as the pod | yes | Garage, OpenBao |
+| `longhorn` (default) | 3 | anywhere | no | Nothing in bedrock. It comes with Longhorn's manifest. |
 
-`longhorn-local` exists because Garage replicates its own data across nodes. Replicating each of those copies again in Longhorn would multiply the space used for no extra safety. Details are in the [storage classes reference]({{< relref "/reference/storage-classes" >}}).
+`longhorn-local` exists because Garage and OpenBao replicate their own data across nodes. Replicating each of those copies again in Longhorn would multiply the space used for no extra safety. Details are in the [storage classes reference]({{< relref "/reference/storage-classes" >}}).
 
 ## Permissions
 
@@ -41,7 +42,7 @@ The bootstrap also deletes the `longhorn-csi-secret-bind` ClusterRoleBinding. It
 
 ## Encryption
 
-Volumes in `longhorn-local` are LUKS devices. The key lives in the `longhorn-crypto` Secret in `longhorn-system` and is referenced by the storage class for staging, publishing and expanding the volume. Changing a storage class's parameters requires recreating it, so turning encryption on for existing volumes means a fresh deploy.
+Volumes in `longhorn-encrypted` and `longhorn-local` are LUKS devices. The key lives in the `longhorn-crypto` Secret in `longhorn-system` and is referenced by the storage class for staging, publishing and expanding the volume. Changing a storage class's parameters requires recreating it, so turning encryption on for existing volumes means a fresh deploy.
 
 ## Monitoring
 

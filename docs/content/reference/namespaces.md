@@ -14,6 +14,7 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 | `bedrock-failover` | The failover controller: observers, deciders, the verifier and the checker | restricted | Per component only |
 | `cnpg-system` | CloudNativePG operator | set by the upstream bundle | Allowed |
 | `garage` | Garage and its init job | restricted | Per component only |
+| `openbao` | OpenBao, three pods on raft | restricted | OpenBao pods only |
 | `longhorn-system` | Longhorn | privileged | Allowed |
 | `kyverno` | Kyverno controllers | set by the upstream bundle | Allowed |
 | `prometheus-operator` | prometheus-operator | restricted | Allowed |
@@ -31,7 +32,7 @@ Default service accounts in every namespace have `automountServiceAccountToken: 
 | Class | Value | Allowed in |
 |---|---|---|
 | `bedrock-storage` | 90000000 | `garage` |
-| `bedrock-data` | 80000000 | `cluster-1`, `cluster-2`, `cluster-3`, `falco`, `bedrock-failover` |
+| `bedrock-data` | 80000000 | `cluster-1`, `cluster-2`, `cluster-3`, `falco`, `bedrock-failover` and any namespace labelled `bedrock.io/database: "true"` |
 | `bedrock-workload` | 50000000 | any |
 | `bedrock-default` | 10000000 | any, the global default |
 | `system-cluster-critical`, `system-node-critical` | Kubernetes defaults | `kube-system`, `kyverno` |

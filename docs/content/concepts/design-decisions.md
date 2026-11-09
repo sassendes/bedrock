@@ -41,13 +41,13 @@ Most parts of bedrock replaced something else that was tried or considered first
 | Kyverno on application namespaces only | Kyverno on every namespace | Storage and database recovery must never depend on a policy engine |
 | Priority classes set in each manifest | A Kyverno mutation | Priority is scheduling, not security, so it should not sit behind a webhook |
 | A small privileged `node-agents` namespace | Host agents inside `application` | Two agents needing the host made every monitoring pod eligible to run as root |
-| OpenBao, one per tenant | Sealed secrets, SOPS or a shared vault | An audit trail and dynamic credentials, and no shared component holding every tenant's keys |
+| OpenBao, one per tenant | Sealed secrets, SOPS or a shared vault | No shared component holding every tenant's keys |
 | Falco to stdout, collected by Alloy | falcosidekick | One component fewer |
 
 ## Operations
 
 | Chosen | Instead of | Reason |
 |---|---|---|
-| A single Alertmanager per tenant | A highly available Alertmanager | If it dies, the Watchdog stops reaching the provisioner, which raises the alarm. High availability arrives with delivery through the provisioner. |
+| A single Alertmanager per tenant | A highly available Alertmanager | Prometheus keeps evaluating and showing firing alerts while Alertmanager restarts |
 | Local etcd snapshots | Snapshots to external S3 | The bootstrap must work with no outside services, and etcd can be rebuilt from the repository |
 | Single replicas for Tempo, Grafana and OpenCost | High availability everywhere | They lose nothing on restart |

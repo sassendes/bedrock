@@ -126,7 +126,6 @@ Even when a primary is dead, the decider holds and pages instead of acting when:
 
 The delayed replica, cluster-3, is never promoted automatically. The verifier does not take the API's word for which replica is delayed: it asks the candidate's postgres for `recovery_min_apply_delay` and refuses anything but 0.
 
-A disaster recovery cluster in another datacenter is not part of this. It pulls from the primary from outside, and the controller never sees it.
 
 ## A failover run
 

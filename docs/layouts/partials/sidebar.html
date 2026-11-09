@@ -20,9 +20,6 @@
           </ul>
         </li>
       {{ end }}
-      {{ range where site.Home.RegularPages "Section" "" }}
-        <li class="leaf"><a href="{{ .RelPermalink }}"{{ if eq $cur . }} class="current"{{ end }}>{{ .LinkTitle }}</a></li>
-      {{ end }}
     </ul>
   </nav>
 </aside>

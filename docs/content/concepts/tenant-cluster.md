@@ -34,7 +34,11 @@ Longhorn provides block volumes for everything that needs a disk. Garage runs on
 
 ## Databases
 
-CloudNativePG runs a primary PostgreSQL cluster and replica clusters that follow it, one live and one delayed. Applications connect through a connection pooler and a stable service name, so they do not need to know which cluster is active.
+CloudNativePG runs a primary PostgreSQL cluster and replica clusters that follow it, one live and one delayed. Applications connect through a connection pooler and a stable service name, so they do not need to know which cluster is active. If the primary cluster is lost, bedrock's [failover controller]({{< relref "/components/failover" >}}) promotes the live replica.
+
+## Secrets
+
+OpenBao runs as three pods on raft in its own namespace. The bootstrap initializes it and unseals it, and keeps the key shares on the controller machine only.
 
 ## Observability and runtime security
 
@@ -49,6 +53,8 @@ Components are grouped by what they need, not by product. The rule is that a nam
 | `application` | Prometheus, Alertmanager, Grafana, Loki, Tempo, OpenCost, exporters | restricted |
 | `node-agents` | Alloy and node-exporter, which read from the host | privileged |
 | `cluster-1`, `cluster-2`, `cluster-3` | The PostgreSQL clusters and their poolers | restricted |
+| `bedrock-failover` | The failover controller | restricted |
+| `openbao` | OpenBao | restricted |
 | `garage` | S3 object storage | restricted |
 | `falco` | Runtime detection | privileged |
 | `longhorn-system` | Block storage | privileged |

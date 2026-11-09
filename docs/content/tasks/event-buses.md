@@ -41,7 +41,7 @@ One pod per node, all `Running`. For Redis use the `redis` namespace and for Kaf
 
 No platform component talks to the buses, so their network policies only admit traffic from their own namespace. When an application needs a bus, add an ingress rule to the bus's policy in `tenant-workload/netpols/event-buses.yaml` that names the application's pods, and an egress rule in the application's own policy that names the bus. Both sides have to allow the flow.
 
-Credentials for the buses are placeholders in `tenant-workload/secrets/` until OpenBao replaces them. Change them before an application stores anything real.
+Credentials for the buses are placeholders in `tenant-workload/secrets/`. Change them before an application stores anything real.
 
 ## Make it permanent
 

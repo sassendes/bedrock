@@ -32,7 +32,7 @@ Falco watches system calls on every node: a shell opening in a database pod, an 
 
 ## Data at rest
 
-Kubernetes Secrets are encrypted in etcd. Garage's volumes, which hold every backup, log and trace, are encrypted with LUKS by Longhorn.
+Kubernetes Secrets are encrypted in etcd. Every Longhorn volume is encrypted with LUKS: the databases, the monitoring stack, the event buses, Garage, which holds every backup, log and trace, and OpenBao.
 
 ## Threat model
 
@@ -54,9 +54,9 @@ Some findings are left in place on purpose. Each has a reason.
 | Finding | Why it stays |
 |---|---|
 | CIS 5.1.6: some pods mount API tokens | They are operators and controllers that need the Kubernetes API to work. The exception is documented, not hidden by editing the benchmark. |
-| Kyverno can write Secrets cluster-wide | It copies two replication certificates into the replica namespaces and keeps them current when they rotate. The plan is to have cert-manager issue them directly. |
+| Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. |
 | Pod traffic on the same node is not encrypted | It never leaves the machine. |
-| Placeholder secrets in the repository | They exist so a fresh deploy works. OpenBao replaces them before anything is exposed. |
+| Placeholder secrets in the repository | They exist so a fresh deploy works. Change them before anything is exposed. |
 
 ## Compliance
 

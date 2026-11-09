@@ -1,12 +1,11 @@
 ---
 title: "bedrock documentation"
-description: "Self-hosted Kubernetes platform for managed service providers. One hardened cluster per tenant, nothing shared."
+description: "Production-grade Kubernetes platform for managed service providers. One hardened cluster per tenant, nothing shared."
 cards:
   - title: "Understand bedrock"
     text: "Learn how a tenant is built, how its parts fit together and why it is designed that way."
     links:
       - { name: "What bedrock is", url: "/concepts/overview/" }
-      - { name: "The tier model", url: "/concepts/tiers/" }
       - { name: "Inside a tenant cluster", url: "/concepts/tenant-cluster/" }
       - { name: "Security model", url: "/concepts/security-model/" }
       - { name: "Failure model", url: "/concepts/failure-model/" }

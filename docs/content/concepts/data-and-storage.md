@@ -8,15 +8,13 @@ A tenant keeps two kinds of irreplaceable data: what is in PostgreSQL and what i
 
 ## Block storage: Longhorn
 
-Longhorn turns the disks of the tenant's nodes into replicated block volumes. Most volumes keep a replica on several nodes, so a volume survives the loss of a node. When a node dies, pods stuck on it are deleted and rescheduled instead of holding their volume forever.
+Longhorn turns the disks of the tenant's nodes into replicated block volumes. Most volumes keep a replica on three nodes, so a volume survives the loss of a node. Every volume is encrypted with LUKS, so a disk pulled from a node, or the raw replica files on the host, are unreadable without the key. When a node dies, pods stuck on it are deleted and rescheduled instead of holding their volume forever.
 
 ## Object storage: Garage
 
 Garage provides S3 inside the tenant. It runs one pod per node and copies every object to several of them, so losing a node leaves full copies serving requests.
 
 Each Garage pod stores its data on a Longhorn volume with a single replica that stays on the same node. Garage already keeps its own copies, so Longhorn copying each of them again would waste disk for nothing.
-
-Those volumes are encrypted with LUKS. A disk pulled from a node, or the raw replica files on the host, are unreadable without the key.
 
 Every consumer gets its own bucket and its own key with read and write rights, never owner rights. The replicas get a separate read-only key on the primary's bucket.
 

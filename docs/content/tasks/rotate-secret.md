@@ -7,7 +7,7 @@ description: "Change a password or token that a platform component reads, and ge
 The platform's credentials live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Every component reads them as environment variables, which a process only reads when it starts. Changing a Secret therefore does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
 
 {{< note >}}
-Secrets will move to OpenBao. Until then, the values in `tenant-workload/secrets/` are the source of truth, so change them there and apply the file rather than editing the Secret in the cluster.
+The values in `tenant-workload/secrets/` are the source of truth, so change them there and apply the file rather than editing the Secret in the cluster.
 {{< /note >}}
 
 ## Which components read which Secret

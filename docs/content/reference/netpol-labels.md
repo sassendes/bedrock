@@ -24,6 +24,7 @@ These labels pick which pods a rule applies to.
 | `application` | `app: blackbox-exporter` | Blackbox exporter | `application.yaml` |
 | `garage` | `app: garage` | Garage nodes | `garage.yaml` |
 | `garage` | `app: garage-init` | The bucket setup Job | `garage.yaml` |
+| `openbao` | `app: openbao` | OpenBao, for its raft peers | `openbao.yaml` |
 | `kube-system` | `k8s-app: kube-dns` | CoreDNS | `kube-system.yaml` |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Both observer DaemonSets | `tenant-workload/failover/netpol.yaml` |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | The verifier | `tenant-workload/failover/netpol.yaml` |

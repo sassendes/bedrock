@@ -23,6 +23,22 @@ A flow between two components is allowed in two places: the sender's egress rule
 
 A mistake on one side is not enough to open a path. Both sides have to agree.
 
+## Layer 7 rules
+
+On every plain HTTP flow, the policy also names the requests the sender may make, by method and path. Each rule was written from the source code of the client at its pinned version, so it allows only the requests that client really sends. Anything else is answered with HTTP 403.
+
+| Service | What its clients may do |
+|---|---|
+| Alertmanager | Prometheus may only `POST /api/v2/alerts` and read `/metrics`, Loki's ruler may only `POST /api/v2/alerts`. The silences API is unreachable from every pod. |
+| Loki | Alloy may only push. Grafana may only read. Nobody can delete logs or write rules over the network. |
+| Prometheus | Grafana and OpenCost may only query and read. `/api/v1/admin/*` and the lifecycle endpoints are unreachable. |
+| Tempo | Grafana may only search and read traces. Alloy may only call the OTLP trace `Export` method. `/flush` and `/shutdown` are unreachable. |
+| Everything scraped or probed | Prometheus may only `GET /metrics`, and the blackbox exporter only the health path it probes. |
+
+Flows that are not plain HTTP stay at layer 4: PostgreSQL, the event buses, DNS, TLS connections such as webhooks and the kubelet, traffic between pods of the same component, and Garage's S3 API, where per-bucket keys already limit what a client can do.
+
+An upgrade that changes the paths a client calls shows up as 403 responses in Hubble.
+
 {{< diagram "flows" "The main flows inside a tenant. Every arrow is allowed by name on both ends; anything without an arrow is dropped." >}}
 
 ## Per component inside `application`
@@ -41,6 +57,6 @@ CoreDNS answers names inside the cluster. The `kube-system` policy gives it no e
 
 ## No exposed ports
 
-Dashboards and APIs are `ClusterIP` services. Nothing listens on a NodePort or a LoadBalancer. Until the per-tenant edge exists, operators reach dashboards with `kubectl port-forward`, as described in [reach the dashboards]({{< relref "/tasks/dashboards" >}}).
+Dashboards and APIs are `ClusterIP` services. Nothing listens on a NodePort or a LoadBalancer. Operators reach dashboards with `kubectl port-forward`, as described in [reach the dashboards]({{< relref "/tasks/dashboards" >}}).
 
 The full list of allowed connections is in the [network flows reference]({{< relref "/reference/network-flows" >}}).

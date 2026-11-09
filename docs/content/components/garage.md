@@ -4,7 +4,7 @@ weight: 4
 description: "S3 object storage inside the tenant: layout, buckets, keys and access."
 ---
 
-Garage v2.4.1 is a single binary that provides an S3 API. It replaces MinIO and Ceph RGW in bedrock, and the same tool is planned for the offsite backup machine.
+Garage v2.4.1 is a single binary that provides an S3 API. It replaces MinIO and Ceph RGW in bedrock.
 
 ## Shape
 
@@ -43,7 +43,7 @@ The admin API can create keys and delete buckets, which is why it is the most re
 
 ## Secrets
 
-`rpc_secret` and `admin_token` come from the `garage-secrets` Secret, which holds placeholder values until OpenBao exists.
+`rpc_secret` and `admin_token` come from the `garage-secrets` Secret, which holds placeholder values. Change them before anything is exposed.
 
 ## Monitoring
 
