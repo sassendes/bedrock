@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: checker
-          image: ghcr.io/sassendes/bedrock-failover:0.3.3@sha256:bbaa3b41e1883077fa35279739b874c7e0f81447c2485260941447de9402fc50
+          image: ghcr.io/sassendes/bedrock-failover:0.3.4@sha256:44ee447b5281a529866a1aca19662dbbd4f874fd6899a1f30e0f362584ab902c
           command: ["/checker"]
           env:
             - name: POD_NAMESPACE
