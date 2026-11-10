@@ -5,6 +5,31 @@ metadata:
   namespace: garage
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: garage-init-volume-size
+  namespace: garage
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: ["data-garage-0"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: garage-init-volume-size
+  namespace: garage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: garage-init-volume-size
+subjects:
+  - kind: ServiceAccount
+    name: garage-init
+    namespace: garage
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: garage-init-secrets
@@ -85,7 +110,9 @@ data:
     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
     until [ "$(api "$A/GetClusterStatus" | jq '[.nodes[] | select(.isUp)] | length')" = "3" ]; do sleep 5; done
     if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
-      ROLES=$(api "$A/GetClusterStatus" | jq -c '[.nodes[] | {id: .id, zone: "dc1", capacity: 35000000000, tags: []}]')
+      SIZE=$(kubectl -n garage get pvc data-garage-0 -o jsonpath='{.status.capacity.storage}')
+      CAP=$(echo "$SIZE" | awk '{ n = $0 + 0; u = $0; sub(/^[0-9.]+/, "", u); m["Ki"] = 2^10; m["Mi"] = 2^20; m["Gi"] = 2^30; m["Ti"] = 2^40; m["K"] = 1e3; m["M"] = 1e6; m["G"] = 1e9; m["T"] = 1e12; m[""] = 1; if (!(u in m)) exit 1; printf "%.0f", n * m[u] * 0.9 }')
+      ROLES=$(api "$A/GetClusterStatus" | jq -c --argjson cap "$CAP" '[.nodes[] | {id: .id, zone: "dc1", capacity: $cap, tags: []}]')
       api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":$ROLES}" >/dev/null
       V=$(api "$A/GetClusterLayout" | jq -r '.version')
       api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null

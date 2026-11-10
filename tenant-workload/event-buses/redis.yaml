@@ -44,6 +44,8 @@ data:
     requirepass ${REDIS_PASSWORD}
     masterauth ${REDIS_PASSWORD}
     replica-announce-ip ${SELF}
+    min-replicas-to-write 1
+    min-replicas-max-lag 10
     CONF
     if [ "$MASTER" != "$SELF" ]; then
       echo "replicaof ${MASTER} 6379" >> /etc/redis/redis.conf

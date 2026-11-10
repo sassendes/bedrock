@@ -54,6 +54,8 @@ type setup struct {
 	stallFor time.Duration
 	oneSlot  bool
 	leaseFor int32
+	stale    string
+	previous string
 }
 
 type result struct {
@@ -90,7 +92,7 @@ func run(t *testing.T, s setup) result {
 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 	st := store.New(w.Kube, store.DefaultConfig())
 	if s.round {
-		if err := st.PutRound(ctx, store.Round{Number: 7, Challenge: "c7", IssuedAt: now}); err != nil {
+		if err := st.PutRound(ctx, store.Round{Number: 7, Challenge: "c7", Previous: s.previous, IssuedAt: now}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,7 +112,7 @@ func run(t *testing.T, s setup) result {
 				if s.oneSlot && slot == "b" {
 					continue
 				}
-				v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Challenge: "c7", Ballot: observe.BallotUp}}
+				v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Challenge: voteChallenge(s), Ballot: observe.BallotUp}}
 				if err := st.PublishVotes(ctx, n, slot, "", v); err != nil {
 					t.Fatal(err)
 				}
@@ -220,6 +222,29 @@ func TestOnlyTheVerifierStallingIsEnough(t *testing.T) {
 	s.leaseFor = 3600
 	if r := run(t, s); r.active != 1 || r.halt != 1 {
 		t.Fatalf("a stalled verifier alone did not wake the checker: %+v", r)
+	}
+}
+
+func voteChallenge(s setup) string {
+	if s.stale != "" {
+		return s.stale
+	}
+	return "c7"
+}
+
+func TestVotesFromThePreviousRoundStillMakeQuorum(t *testing.T) {
+	s := healthyPath()
+	s.previous, s.stale = "c6", "c6"
+	if r := run(t, s); r.active != 0 || r.halt != 0 {
+		t.Fatalf("observers still on the previous challenge woke the checker: %+v", r)
+	}
+}
+
+func TestVotesTwoRoundsOldDoNotMakeQuorum(t *testing.T) {
+	s := healthyPath()
+	s.previous, s.stale = "c6", "c5"
+	if r := run(t, s); r.active != 1 || r.halt != 1 {
+		t.Fatalf("votes two rounds old made quorum: %+v", r)
 	}
 }
 

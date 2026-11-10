@@ -51,7 +51,7 @@ Every flow must be allowed on both sides. Open the two files in `tenant-workload
 Apply both and watch the drops stop:
 
 ```sh
-kubectl apply -f netpols/
+kubectl apply -f tenant-workload/netpols/
 ```
 
 The labels each policy matches on are listed in the [policy labels reference]({{< relref "/reference/netpol-labels" >}}).

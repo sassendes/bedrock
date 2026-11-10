@@ -52,11 +52,15 @@ data:
       kubectl -n "$ns" create secret generic "$secret" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
     }
     if ! kubectl -n "$R" get secret "$R-backups" >/dev/null 2>&1; then
-      if api "$A/GetBucketInfo?globalAlias=$R-backups" >/dev/null 2>&1; then
-        echo "bucket $R-backups already exists: it holds another database's wal, names are never reused"
+      INFO=$(api "$A/GetBucketInfo?globalAlias=$R-backups" 2>/dev/null || true)
+      BID=$(echo "$INFO" | jq -r '.id // empty' 2>/dev/null || true)
+      if [ -n "$BID" ] && [ "$(echo "$INFO" | jq -r '.objects // 0')" != "0" ]; then
+        echo "bucket $R-backups already holds objects: it is another database's wal, names are never reused"
         exit 1
       fi
-      BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
+      if [ -z "$BID" ]; then
+        BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
+      fi
       mint "$R-backups" "$BID" true "$R-backups" "$R"
     fi
     for pair in {% for k in ro_keys %}{{ k.bucket }}:{{ k.ns }} {% endfor %}; do

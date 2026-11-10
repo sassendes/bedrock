@@ -35,14 +35,14 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as 
 
 | Alert | Severity | For | Fires when |
 |---|---|---|---|
-| `CNPGReplicationLagHigh` | warning | 5m | A replica is more than 30 seconds behind (cluster-3 excluded) |
-| `CNPGReplicationLagCritical` | critical | 5m | A replica is more than 120 seconds behind (cluster-3 excluded) |
+| `CNPGReplicationLagHigh` | warning | 5m | A replica is more than 30 seconds behind. Instances with `recovery_min_apply_delay` set, the delayed replicas, are left out |
+| `CNPGReplicationLagCritical` | critical | 5m | A replica is more than 120 seconds behind, delayed replicas left out |
 | `CNPGInstanceDown` | critical | 3m | An instance's metrics cannot be scraped |
-| `CNPGDelayedReplicaStuck` | warning | 10m | cluster-3 is more than 600 seconds behind instead of about 300 |
+| `CNPGDelayedReplicaStuck` | warning | 10m | A delayed replica, found by its `recovery_min_apply_delay`, is more than 600 seconds behind instead of about 300 |
 | `WALArchivingFailing` | critical | immediately | WAL archiving to Garage failed in the last 10 minutes |
-| `CNPGRowsDeletedSpike` | critical | 1m | Rows are deleted at more than 10 times the usual rate |
+| `CNPGRowsDeletedSpike` | critical | 1m | Rows are deleted at more than 10 times the usual rate on whichever cluster is primary. Standbys never count deletes they replay |
 | `CNPGRowsUpdatedSpike` | critical | 1m | Rows are updated at more than 10 times the usual rate |
-| `CNPGStackedInstances` | warning | 15m | More than one instance of a cluster runs on the same node |
+| `CNPGStackedInstances` | warning | 15m | More than one instance of any database cluster runs on the same node |
 | `CNPGBackupTooOld` | critical | 10m | The last base backup is more than 8 hours old |
 
 ## Platform
@@ -94,7 +94,10 @@ These live in `tenant-workload/failover/monitoring.yaml`.
 | `BedrockPrimaryProvenDead` | critical | immediately | A primary is proven dead |
 | `BedrockPrimaryContradiction` | critical | 1m | A primary signed that it is alive while three witnesses say dead; nothing will act |
 | `BedrockFallbackDatabaseDown` | critical | immediately | The normal path is broken and the checker sees the database down |
-| `BedrockFailoverLostWrites` | critical | immediately | A failover promoted a replica that was behind the last signed write; the value is the gap in bytes, -1 if unknown |
+| `BedrockFailoverLostWrites` | warning | immediately | A failover promoted a replica that was behind the last signed write. The signed position includes the observers' own heartbeat writes, so a few bytes after a hard crash are usually heartbeats |
+| `BedrockFailoverLostWritesLarge` | critical | immediately | The gap is over 64 KiB, more than heartbeats alone can explain, or it is unknown (-1) |
+| `BedrockExchangeCertExpiring` | warning | 1h | The observers' exchange certificate expires within 30 days |
+| `BedrockExchangeCertExpiryCritical` | critical | 10m | It expires within 7 days |
 | `BedrockPrimaryNotWriting` | critical | immediately | Every observer has seen the primary answer without committing a write for over two minutes |
 | `BedrockFailoverClaimStuck` | critical | 10m | A failover has been open for ten minutes |
 | `BedrockDeciderNoLeader` | critical | 1m | The deciders do not have exactly one leader |
@@ -110,7 +113,7 @@ These live in `tenant-workload/failover/monitoring.yaml`.
 
 | Alert | Severity | For | Fires when |
 |---|---|---|---|
-| `PostgresDropStatement` | critical | immediately | A database cluster logs a `DROP` statement |
+| `PostgresDropStatement` | critical | immediately | Any `postgres` container logs a `DROP` statement, whatever its cluster is called |
 | `AuditLogSilent` | critical | 5m | No API audit log line has reached Loki for 15 minutes. `PostgresDropStatement` cannot fire while this fires |
 | `AlloyDroppingLogs` | critical | immediately | Alloy gave up on log lines after every retry, in the last 10 minutes |
 | `AlloyPushFailing` | warning | 10m | Alloy's pushes to Loki get a non-2xx answer. A 403 means a layer 7 rule refuses the push |

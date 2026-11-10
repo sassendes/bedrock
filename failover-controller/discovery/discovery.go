@@ -99,6 +99,9 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 		obj := &list.Items[i]
 		m := readMember(obj)
 		m.Declared = obj.GetLabels()[cfg.RoleLabel]
+		if m.Declared == Unmanaged {
+			continue
+		}
 		m.Zones = zones[m.Key()]
 		key := m.Key()
 
@@ -195,6 +198,9 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
 // disagree is the badge against the fingerprint: the label declares the role, the spec proves it. A missing
 // label or one the facts contradict is refused, never guessed, so a relabel by hand never promotes a delayed
 // replica and a cluster nobody declared is never acted on.
+// Unmanaged is declared on a cluster the failover must leave alone, such as a point in time restore.
+const Unmanaged = "unmanaged"
+
 func disagree(cfg Config, m Member) string {
 	switch {
 	case m.Declared == "":

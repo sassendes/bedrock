@@ -43,9 +43,19 @@ func pgBin(t *testing.T) string {
 	}
 	matches, _ := filepath.Glob("/usr/lib/postgresql/*/bin/initdb")
 	if len(matches) == 0 {
-		t.Skip("no postgres binaries found, set BEDROCK_PG_BIN")
+		skipOrFail(t, "no postgres binaries found, set BEDROCK_PG_BIN")
 	}
 	return filepath.Dir(matches[len(matches)-1])
+}
+
+// skipOrFail skips on a laptop without the binaries, and fails in CI where BEDROCK_REQUIRE_INTEGRATION is
+// set, so a green run there always means these tests ran.
+func skipOrFail(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("BEDROCK_REQUIRE_INTEGRATION") != "" {
+		t.Fatal("BEDROCK_REQUIRE_INTEGRATION is set: " + why)
+	}
+	t.Skip(why)
 }
 
 func asPostgres(name string, args ...string) *exec.Cmd {
@@ -101,7 +111,7 @@ func startPrimary(t *testing.T) *pgInstance {
 	p.start()
 	p.exec(readSQL(t))
 	p.exec(fmt.Sprintf("ALTER ROLE bedrock_observer PASSWORD '%s'", pgObserverPassword))
-	p.exec(fmt.Sprintf("INSERT INTO bedrock_proof_key (id, key, active) VALUES ('k1', decode('%s', 'hex'), true)", testKeyHex))
+	p.exec(fmt.Sprintf("INSERT INTO bedrock.bedrock_proof_key (id, key, active) VALUES ('k1', decode('%s', 'hex'), true)", testKeyHex))
 	return p
 }
 
@@ -323,10 +333,10 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close(ctx)
-		if _, err := conn.Exec(ctx, "SELECT key FROM bedrock_proof_key"); err == nil {
+		if _, err := conn.Exec(ctx, "SELECT key FROM bedrock.bedrock_proof_key"); err == nil {
 			t.Fatal("observer read the proof key")
 		}
-		if _, err := conn.Exec(ctx, "UPDATE bedrock_proof_key SET active = false"); err == nil {
+		if _, err := conn.Exec(ctx, "UPDATE bedrock.bedrock_proof_key SET active = false"); err == nil {
 			t.Fatal("observer changed the proof key")
 		}
 	})
@@ -380,7 +390,7 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer tx.Rollback(ctx)
-		if _, err := tx.Exec(ctx, "SELECT 1 FROM bedrock_heartbeat WHERE observer = 'node-hang' FOR UPDATE"); err != nil {
+		if _, err := tx.Exec(ctx, "SELECT 1 FROM bedrock.bedrock_heartbeat WHERE observer = 'node-hang' FOR UPDATE"); err != nil {
 			t.Fatal(err)
 		}
 		p := strongCheck(ctx, primary.observerConfig(500*time.Millisecond), "node-hang", "db/primary")
@@ -406,6 +416,19 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		}
 	})
 
+	t.Run("a rotated password file is read on the next check", func(t *testing.T) {
+		cfg := primary.observerConfig(time.Second)
+		file := filepath.Join(t.TempDir(), "password")
+		if err := os.WriteFile(file, []byte(cfg.Password+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg.PasswordFile = file
+		cfg.Password = "stale"
+		if p := strongCheck(ctx, cfg, "node-1", "db/primary"); p.Result != ResultUp {
+			t.Fatalf("the password from the file was not used: %+v", p)
+		}
+	})
+
 	t.Run("observer login can touch nothing but its heartbeat", func(t *testing.T) {
 		primary.exec("CREATE TABLE IF NOT EXISTS accounts (id int, balance numeric); INSERT INTO accounts VALUES (1, 100)")
 		cfg := primary.observerConfig(time.Second)
@@ -417,8 +440,8 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		for _, sql := range []string{
 			"SELECT * FROM accounts",
 			"UPDATE accounts SET balance = 0",
-			"DELETE FROM bedrock_heartbeat",
-			"SELECT at FROM bedrock_heartbeat",
+			"DELETE FROM bedrock.bedrock_heartbeat",
+			"SELECT at FROM bedrock.bedrock_heartbeat",
 			"CREATE TABLE evil (x int)",
 		} {
 			if _, err := conn.Exec(ctx, sql); err == nil {
@@ -426,6 +449,50 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestTheDatabaseOwnerCannotTouchTheFailoverObjects(t *testing.T) {
+	primary := startPrimary(t)
+	ctx := context.Background()
+	primary.exec(fmt.Sprintf("CREATE ROLE appowner LOGIN PASSWORD '%s'", pgObserverPassword))
+	primary.exec("CREATE DATABASE appdb OWNER appowner")
+	super := primary.super(ctx)
+	defer super.Close(ctx)
+	cfg := super.Config().Copy()
+	cfg.Database = "appdb"
+	inApp, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inApp.Close(ctx)
+	if _, err := inApp.Exec(ctx, `CREATE TABLE public.bedrock_proof_key (id text PRIMARY KEY, key bytea NOT NULL, active boolean NOT NULL DEFAULT false);
+		INSERT INTO public.bedrock_proof_key VALUES ('old', 'k', true)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inApp.Exec(ctx, readSQL(t)); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	var moved string
+	if err := inApp.QueryRow(ctx, "SELECT id FROM bedrock.bedrock_proof_key").Scan(&moved); err != nil || moved != "old" {
+		t.Fatalf("the key in public was not moved into the bedrock schema: %q %v", moved, err)
+	}
+	owner, err := pgx.Connect(ctx, fmt.Sprintf("postgres://appowner:%s@127.0.0.1:%d/appdb?sslmode=disable", pgObserverPassword, primary.port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer owner.Close(ctx)
+	for _, sql := range []string{
+		"DROP TABLE bedrock.bedrock_heartbeat",
+		"DROP TABLE bedrock.bedrock_proof_key",
+		"DROP FUNCTION bedrock.bedrock_prove(text, text)",
+		"DROP SCHEMA bedrock CASCADE",
+		"CREATE TABLE bedrock.evil (x int)",
+		"SELECT key FROM bedrock.bedrock_proof_key",
+	} {
+		if _, err := owner.Exec(ctx, sql); err == nil {
+			t.Errorf("the database owner was allowed: %s", sql)
+		}
+	}
 }
 
 func TestParseLSN(t *testing.T) {

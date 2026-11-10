@@ -26,8 +26,7 @@ Kubernetes components and Kyverno's admission controller run at the built-in sys
 | Garage | `garage` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-storage` |
 | Database clusters | `postgres` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
 | Falco | `falco` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
-
-The PgBouncer poolers have no requests or limits set. CloudNativePG creates their pods and nothing in their namespaces requires limits.
+| PgBouncer poolers | `pgbouncer` | 50m, 64Mi | 500m, 256Mi | `bedrock-data` |
 
 ## Failover controller
 
@@ -54,7 +53,7 @@ All run at `bedrock-data`.
 | Alertmanager | `alertmanager` | 25m, 64Mi | 250m, 128Mi |
 | Loki | `loki` | 100m, 128Mi | 500m, 512Mi |
 | Tempo | `tempo` | 250m, 512Mi | 1 CPU, 2Gi |
-| Grafana | `grafana` | 50m, 128Mi | 500m, 256Mi |
+| Grafana | `grafana` | 250m, 256Mi | 1 CPU, 1Gi |
 | Grafana | `sc-dashboards` | 10m, 64Mi | 250m, 256Mi |
 | kube-state-metrics | `kube-state-metrics` | 50m, 64Mi | 500m, 256Mi |
 | Blackbox exporter | `blackbox-exporter` | 25m, 32Mi | 200m, 128Mi |

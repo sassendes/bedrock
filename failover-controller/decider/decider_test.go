@@ -398,6 +398,32 @@ func TestNewLeaderResumesTheSameClaim(t *testing.T) {
 	}
 }
 
+func TestAPodThatMovedAfterTheClaimIsFencedOnItsNewNode(t *testing.T) {
+	l := newLab(t)
+	d := l.decider("decider-0")
+	l.run(d, 32, allDown)
+	c := l.claim()
+	if c == nil || c.Step != store.StepClaimed {
+		t.Fatalf("expected a fresh claim, got %+v", c)
+	}
+	if contains(c.Nodes, "n5") {
+		t.Fatalf("n5 ran no instance at claim time: %v", c.Nodes)
+	}
+	moved, err := l.w.Kube.CoreV1().Pods("cluster-1").Get(context.Background(), "cluster-1-2", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved.Spec.NodeName = "n5"
+	if err := l.w.Kube.Tracker().Update(podsGVR, moved, "cluster-1"); err != nil {
+		t.Fatal(err)
+	}
+	l.run(d, 1, allDown)
+	c = l.claim()
+	if c.Step != store.StepFencing || !contains(c.Nodes, "n5") {
+		t.Fatalf("the fence will not check the node the pod moved to: step %s nodes %v", c.Step, c.Nodes)
+	}
+}
+
 func TestVetoBetweenClaimAndFence(t *testing.T) {
 	l := newLab(t)
 	d := l.decider("decider-0")

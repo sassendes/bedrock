@@ -68,6 +68,7 @@ func main() {
 		os.Exit(1)
 	}
 	wcfg.Check.Password = strings.TrimSpace(string(pw))
+	wcfg.Check.PasswordFile = passwordFile
 
 	dyn, kube := common.Clients(log)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

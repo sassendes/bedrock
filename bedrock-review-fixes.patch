@@ -1,0 +1,2747 @@
+diff --git a/.github/workflows/failover-image.yml b/.github/workflows/failover-image.yml
+index a61903f..268070a 100644
+--- a/.github/workflows/failover-image.yml
++++ b/.github/workflows/failover-image.yml
+@@ -7,18 +7,59 @@ on:
+       - failover-controller/**
+       - Makefile
+       - .github/workflows/failover-image.yml
++      - tenant-workload/kyverno/admission/registry-allowlist.yaml
++  pull_request:
++    paths:
++      - failover-controller/**
++      - .github/workflows/failover-image.yml
++      - tenant-workload/kyverno/admission/registry-allowlist.yaml
+   workflow_dispatch:
+ 
+ permissions:
+   contents: read
+-  packages: write
+ 
+ jobs:
++  test:
++    runs-on: ubuntu-24.04
++    env:
++      BEDROCK_REQUIRE_INTEGRATION: "1"
++    steps:
++      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
++      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
++        with:
++          go-version-file: failover-controller/go.mod
++          cache-dependency-path: failover-controller/go.sum
++      - name: the three registry allowlists carry the same pattern
++        run: make check-allowlist
++      - name: vet
++        working-directory: failover-controller
++        run: go vet ./...
++      - name: api server and etcd for the admission tests
++        working-directory: failover-controller
++        run: |
++          set -eu
++          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
++          echo "BEDROCK_APISERVER_BIN=$("$(go env GOPATH)/bin/setup-envtest" use 1.36.2 --bin-dir "$RUNNER_TEMP/envtest" -p path)" >> "$GITHUB_ENV"
++      - name: postgres for the heartbeat tests
++        run: |
++          set -eu
++          bin=$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)
++          test -x "$bin/initdb"
++          echo "BEDROCK_PG_BIN=$bin" >> "$GITHUB_ENV"
++      - name: test
++        working-directory: failover-controller
++        run: go test ./...
++
+   image:
+-    runs-on: ubuntu-latest
++    needs: test
++    if: github.event_name != 'pull_request'
++    runs-on: ubuntu-24.04
++    permissions:
++      contents: read
++      packages: write
+     steps:
+-      - uses: actions/checkout@v4
+-      - name: build and push
++      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
++      - name: build and push a tag that does not exist yet
+         env:
+           TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           ACTOR: ${{ github.actor }}
+@@ -26,5 +67,9 @@ jobs:
+           set -eu
+           image=$(make -s print-failover-image)
+           echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
++          if docker manifest inspect "$image" >/dev/null 2>&1; then
++            echo "$image is already published. A tag is never rebuilt: bump FAILOVER_IMAGE in the Makefile to publish a change."
++            exit 0
++          fi
+           docker build -t "$image" failover-controller
+           docker push "$image"
+diff --git a/.gitignore b/.gitignore
+new file mode 100644
+index 0000000..5dde2c1
+--- /dev/null
++++ b/.gitignore
+@@ -0,0 +1 @@
++tenant-workload/bootstrap/hosts.ini
+diff --git a/Makefile b/Makefile
+index 76dbc3f..8bbf6ea 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,21 +1,26 @@
+ INVENTORY ?= tenant-workload/bootstrap/hosts.ini
+ 
+-FAILOVER_IMAGE ?= ghcr.io/sassendes/bedrock-failover:0.3.3
++FAILOVER_IMAGE ?= ghcr.io/sassendes/bedrock-failover:0.3.4
+ 
+-.PHONY: teardown deploy redeploy check failover-image print-failover-image rotate-proof-key add-replica
++.PHONY: teardown deploy redeploy check check-allowlist failover-image print-failover-image rotate-proof-key rotate-exchange-cert add-replica
+ teardown:
+ 	ansible-playbook -i $(INVENTORY) tenant-workload/bootstrap/bedrock-teardown.yml
+ 
+ deploy:
+ 	ansible-playbook -i $(INVENTORY) tenant-workload/bootstrap/bedrock-bootstrap.yml
+ redeploy: teardown deploy
+-check:
+-	ansible-playbook -i $(INVENTORY) tenant-workload/bootstrap/bedrock-bootstrap.yml --syntax-check
++check: check-allowlist
++	ansible-playbook -i tenant-workload/bootstrap/hosts.example.ini tenant-workload/bootstrap/bedrock-bootstrap.yml --syntax-check
++check-allowlist:
++	@f=tenant-workload/kyverno/admission/registry-allowlist.yaml; n=$$(grep -c "p.matches(r'" $$f); u=$$(grep -o "p.matches(r'[^']*')" $$f | sort -u | wc -l); \
++	if [ "$$n" -lt 3 ] || [ "$$u" -ne 1 ]; then echo "the registry allowlists in $$f drifted: $$n patterns, $$u different"; exit 1; fi
+ failover-image:
+ 	docker build -t $(FAILOVER_IMAGE) failover-controller
+ print-failover-image:
+ 	@echo $(FAILOVER_IMAGE)
+ rotate-proof-key:
+ 	ansible-playbook tenant-workload/bootstrap/rotate-proof-key.yml
++rotate-exchange-cert:
++	ansible-playbook tenant-workload/bootstrap/rotate-exchange-cert.yml
+ add-replica:
+ 	ansible-playbook tenant-workload/bootstrap/add-live-replica.yml -e replica=$(REPLICA)
+diff --git a/README.md b/README.md
+index 6e157d9..6839b47 100644
+--- a/README.md
++++ b/README.md
+@@ -95,7 +95,8 @@ Requirements: three Debian 12 nodes (4 vCPU, 12 GB RAM, 200 GB disk absolute min
+ 
+ ```sh
+ sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
+-# fill in tenant-workload/bootstrap/hosts.ini
++cp tenant-workload/bootstrap/hosts.example.ini tenant-workload/bootstrap/hosts.ini
++# fill in hosts.ini, which git ignores
+ make deploy
+ ```
+ 
+diff --git a/docs/content/components/cloudnativepg.md b/docs/content/components/cloudnativepg.md
+index a8939b7..5fc52a3 100644
+--- a/docs/content/components/cloudnativepg.md
++++ b/docs/content/components/cloudnativepg.md
+@@ -31,7 +31,7 @@ Each instance requests 256 MiB and 100m of CPU, with limits of 1 GiB and 1 CPU.
+ 
+ ## Synchronous replication
+ 
+-cluster-1 uses quorum-based synchronous replication:
++Every cluster carries the same quorum-based synchronous replication block:
+ 
+ ```yaml
+ synchronous:
+@@ -40,7 +40,7 @@ synchronous:
+   dataDurability: preferred
+ ```
+ 
+-A commit returns once at least one standby instance has written it. `preferred` means that if no standby is up, the primary carries on alone instead of blocking every write. cluster-2 and cluster-3 are separate clusters and are not part of this.
++A commit returns once at least one standby instance has written it. `preferred` means that if no standby is up, the primary carries on alone instead of blocking every write. cluster-2 and cluster-3 stream from cluster-1 asynchronously as separate clusters. The block does nothing on them while they are replicas, and takes effect between their own instances the moment one is promoted, so a new primary never runs without it. A replica added with `make add-replica` gets it too when it has more than one instance.
+ 
+ ## Replica clusters
+ 
+@@ -50,7 +50,7 @@ The replicas need cluster-1's CA and replication certificate in their own namesp
+ 
+ ## Poolers
+ 
+-Each cluster has a PgBouncer `Pooler` with more than one instance in transaction mode, `max_client_conn` 1000 and `default_pool_size` 25, and a disruption budget that keeps one running. The poolers on cluster-2 and cluster-3 stay ready but only accept writes once their cluster is promoted.
++Each cluster has a PgBouncer `Pooler` with more than one instance in transaction mode, `max_client_conn` 1000 and `default_pool_size` 25, and a disruption budget that keeps one running. Each pooler pod requests 50m and 64 MiB, with limits of 500m and 256 MiB, so it is never a best effort pod in the write path. The poolers on cluster-2 and cluster-3 stay ready but only accept writes once their cluster is promoted.
+ 
+ `postgres-rw.application.svc` is an `ExternalName` service pointing at the active pooler. Promotion changes only where it points.
+ 
+diff --git a/docs/content/components/failover.md b/docs/content/components/failover.md
+index 7af5716..7f0ab67 100644
+--- a/docs/content/components/failover.md
++++ b/docs/content/components/failover.md
+@@ -35,9 +35,9 @@ Each part has its own service account. The observers, the verifier and the check
+ Every observer connects to the primary as `bedrock_observer` over TLS, verifying the cluster's CA, and runs two statements:
+ 
+ 1. It writes its heartbeat row with a nonce and reads it back. The write must commit.
+-2. Only after the commit, it calls `bedrock_prove(challenge, observer)`. Postgres returns an HMAC-SHA256 over the key id, the challenge, the observer, the instance, the system identifier, the timeline, the WAL position, whether it is in recovery and the time.
++2. Only after the commit, it calls `bedrock.bedrock_prove(challenge, observer)`. Postgres returns an HMAC-SHA256 over the key id, the challenge, the observer, the instance, the system identifier, the timeline, the WAL position, whether it is in recovery and the time.
+ 
+-The key sits in `bedrock_proof_key`. The observer login cannot read that table. The function runs as its owner, so postgres signs with a key the observer never sees. The verifier holds the same key in the `bedrock-proof-keys` Secret and checks every signature.
++The key sits in `bedrock.bedrock_proof_key`. The observer login cannot read that table. The function runs as its owner, so postgres signs with a key the observer never sees. The verifier holds the same key in the `bedrock-proof-keys` Secret and checks every signature.
+ 
+ A signature is valid only if it covers this round's challenge, names the observer that carries it, verifies with a known key and says the instance is not in recovery. A valid signature is called an up, and one up outweighs every vote that says dead.
+ 
+@@ -49,7 +49,9 @@ A signature is valid only if it covers this round's challenge, names the observe
+ | Primary with `default_transaction_read_only` | Refused while not in recovery | No | Down, marked stuck |
+ | Not reachable | No connection | No | Asks the other observers first |
+ 
+-The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`. The bootstrap loads them into the cluster-1 primary on every deploy. The replica clusters receive them through replication.
++The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`, in their own `bedrock` schema owned by the superuser. They are not in `public` on purpose: the application user owns its database, and with it the `public` schema, so it could drop anything there and blind the controller. The bootstrap loads them into the cluster-1 primary on every deploy and moves any older copy out of `public`. The replica clusters receive them through replication.
++
++The observers and the verifier read the observer password from its mounted file again on every connection, so a rotated password is picked up without a restart. See [rotate a secret]({{< relref "/tasks/rotate-secret" >}}).
+ 
+ ## Votes
+ 
+@@ -61,7 +63,9 @@ An observer that cannot reach the primary does not vote down on its own. It asks
+ | Up | Abstain, its own path is broken |
+ | No answers | Abstain, it is isolated |
+ 
+-Each observer writes its votes to its own ConfigMap, `vote-<node>-<slot>`. Admission reads the node and the pod name from the observer's service account token, so an observer can write only its own object.
++Each observer writes its votes to its own ConfigMap, `vote-<node>-<slot>`, on every probe. The decider measures freshness from that write, so it has to happen even when the vote did not change: about three writes a second into etcd for three nodes, which etcd handles easily. Admission reads the node and the pod name from the observer's service account token, so an observer can write only its own object.
++
++The two observers on a node run the same binary from the same image. The pair protects against one pod crashing, being stuck, losing its network path or being compromised, since one of them alone can never vote its node down. It does not protect against a bug in the code itself, which both would share.
+ 
+ The two observers on a node count as one vote:
+ 
+@@ -75,7 +79,7 @@ The node that runs the primary does not vote on it. A vote counts only while it
+ 
+ ## Rounds and the verifier
+ 
+-The verifier closes a round every 4 seconds, whatever the evidence shows, and opens the next one with a new random challenge in `bedrock-round`. A signature belongs to one round, so one taken before a crash cannot be replayed later.
++The verifier closes a round every 4 seconds, whatever the evidence shows, and opens the next one with a new random challenge in `bedrock-round`. The round also keeps the previous challenge, which only the checker uses: observers pick up a new challenge on their next probe, so right after a rotation most votes still carry the old one. A signature belongs to one round, so one taken before a crash cannot be replayed later.
+ 
+ For each primary, the verifier counts the node votes and asks four witnesses:
+ 
+@@ -101,7 +105,7 @@ If two different instances sign as primary in two consecutive rounds, the verifi
+ 
+ ## Deciding to act
+ 
+-Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
++Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. A cluster labelled `unmanaged`, such as a point in time restore, is skipped entirely: it is never watched and never reported as a problem. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
+ 
+ The leading decider ticks every second. A primary becomes suspect when a majority of eligible nodes vote down and no node votes up. It is declared dead after it stays suspect for:
+ 
+@@ -140,10 +144,10 @@ The decider opens a run by writing `claim-<namespace>.<name>`. Writing it is a c
+ | Fenced | Checks the fence again, then sets `spec.replica.enabled: false` on cluster-2 | The fence still holds and the patch is applied |
+ | Promoting | Waits for cluster-2 | cluster-2 is healthy, or after 5 minutes with a page, since cluster-1 is fenced |
+ | Promoted | Points every follower's `spec.replica.source` at cluster-2 | Done for every follower, each one that cannot be moved is paged |
+-| Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done |
++| Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done. A retry after a crash counts the Services this run already moved, recognised by the new label, the approved host and this epoch |
+ | Flipped | Closes the claim | |
+ 
+-A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages. Because the step is saved before the fence starts, a run never closes with cluster-1 half fenced. A cluster that carries a fence annotation with no open or halted run behind it pages.
++The list of nodes the fence is verified on is taken when the claim opens and taken again when the step is saved as fencing, since reconciliation is still on in between and an instance pod can move to another node. A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages. Because the step is saved before the fence starts, a run never closes with cluster-1 half fenced. A cluster that carries a fence annotation with no open or halted run behind it pages.
+ 
+ The verifier approves a run only when all of these hold:
+ 
+@@ -202,7 +206,9 @@ Awake, it calls the primary's `/readyz` itself:
+ | Up | Writes `<target>.halt: "true"` to `bedrock-checker`. Admission blocks every decider action, the verifier revokes, the decider closes its claim. No page, a healthy database needs nobody |
+ | Down | Pages a person, because the normal path cannot act |
+ 
+-It never halts once a fence has started, because finishing a run is safer than stopping half way.
++It never halts once a fence has started, because finishing a run is safer than stopping half way. A halt on any primary holds every primary, because admission reads the halt flags as one set.
++
++Its quorum check accepts votes carrying the current challenge or the one before it, so the normal gap between a round rotating and the observers' next probe never wakes it.
+ 
+ ## A primary that stops writing
+ 
+@@ -295,6 +301,7 @@ All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns
+ | `bedrock_observer_ballot` | Each observer's current vote per primary |
+ | `bedrock_observer_write_stuck_seconds` | How long the primary has answered without committing |
+ | `bedrock_observer_peers` | Other observers this one reaches |
++| `bedrock_observer_exchange_cert_expiry_timestamp_seconds` | When the exchange certificate this observer loaded expires |
+ | `bedrock_verifier_outcome` | Up, proven dead, contradiction or unknown, per primary |
+ | `bedrock_verifier_dead_witnesses` | Witnesses that say dead |
+ | `bedrock_verifier_round` | The current round number |
+@@ -311,17 +318,18 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded.
+ 
+ | Model | Checks |
+ |---|---|
+-| `Proof` | Grades, rounds on a timer, split brain over two rounds |
++| `Proof` | An up cannot be forged, no failover while the API tells the truth, liars cannot block a real outage |
+ | `Evidence` | Witnesses and votes never prove a live database dead |
+ | `Approval` | One approval slot per primary, no write from an old run |
+-| `Instances` | A force deleted pod never leaves two primaries |
++| `Instances` | Two instances signing as primary in two consecutive rounds page a split brain, a switchover does not |
+ | `Pairs` | Two observers per node: two liars anywhere cannot vote a live database down |
+ | `Halt` | A stalled verifier with a recovered database never leads to a fence |
+-| `Promotion` | Sign after commit, the CloudNativePG minute, the catch-up window, the instance pin, the stuck write page. No run ever waits for a person |
++| `Promotion` | Sign after commit, the CloudNativePG minute, the instance pin, the stuck write page. No run ever waits for a person. It still models catch-up as a fixed window; the rule in the code, waiting while replay moves, is checked in `Candidate` |
+ | `Candidate` | Only a ready live replica with no apply delay is promoted, and only what the verifier checked. Fence, promote and flip are bound to the approval. A candidate is never promoted while its replay could still move |
+ | `HalfFence` | The run is saved as fencing before the fence starts, so a half done fence is never orphaned |
+ | `Signer` | A signature counts for the cluster it names, never a sibling sharing the system identifier |
+-| `Decider`, `Exchange`, `Fallback` | The claim steps, the observer exchange, the earlier fallback design |
++| `Decider` | The claim steps, and a force deleted pod on a node that comes back never leaves two primaries |
++| `Exchange`, `Fallback` | The observer exchange, and the earlier fallback design, which the checker replaced |
+ 
+ ## What it does not do
+ 
+diff --git a/docs/content/components/garage.md b/docs/content/components/garage.md
+index 19e3561..43ae52c 100644
+--- a/docs/content/components/garage.md
++++ b/docs/content/components/garage.md
+@@ -22,7 +22,7 @@ Garage pods find each other through Kubernetes discovery. The `GarageNode` custo
+ 
+ ## The bucket job
+ 
+-`garage-init` runs once after Garage starts. It waits for every Garage node to join, applies the cluster layout, then creates the buckets and keys and writes each key into a Secret in the namespace that uses it:
++`garage-init` runs once after Garage starts. It waits for every Garage node to join and applies the cluster layout, with each node's capacity set to 90% of the size of its data volume, read from the volume claim. Then it creates the buckets and keys and writes each key into a Secret in the namespace that uses it:
+ 
+ - one bucket per consumer, with a key that can read and write but never own the bucket
+ - a separate read-only key on cluster-1's bucket for the replica clusters
+diff --git a/docs/content/components/kyverno.md b/docs/content/components/kyverno.md
+index a8e9c01..3156edd 100644
+--- a/docs/content/components/kyverno.md
++++ b/docs/content/components/kyverno.md
+@@ -18,9 +18,9 @@ Kyverno v1.19.1 is installed from the release's `install.yaml`, checked against
+ 
+ The bootstrap waits for the rollout to finish before it applies the policies.
+ 
+-## Scoped with match conditions
++## Scoped by namespace
+ 
+-Each policy has a `webhookConfiguration` with a CEL `matchConditions` expression listing the namespaces it covers. The API server evaluates that expression before calling Kyverno at all, so a request for a namespace outside the list never reaches the webhook. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno.
++Each policy names the namespaces it covers in `matchConstraints.namespaceSelector`, by name or by a label such as `bedrock.io/database: "true"`. Kyverno registers its webhook with that selector, so the API server never sends it a request for a namespace outside the list. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno. Only the failover syncs also use a CEL `matchConditions` expression.
+ 
+ ## Policies
+ 
+diff --git a/docs/content/components/monitoring.md b/docs/content/components/monitoring.md
+index 83e6fa0..575ba28 100644
+--- a/docs/content/components/monitoring.md
++++ b/docs/content/components/monitoring.md
+@@ -38,7 +38,7 @@ v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbo
+ | Deletion API | Turned off, so logs cannot be erased over the API |
+ | Disruption budget | Keeps 2 |
+ 
+-A write needs a majority of copies, so Loki runs an odd number of replicas spread across nodes and keeps serving as long as a majority is up. Loki's ruler sends `PostgresDropStatement` to Alertmanager when a database logs a `DROP`.
++A write needs a majority of copies, so Loki runs an odd number of replicas spread across nodes and keeps serving as long as a majority is up. A pod counts as ready only once `/ready` answers, which is after it has joined the ring, so the Service and the disruption budget never count a pod that cannot take writes yet. Loki's ruler sends `PostgresDropStatement` to Alertmanager when a database logs a `DROP`.
+ 
+ Loki 3.6 moved to version 2 of the AWS SDK, which sends checksums Garage does not accept by default. The `AWS_REQUEST_CHECKSUM_CALCULATION` and `AWS_RESPONSE_CHECKSUM_VALIDATION` variables set to `when_required` fix that.
+ 
+@@ -47,9 +47,15 @@ Loki 3.6 moved to version 2 of the AWS SDK, which sends checksums Garage does no
+ A DaemonSet in `node-agents`. It collects:
+ 
+ - pod logs, labelled with `namespace`, `pod` and `container`
+-- the Kubernetes audit log from `/var/lib/rancher/rke2/server/logs/audit.log`, labelled `job="kube-audit"`, `node` and `verb`
++- the Kubernetes audit log, labelled `job="kube-audit"`, `node` and `verb`
+ - OpenTelemetry traces, forwarded to Tempo
+ 
++The audit log is read from this file on every node:
++
++```
++/var/lib/rancher/rke2/server/logs/audit.log
++```
++
+ Alloy runs as root to read the root-owned audit log, but drops every Linux capability and cannot escalate. It keeps its read positions on the node, so a restart neither resends nor skips log lines.
+ 
+ ## Tempo
+diff --git a/docs/content/concepts/networking.md b/docs/content/concepts/networking.md
+index 48402e5..e32853c 100644
+--- a/docs/content/concepts/networking.md
++++ b/docs/content/concepts/networking.md
+@@ -8,7 +8,9 @@ Inside a tenant, Cilium handles every packet between pods. It does three jobs: i
+ 
+ ## Default deny
+ 
+-A cluster-wide policy selects every pod in every namespace. Once a pod is selected by any policy, Cilium drops all traffic to and from it that no policy allows. The cluster-wide policy allows only two things: health checks from the node and DNS lookups to the cluster DNS server.
++A cluster-wide policy selects every pod in every namespace. Once a pod is selected by any policy, Cilium drops all traffic to and from it that no policy allows. The cluster-wide policy allows only two things: anything from the node itself and DNS lookups to the cluster DNS server.
++
++Cilium adds rules together, so that node allow would cancel any namespace that limits the node to a few ports. Those namespaces are left out of the cluster-wide policy and carry the same deny by default in their own: `application`, `falco`, `node-agents`, `reloader`, `garage`, `openbao`, `bedrock-failover`, and every namespace labelled `bedrock.io/database: "true"`, which includes a replica added later.
+ 
+ Each namespace then has its own `CiliumNetworkPolicy` that adds the flows its components need. Policies only add allows, so a namespace without its own policy is closed, not open. The bootstrap checks this at the end of every deploy and fails if any namespace running pods has no policy.
+ 
+diff --git a/docs/content/concepts/security-model.md b/docs/content/concepts/security-model.md
+index 3b3bf5a..2d678a8 100644
+--- a/docs/content/concepts/security-model.md
++++ b/docs/content/concepts/security-model.md
+@@ -42,7 +42,8 @@ The table shows what an attacker who gains a shell in one pod can reach.
+ |---|---|---|
+ | An application pod in its own namespace | Only the services its own policy names, such as its database pooler | Other tenants, the monitoring stack, Garage, other databases |
+ | Grafana | Prometheus, Loki, Tempo and the Kubernetes API | Alertmanager, Garage, databases |
+-| A pod in `node-agents` | Loki on 3100, Tempo on 4317 and the Kubernetes API | Each other, Alertmanager, Garage, databases |
++| Alloy in `node-agents` | Loki on 3100, Tempo on 4317 and the Kubernetes API | Alertmanager, Garage, databases |
++| node-exporter in `node-agents` | It runs on the host network, so Cilium treats it as the node itself: whatever each namespace lets the node reach, such as kubelet probe ports | Ports a namespace does not open to the node |
+ | A database replica | Its own cluster, Garage on 3900, the primary on 5432, the Kubernetes API | The primary's backups for writing, other tenants |
+ 
+ A breach in one tenant does not reach another, because tenants share no cluster, node or network.
+@@ -54,7 +55,7 @@ Some findings are left in place on purpose. Each has a reason.
+ | Finding | Why it stays |
+ |---|---|
+ | CIS 5.1.6: some pods mount API tokens | They are operators and controllers that need the Kubernetes API to work. The exception is documented, not hidden by editing the benchmark. |
+-| Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. |
++| Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. Its ConfigMap writes are limited to `bedrock-failover` by a Role; cluster-wide it can only read ConfigMaps. |
+ | Pod traffic on the same node is not encrypted | It never leaves the machine. |
+ | Placeholder secrets in the repository | They exist so a fresh deploy works. Change them before anything is exposed. |
+ 
+diff --git a/docs/content/reference/alerts.md b/docs/content/reference/alerts.md
+index a5c8804..fefcb35 100644
+--- a/docs/content/reference/alerts.md
++++ b/docs/content/reference/alerts.md
+@@ -35,14 +35,14 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as
+ 
+ | Alert | Severity | For | Fires when |
+ |---|---|---|---|
+-| `CNPGReplicationLagHigh` | warning | 5m | A replica is more than 30 seconds behind (cluster-3 excluded) |
+-| `CNPGReplicationLagCritical` | critical | 5m | A replica is more than 120 seconds behind (cluster-3 excluded) |
++| `CNPGReplicationLagHigh` | warning | 5m | A replica is more than 30 seconds behind. Instances with `recovery_min_apply_delay` set, the delayed replicas, are left out |
++| `CNPGReplicationLagCritical` | critical | 5m | A replica is more than 120 seconds behind, delayed replicas left out |
+ | `CNPGInstanceDown` | critical | 3m | An instance's metrics cannot be scraped |
+-| `CNPGDelayedReplicaStuck` | warning | 10m | cluster-3 is more than 600 seconds behind instead of about 300 |
++| `CNPGDelayedReplicaStuck` | warning | 10m | A delayed replica, found by its `recovery_min_apply_delay`, is more than 600 seconds behind instead of about 300 |
+ | `WALArchivingFailing` | critical | immediately | WAL archiving to Garage failed in the last 10 minutes |
+-| `CNPGRowsDeletedSpike` | critical | 1m | Rows are deleted at more than 10 times the usual rate |
++| `CNPGRowsDeletedSpike` | critical | 1m | Rows are deleted at more than 10 times the usual rate on whichever cluster is primary. Standbys never count deletes they replay |
+ | `CNPGRowsUpdatedSpike` | critical | 1m | Rows are updated at more than 10 times the usual rate |
+-| `CNPGStackedInstances` | warning | 15m | More than one instance of a cluster runs on the same node |
++| `CNPGStackedInstances` | warning | 15m | More than one instance of any database cluster runs on the same node |
+ | `CNPGBackupTooOld` | critical | 10m | The last base backup is more than 8 hours old |
+ 
+ ## Platform
+@@ -94,7 +94,10 @@ These live in `tenant-workload/failover/monitoring.yaml`.
+ | `BedrockPrimaryProvenDead` | critical | immediately | A primary is proven dead |
+ | `BedrockPrimaryContradiction` | critical | 1m | A primary signed that it is alive while three witnesses say dead; nothing will act |
+ | `BedrockFallbackDatabaseDown` | critical | immediately | The normal path is broken and the checker sees the database down |
+-| `BedrockFailoverLostWrites` | critical | immediately | A failover promoted a replica that was behind the last signed write; the value is the gap in bytes, -1 if unknown |
++| `BedrockFailoverLostWrites` | warning | immediately | A failover promoted a replica that was behind the last signed write. The signed position includes the observers' own heartbeat writes, so a few bytes after a hard crash are usually heartbeats |
++| `BedrockFailoverLostWritesLarge` | critical | immediately | The gap is over 64 KiB, more than heartbeats alone can explain, or it is unknown (-1) |
++| `BedrockExchangeCertExpiring` | warning | 1h | The observers' exchange certificate expires within 30 days |
++| `BedrockExchangeCertExpiryCritical` | critical | 10m | It expires within 7 days |
+ | `BedrockPrimaryNotWriting` | critical | immediately | Every observer has seen the primary answer without committing a write for over two minutes |
+ | `BedrockFailoverClaimStuck` | critical | 10m | A failover has been open for ten minutes |
+ | `BedrockDeciderNoLeader` | critical | 1m | The deciders do not have exactly one leader |
+@@ -110,7 +113,7 @@ These live in `tenant-workload/failover/monitoring.yaml`.
+ 
+ | Alert | Severity | For | Fires when |
+ |---|---|---|---|
+-| `PostgresDropStatement` | critical | immediately | A database cluster logs a `DROP` statement |
++| `PostgresDropStatement` | critical | immediately | Any `postgres` container logs a `DROP` statement, whatever its cluster is called |
+ | `AuditLogSilent` | critical | 5m | No API audit log line has reached Loki for 15 minutes. `PostgresDropStatement` cannot fire while this fires |
+ | `AlloyDroppingLogs` | critical | immediately | Alloy gave up on log lines after every retry, in the last 10 minutes |
+ | `AlloyPushFailing` | warning | 10m | Alloy's pushes to Loki get a non-2xx answer. A 403 means a layer 7 rule refuses the push |
+diff --git a/docs/content/reference/bootstrap.md b/docs/content/reference/bootstrap.md
+index 498fa96..1b024c1 100644
+--- a/docs/content/reference/bootstrap.md
++++ b/docs/content/reference/bootstrap.md
+@@ -11,11 +11,15 @@ description: "The files, variables and stages of the bootstrap and teardown play
+ | `make deploy` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml` |
+ | `make teardown` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-teardown.yml` |
+ | `make redeploy` | Teardown, then deploy |
+-| `make check` | Syntax check of the bootstrap playbook |
++| `make check` | Syntax check of the bootstrap playbook against the example inventory, and `make check-allowlist` |
++| `make check-allowlist` | Fails if the three registry allowlist patterns are not identical |
++| `make rotate-exchange-cert` | Signs a new exchange certificate for the observers and restarts them, see [rotate the exchange certificate]({{< relref "/tasks/rotate-exchange-cert" >}}) |
+ | `make rotate-proof-key` | Rotates the failover controller's proof key with an overlap, no downtime |
+ | `make add-replica REPLICA=<name>` | Adds a live replica behind the current primary, see [add a live replica]({{< relref "/tasks/add-replica" >}}) |
+ 
+-Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
++Set `INVENTORY=path/to/hosts.ini` to use another inventory file. The default `hosts.ini` is ignored by git; copy it from `hosts.example.ini`.
++
++The bootstrap refuses to run once a failover has happened, because it would turn the new primary back into a replica. Tagged runs, `--tags kyverno`, `longhorn`, `cnpg-operator`, `prometheus-operator` or `strimzi`, skip the database and still work, as described in [upgrade a component]({{< relref "/tasks/upgrade-component" >}}).
+ 
+ ## Inventory groups
+ 
+@@ -63,7 +67,7 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
+ 
+ | Path | Contents |
+ |---|---|
+-| `/etc/rancher/rke2/config.yaml` | RKE2 configuration |
++| `/etc/rancher/rke2/config.yaml` | RKE2 configuration, rendered from `rke2-config.yaml.j2` for the first server and the joining ones |
+ | `/etc/rancher/rke2/bedrock-audit.yaml` | API audit policy |
+ | `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml` | Cilium settings |
+ | `/etc/sysctl.d/60-rke2-cis.conf` | CIS kernel settings and inotify limits |
+diff --git a/docs/content/reference/disruption-budgets.md b/docs/content/reference/disruption-budgets.md
+index 4302f79..7553342 100644
+--- a/docs/content/reference/disruption-budgets.md
++++ b/docs/content/reference/disruption-budgets.md
+@@ -11,6 +11,9 @@ Every budget in bedrock allows one pod down at a time. Each one is written as a
+ | Budget | Namespace | Selects | File |
+ |---|---|---|---|
+ | `kyverno-admission-controller` | `kyverno` | Kyverno's admission controller | `tenant-workload/kyverno/admission/admission-pdb.yaml` |
++| `garage` | `garage` | Garage, `minAvailable: 2` | `tenant-workload/storage/garage/garage.yaml` |
++| `openbao` | `openbao` | OpenBao, `minAvailable: 2` | `tenant-workload/openbao/openbao.yaml` |
++| `bedrock-decider` | `bedrock-failover` | The two deciders, `minAvailable: 1` | `tenant-workload/failover/decider.yaml` |
+ | `prometheus` | `application` | Prometheus | `tenant-workload/observability/prometheus/prometheus.yaml` |
+ | `loki` | `application` | Loki | `tenant-workload/observability/loki/loki-pdb.yaml` |
+ | `<cluster>-pooler-rw` | each database namespace | That cluster's PgBouncer pooler | `tenant-workload/database/pooler.yaml` |
+diff --git a/docs/content/reference/network-flows.md b/docs/content/reference/network-flows.md
+index fff5a40..a0c70e7 100644
+--- a/docs/content/reference/network-flows.md
++++ b/docs/content/reference/network-flows.md
+@@ -11,7 +11,8 @@ Everything not listed here is dropped. Each row is allowed in both the source's
+ | From | To | Port |
+ |---|---|---|
+ | Any pod | CoreDNS in `kube-system` | 53 TCP and UDP |
+-| The node (kubelet probes) | Any pod | any |
++| The node | Any pod in a namespace covered by the cluster-wide policy | any |
++| The node (kubelet probes) | Pods in the namespaces that limit the node themselves: `application`, `falco`, `node-agents`, `reloader`, `garage`, `openbao`, `bedrock-failover` and the database namespaces | only their probe and named ports |
+ 
+ ## Metrics collection
+ 
+diff --git a/docs/content/reference/policies.md b/docs/content/reference/policies.md
+index 90c66b8..ee16127 100644
+--- a/docs/content/reference/policies.md
++++ b/docs/content/reference/policies.md
+@@ -20,7 +20,7 @@ Files are in `tenant-workload/kyverno/`.
+ 
+ `bedrock-replica-secret-sync` and `bedrock-replica-ca-sync` in `tenant-workload/kyverno/generate/replica-secret-sync.yaml` are generate policies. They copy the replication certificate and the CA's `ca.crt` from `cluster-1` into `cluster-2` and `cluster-3` and keep them in sync. `bedrock-peer-cluster-2-to-cluster-3`, in the same file, does the same from `cluster-2` into `cluster-3`, so cluster-3 can follow cluster-2 after a failover. `make add-replica` adds one more of these for each new replica.
+ 
+-`bedrock-failover-ca-sync` and `bedrock-failover-password-sync` in `tenant-workload/kyverno/generate/failover-secret-sync.yaml` copy each database cluster's `ca.crt` and the `bedrock_observer` password into `bedrock-failover`. The CA private keys are never copied.
++`bedrock-failover-ca-sync` and `bedrock-failover-password-sync` in `tenant-workload/kyverno/generate/failover-secret-sync.yaml` copy each database cluster's `ca.crt` and the `bedrock_observer` password into `bedrock-failover`. The CA private keys are never copied. Kyverno may only write ConfigMaps in `bedrock-failover`, through a Role in that namespace.
+ 
+ ## Allowed image publishers
+ 
+diff --git a/docs/content/reference/repository.md b/docs/content/reference/repository.md
+index 310e110..7b7766d 100644
+--- a/docs/content/reference/repository.md
++++ b/docs/content/reference/repository.md
+@@ -6,7 +6,8 @@ description: "Where each part of a tenant lives in the repository."
+ 
+ | Path | Contents |
+ |---|---|
+-| `tenant-workload/bootstrap/` | Ansible playbooks, the inventory template, the RKE2 audit policy and the Cilium configuration |
++| `tenant-workload/bootstrap/` | Ansible playbooks, the inventory example, the RKE2 configuration template, the RKE2 audit policy and the Cilium configuration |
++| `tenant-workload/bootstrap/tasks/` | Task files shared by the playbooks, such as finding the primary from the role labels |
+ | `tenant-workload/platform/` | Namespaces, priority classes and the ValidatingAdmissionPolicy, Reloader |
+ | `tenant-workload/kyverno/` | Kyverno policies and the admission controller's disruption budget |
+ | `tenant-workload/netpols/` | Cilium network policies, one file per namespace, plus the cluster-wide default deny |
+@@ -27,6 +28,6 @@ description: "Where each part of a tenant lives in the repository."
+ 
+ ## Conventions
+ 
+-- Every manifest is plain YAML applied by the bootstrap. There is no Helm and no templating.
++- Every manifest is plain YAML applied by the bootstrap. There is no Helm. The only templates are Ansible's: `tenant-workload/database/replica/*.j2`, rendered by `make add-replica`, and `tenant-workload/bootstrap/rke2-config.yaml.j2`, the RKE2 configuration for every server.
+ - YAML files carry no comments and Go code only a few. Explanations live in these docs.
+-- `tenant-workload/bootstrap/hosts.ini` holds placeholders only. Real inventories are kept out of the repository.
++- `tenant-workload/bootstrap/hosts.example.ini` holds placeholders only. The real `hosts.ini` is listed in `.gitignore`, so it stays out of the repository.
+diff --git a/docs/content/reference/resources.md b/docs/content/reference/resources.md
+index 8db6c1a..6d2ac97 100644
+--- a/docs/content/reference/resources.md
++++ b/docs/content/reference/resources.md
+@@ -26,8 +26,7 @@ Kubernetes components and Kyverno's admission controller run at the built-in sys
+ | Garage | `garage` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-storage` |
+ | Database clusters | `postgres` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
+ | Falco | `falco` | 100m, 256Mi | 1 CPU, 1Gi | `bedrock-data` |
+-
+-The PgBouncer poolers have no requests or limits set. CloudNativePG creates their pods and nothing in their namespaces requires limits.
++| PgBouncer poolers | `pgbouncer` | 50m, 64Mi | 500m, 256Mi | `bedrock-data` |
+ 
+ ## Failover controller
+ 
+@@ -54,7 +53,7 @@ All run at `bedrock-data`.
+ | Alertmanager | `alertmanager` | 25m, 64Mi | 250m, 128Mi |
+ | Loki | `loki` | 100m, 128Mi | 500m, 512Mi |
+ | Tempo | `tempo` | 250m, 512Mi | 1 CPU, 2Gi |
+-| Grafana | `grafana` | 50m, 128Mi | 500m, 256Mi |
++| Grafana | `grafana` | 250m, 256Mi | 1 CPU, 1Gi |
+ | Grafana | `sc-dashboards` | 10m, 64Mi | 250m, 256Mi |
+ | kube-state-metrics | `kube-state-metrics` | 50m, 64Mi | 500m, 256Mi |
+ | Blackbox exporter | `blackbox-exporter` | 25m, 32Mi | 200m, 128Mi |
+diff --git a/docs/content/tasks/dropped-connections.md b/docs/content/tasks/dropped-connections.md
+index d3b790b..787a40f 100644
+--- a/docs/content/tasks/dropped-connections.md
++++ b/docs/content/tasks/dropped-connections.md
+@@ -51,7 +51,7 @@ Every flow must be allowed on both sides. Open the two files in `tenant-workload
+ Apply both and watch the drops stop:
+ 
+ ```sh
+-kubectl apply -f netpols/
++kubectl apply -f tenant-workload/netpols/
+ ```
+ 
+ The labels each policy matches on are listed in the [policy labels reference]({{< relref "/reference/netpol-labels" >}}).
+diff --git a/docs/content/tasks/event-buses.md b/docs/content/tasks/event-buses.md
+index 1374040..2920b0f 100644
+--- a/docs/content/tasks/event-buses.md
++++ b/docs/content/tasks/event-buses.md
+@@ -12,6 +12,8 @@ The three event buses are off by default, because most tenants do not need them
+ | Redis with Sentinel | `redis_enabled` | Sessions, rate limits and caches |
+ | Kafka (Strimzi) | `kafka_enabled` | Data pipelines, change data capture and long-term event retention |
+ 
++Redis refuses writes while none of its replicas is in sync with the master (`min-replicas-to-write 1`, `min-replicas-max-lag 10`). A master cut off from its replicas therefore cannot accept writes that a Sentinel failover would later throw away. The cost is that Redis stops taking writes if both replicas are down.
++
+ ## Turn one on
+ 
+ Run the bootstrap with the variable set to `true`. For NATS:
+@@ -29,6 +31,17 @@ ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstra
+ 
+ The bootstrap leaves everything that is already installed as it is and waits for every pod of the bus to be ready.
+ 
++{{< note "warning" >}}
++The bootstrap refuses to run once a failover has happened, because it would turn the new primary back into a replica. After a failover, turn NATS or Redis on by applying its manifest directly, since its secret and network policy are already in place:
++
++```sh
++kubectl apply -f tenant-workload/event-buses/nats.yaml
++kubectl apply -f tenant-workload/event-buses/redis.yaml
++```
++
++Kafka also needs the Strimzi operator, which the bootstrap downloads, checks and patches first. Follow the Strimzi and Kafka tasks in `tenant-workload/bootstrap/bedrock-bootstrap.yml` by hand.
++{{< /note >}}
++
+ ## Check it
+ 
+ ```sh
+diff --git a/docs/content/tasks/image-publishers.md b/docs/content/tasks/image-publishers.md
+index e2e28f9..67aad69 100644
+--- a/docs/content/tasks/image-publishers.md
++++ b/docs/content/tasks/image-publishers.md
+@@ -22,14 +22,14 @@ Copy the `Digest:` line and write the image as `quay.io/example/tool:v1.2.3@sha2
+ 
+ ## Add the publisher
+ 
+-Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains two policies with the same pattern, one for application namespaces and one for data namespaces. The pattern has two groups:
++Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains three policies with the same pattern: one for application namespaces, one for data namespaces and one for every namespace labelled `bedrock.io/database: "true"`. The pattern has two groups:
+ 
+ - single repositories, such as `quay\\.io/kiwigrid/k8s-sidecar`, for when you trust one image
+ - whole organisations, such as `quay\\.io/(prometheus|prometheus-operator|strimzi)/`, for when you trust everything a publisher ships
+ 
+-Add your entry to the right group in **both** policies. Prefer a single repository unless you really trust the whole organisation.
++Add your entry to the right group in **all three** policies, then run `make check-allowlist`, which fails if the three patterns are not identical. CI runs the same check. Prefer a single repository unless you really trust the whole organisation.
+ 
+-Images from Docker Hub without a registry name, like `nats:2.14`, are matched as `docker.io/nats`. Official images from Docker Hub do not include `library/` after normalisation.
++Images from Docker Hub without a registry name, like `nats:2.14`, are matched as `docker.io/nats`. The pattern accepts official images with or without `library/`, so `docker.io/library/nats` matches too.
+ 
+ ## Test before you apply
+ 
+diff --git a/docs/content/tasks/restore-pitr.md b/docs/content/tasks/restore-pitr.md
+index e8ced15..5046e4c 100644
+--- a/docs/content/tasks/restore-pitr.md
++++ b/docs/content/tasks/restore-pitr.md
+@@ -1,37 +1,45 @@
+ ---
+ title: "Restore a database to a point in time"
+ weight: 7
+-description: "Recover cluster-1's data as it was at a given moment, into a new cluster, from the backups in Garage."
++description: "Recover the primary's data as it was at a given moment, into a new cluster, from the backups in Garage."
+ ---
+ 
+-Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `tenant-workload/database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores cluster-1 into a separate, new cluster, so the running database is not touched.
++Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `tenant-workload/database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores the current primary into a separate, new cluster, so the running database is not touched. The primary is cluster-1 until a failover, then whichever cluster carries `bedrock.io/db-role: primary`:
++
++```sh
++kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary
++```
++
++Below, `<primary>` is its name, which is also its namespace.
+ 
+ ## Before you begin
+ 
+ - Know the moment you want, in UTC, for example `2026-10-19 09:30:00+00`.
+-- Make sure Longhorn has room for one more volume the size of cluster-1's.
++- Make sure Longhorn has room for one more volume the size of the primary's.
+ 
+ ## Write the restore cluster
+ 
+-Create `cluster-1-restore.yaml`. It lives in the `cluster-1` namespace, so it can reach Garage and already has the backup credentials:
++Create `restore.yaml`. It lives in the primary's namespace, so it can reach Garage and already has the backup credentials:
+ 
+ ```yaml
+ apiVersion: postgresql.cnpg.io/v1
+ kind: Cluster
+ metadata:
+-  name: cluster-1-restore
+-  namespace: cluster-1
++  name: <primary>-restore
++  namespace: <primary>
++  labels:
++    bedrock.io/db-role: unmanaged
+ spec:
+   instances: <instances>
+   priorityClassName: bedrock-data
+-  imageName: <imageName from cluster-1.yaml>
++  imageName: <imageName of the primary>
+   enableSuperuserAccess: false
+   postgresql:
+     pg_hba:
+       - hostnossl all all all reject
+   storage:
+-    size: <storage size from cluster-1.yaml>
+-    storageClass: longhorn
++    size: <storage size of the primary>
++    storageClass: longhorn-encrypted
+   env:
+     - name: AWS_REQUEST_CHECKSUM_CALCULATION
+       value: when_required
+@@ -41,21 +49,21 @@ spec:
+       value: garage
+   bootstrap:
+     recovery:
+-      source: cluster-1-backup
++      source: primary-backup
+       recoveryTarget:
+         targetTime: "2026-10-19 09:30:00+00"
+   externalClusters:
+-    - name: cluster-1-backup
++    - name: primary-backup
+       barmanObjectStore:
+-        serverName: cluster-1
+-        destinationPath: s3://cluster-1-backups/wals
++        serverName: <primary>
++        destinationPath: s3://<primary>-backups/wals
+         endpointURL: http://garage.garage.svc:3900
+         s3Credentials:
+           accessKeyId:
+-            name: cluster-1-backups
++            name: <primary>-backups
+             key: AWS_ACCESS_KEY_ID
+           secretAccessKey:
+-            name: cluster-1-backups
++            name: <primary>-backups
+             key: AWS_SECRET_ACCESS_KEY
+         wal:
+           compression: gzip
+@@ -63,13 +71,13 @@ spec:
+           compression: gzip
+ ```
+ 
+-Fill in the placeholders. Copy `imageName` and the storage size from `tenant-workload/database/cluster-1.yaml`, since the restored data must fit and the PostgreSQL major version must match. A single instance is enough to inspect the data; use more if the restored cluster will serve traffic. Change `targetTime` to your moment. The file has no `backup` section on purpose: the restored cluster must never write into cluster-1's bucket.
++Fill in the placeholders. Copy `imageName` and the storage size from the primary's cluster (`kubectl -n <primary> get cluster <primary> -o yaml`), since the restored data must fit and the PostgreSQL major version must match. The `unmanaged` role label tells the failover controller to leave this cluster alone, so it is neither watched nor reported as a problem. A single instance is enough to inspect the data; use more if the restored cluster will serve traffic. Change `targetTime` to your moment. The file has no `backup` section on purpose: the restored cluster must never write into the primary's bucket.
+ 
+ ## Run the restore
+ 
+ ```sh
+-kubectl apply -f cluster-1-restore.yaml
+-kubectl -n cluster-1 get cluster cluster-1-restore -w
++kubectl apply -f restore.yaml
++kubectl -n <primary> get cluster <primary>-restore -w
+ ```
+ 
+ CloudNativePG fetches the base backup taken before your moment, replays the WAL up to it and starts the instance. When the status reads `Cluster in healthy state`, the data is ready.
+@@ -77,17 +85,17 @@ CloudNativePG fetches the base backup taken before your moment, replays the WAL
+ ## Check the data
+ 
+ ```sh
+-kubectl -n cluster-1 exec cluster-1-restore-1 -c postgres -- psql -U postgres -d app -c "\dt"
++kubectl -n <primary> exec <primary>-restore-1 -c postgres -- psql -U postgres -d app -c "\dt"
+ ```
+ 
+ Query the tables you care about and compare with what you expected at that moment.
+ 
+ ## Use or discard it
+ 
+-The restored cluster is a normal CloudNativePG cluster. You can copy rows out of it with `pg_dump` and load them into cluster-1, or keep it while you investigate. When you are done, delete it:
++The restored cluster is a normal CloudNativePG cluster. You can copy rows out of it with `pg_dump` and load them into the primary, or keep it while you investigate. When you are done, delete it:
+ 
+ ```sh
+-kubectl delete -f cluster-1-restore.yaml
++kubectl delete -f restore.yaml
+ ```
+ 
+ Its volume is deleted with it.
+diff --git a/docs/content/tasks/rotate-exchange-cert.md b/docs/content/tasks/rotate-exchange-cert.md
+new file mode 100644
+index 0000000..3f7d98d
+--- /dev/null
++++ b/docs/content/tasks/rotate-exchange-cert.md
+@@ -0,0 +1,40 @@
++---
++title: "Rotate the exchange certificate"
++weight: 14
++description: "Give the failover observers a new mutual TLS certificate before the old one expires."
++---
++
++The observers ask each other about the primary over mutual TLS on port 8443. Every observer uses the same leaf certificate, signed by a small certificate authority that the bootstrap created on the controller in `~/.bedrock/failover/exchange`. The leaf is valid for 825 days and the authority for 10 years.
++
++When the leaf expires, every exchange fails and observers can only abstain when their own check fails. `BedrockExchangeCertExpiring` warns 30 days ahead and `BedrockExchangeCertExpiryCritical` 7 days ahead.
++
++## Rotate it
++
++```sh
++make rotate-exchange-cert
++```
++
++| Step | What it does |
++|---|---|
++| 1 | Checks that the authority is still there and outlives the new leaf |
++| 2 | Signs a new leaf with the same authority, so old and new observers trust each other during the switch |
++| 3 | Writes it into the `bedrock-observer-exchange` Secret |
++| 4 | Restarts `bedrock-observer-a`, waits for it on every node, then does the same for `bedrock-observer-b` |
++
++A DaemonSet restarts one node at a time. While a node's observer restarts, that node abstains, which stays within the one abstaining node the decider tolerates.
++
++## Check it
++
++```sh
++kubectl -n bedrock-failover get pods -l app.kubernetes.io/name=bedrock-observer
++```
++
++All observers are `Running`. In Grafana, this metric shows the new expiry on every one of them:
++
++```promql
++bedrock_observer_exchange_cert_expiry_timestamp_seconds
++```
++
++## When the authority itself expires
++
++The playbook refuses to sign a leaf that would outlive the authority. Replacing the authority means every observer has to trust the new one before any presents a leaf from it. Until a playbook does that, run the bootstrap's two exchange tasks by hand on a fresh `~/.bedrock/failover/exchange` and restart both observer DaemonSets.
+diff --git a/docs/content/tasks/rotate-proof-key.md b/docs/content/tasks/rotate-proof-key.md
+index 33c28ea..733b514 100644
+--- a/docs/content/tasks/rotate-proof-key.md
++++ b/docs/content/tasks/rotate-proof-key.md
+@@ -4,7 +4,7 @@ weight: 13
+ description: "Replace the key postgres signs proofs of life with, without the failover controller losing a round."
+ ---
+ 
+-Postgres signs every proof of life with the active key in `bedrock_proof_key`. The verifier checks each signature against the keys in the `bedrock-proof-keys` Secret. The keys are kept on the controller machine in `~/.bedrock/failover/proof-keys/`, one file per key, named by the time it was made, such as `k20261101180000`.
++Postgres signs every proof of life with the active key in `bedrock.bedrock_proof_key`. The verifier checks each signature against the keys in the `bedrock-proof-keys` Secret. The keys are kept on the controller machine in `~/.bedrock/failover/proof-keys/`, one file per key, named by the time it was made, such as `k20261101180000`.
+ 
+ A rotation adds the new key everywhere before postgres uses it, so no signature is ever made with a key the verifier does not know.
+ 
+@@ -21,7 +21,7 @@ The playbook is `tenant-workload/bootstrap/rotate-proof-key.yml`. It runs these
+ | Step | Effect |
+ |---|---|
+ | 1 | Generates a new 32-byte key in `~/.bedrock/failover/proof-keys/` |
+-| 2 | Inserts it into `bedrock_proof_key` on the cluster-1 primary, inactive |
++| 2 | Inserts it into `bedrock.bedrock_proof_key` on the primary, inactive. The primary is found from the `bedrock.io/db-role` labels, so this works after a failover too |
+ | 3 | Rebuilds `bedrock-proof-keys` with the old and the new key and restarts the verifier |
+ | 4 | Makes the new key the only active key, so postgres signs with it from the next round |
+ | 5 | Waits 60 seconds, so every round signed with the old key has closed |
+diff --git a/docs/content/tasks/rotate-secret.md b/docs/content/tasks/rotate-secret.md
+index 6d4e316..bded31b 100644
+--- a/docs/content/tasks/rotate-secret.md
++++ b/docs/content/tasks/rotate-secret.md
+@@ -20,6 +20,7 @@ The values in `tenant-workload/secrets/` are the source of truth, so change them
+ | `redis-auth` | `redis` | Redis and Sentinel | No |
+ | `user-secret-1` | `cluster-1` | CloudNativePG, for the `appuser` role | Yes, in PostgreSQL |
+ | `longhorn-crypto` | `longhorn-system` | Longhorn volume encryption | Yes, in every encrypted volume |
++| `bedrock-observer` | `cluster-1`, copied into `bedrock-failover` by Kyverno | CloudNativePG for the `bedrock_observer` role, the failover observers and verifier | Yes, in PostgreSQL |
+ 
+ ## Grafana admin password
+ 
+@@ -70,6 +71,21 @@ kubectl apply -f tenant-workload/secrets/user-secret-1.yaml
+ 
+ `cluster-1-1` is an example; run it against whichever instance is the current primary, shown by `kubectl -n cluster-1 get cluster cluster-1`. The replica clusters receive the change through replication.
+ 
++## Failover observer password
++
++CloudNativePG sets the `bedrock_observer` role's password from this Secret, and Kyverno copies the Secret into `bedrock-failover`. The observers and the verifier read the mounted file again on every connection, so no restart is needed: Kubernetes refreshes a mounted Secret within about a minute.
++
++1. Change `password` in `tenant-workload/secrets/bedrock-observer.yaml` and apply it.
++2. Wait until the copy in `bedrock-failover` has the new value:
++
++   ```sh
++   kubectl -n bedrock-failover get secret bedrock-observer -o jsonpath='{.data.password}' | base64 -d
++   ```
++
++3. Watch `bedrock_observer_ballot` in Grafana. For the minute between CloudNativePG changing the role and the mounted file refreshing, observers can vote down. The verifier needs three witnesses as well as the votes, so this never fails over a live database, but `BedrockFailoverBlind` can fire briefly.
++
++The role is managed by cluster-1's spec. After a failover, add the same `managed.roles` entry to the new primary's cluster before rotating.
++
+ ## Longhorn encryption key
+ 
+ Do not rotate `longhorn-crypto` on a running tenant. Every encrypted volume is unlocked with this key, so changing it leaves existing volumes unable to attach. Choose its value before the first deploy.
+diff --git a/docs/content/tasks/teardown.md b/docs/content/tasks/teardown.md
+index 3998e1f..66e2e17 100644
+--- a/docs/content/tasks/teardown.md
++++ b/docs/content/tasks/teardown.md
+@@ -30,7 +30,7 @@ On every node:
+ - the CIS kernel settings file
+ - `/var/lib/longhorn`, every volume replica on the node
+ 
+-On the controller, it deletes `~/.bedrock`, which holds the admin kubeconfig.
++On the controller, it deletes `~/.bedrock`. That holds more than the admin kubeconfig: OpenBao's unseal shares and root token, the failover proof keys and the observers' exchange certificate authority. It only runs once every node has been wiped. If any node fails, the teardown stops there and the controller keeps the keys, because those nodes still hold data the keys belong to.
+ 
+ ## Deploy again
+ 
+diff --git a/docs/content/tasks/upgrade-component.md b/docs/content/tasks/upgrade-component.md
+index 5856662..f301826 100644
+--- a/docs/content/tasks/upgrade-component.md
++++ b/docs/content/tasks/upgrade-component.md
+@@ -40,7 +40,7 @@ The same steps work for the PostgreSQL image, `imageName` in the database cluste
+ 
+ ## Upgrade a bundled operator
+ 
+-Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `tenant-workload/bootstrap/bedrock-bootstrap.yml`. Each download has a URL with the version in it and a `checksum`.
++Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `tenant-workload/bootstrap/bedrock-bootstrap.yml`. The bootstrap does more than apply them: it checks each download against a checksum, removes Longhorn's wildcard RBAC and its cluster-wide Secret read, moves the Prometheus operator out of `default`, and gives Kyverno's admission controller one replica per node, the top priority class and anti-affinity. Never apply a release URL directly, because that undoes all of it.
+ 
+ 1. Download the new manifest and compute its checksum:
+ 
+@@ -50,19 +50,13 @@ Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are instal
+ 
+ 2. In the bootstrap task, change the version in the task name and the URL, and replace the `checksum` with `sha256:<new sum>`.
+ 
+-3. Apply the new manifest:
++3. Run only that operator's tasks. They are tagged `kyverno`, `longhorn`, `cnpg-operator`, `prometheus-operator` and `strimzi`:
+ 
+    ```sh
+-   kubectl apply --server-side --force-conflicts -f <new release URL>
++   ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml --tags longhorn
+    ```
+ 
+-   Strimzi's manifest has no namespace of its own, so add `-n kafka`. Then wait for the operator's deployments to be ready.
+-
+-4. For Kyverno, the manifest resets the admission controller to its default replica count. Scale it back to one replica per server node, as the bootstrap does:
+-
+-   ```sh
+-   kubectl -n kyverno scale deployment kyverno-admission-controller --replicas=<server nodes>
+-   ```
++   Strimzi only installs with Kafka turned on, so add `-e kafka_enabled=true` for it. A tagged run skips the database tasks, so it also works after a failover, when a full bootstrap refuses to run.
+ 
+ The bootstrap task is the record of which version a tenant runs, so a fresh install uses the new version from then on.
+ 
+diff --git a/docs/content/tutorials/first-tenant.md b/docs/content/tutorials/first-tenant.md
+index 853c4d4..37dd10b 100644
+--- a/docs/content/tutorials/first-tenant.md
++++ b/docs/content/tutorials/first-tenant.md
+@@ -10,7 +10,7 @@ In this tutorial you deploy a complete bedrock tenant on your machines, check th
+ 
+ - **Three machines** running Debian 12, each with at least 4 vCPU, 12 GB of RAM and 200 GB of disk, and more RAM if you turn on event buses. Virtual machines are fine.
+ - **SSH access** to each machine with a key, for a user that has passwordless `sudo`.
+-- **A controller**: any Linux machine that can reach every node over SSH. Your laptop works.
++- **A controller**: any Linux machine that can reach every node over SSH and reach GitHub, since the bootstrap downloads the bundled operators on the controller. Your laptop works.
+ - **Network access** from the nodes to GitHub and the container registries, to download releases and images.
+ 
+ ## Get the code
+@@ -27,7 +27,7 @@ This installs Ansible, the Python Kubernetes client and the `kubernetes.core` co
+ 
+ ## Describe your machines
+ 
+-Open `tenant-workload/bootstrap/hosts.ini` and replace the placeholders with your machines. The first node creates the cluster and the other two join it.
++Copy `tenant-workload/bootstrap/hosts.example.ini` to `tenant-workload/bootstrap/hosts.ini`, open the copy and replace the placeholders with your machines. Git ignores `hosts.ini`, so your real addresses and key paths never end up in a commit. The first node creates the cluster and the other two join it.
+ 
+ ```ini
+ [server_init]
+diff --git a/failover-controller/act/act.go b/failover-controller/act/act.go
+index 343b6d5..2e7ae66 100644
+--- a/failover-controller/act/act.go
++++ b/failover-controller/act/act.go
+@@ -389,14 +389,24 @@ func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string, epoch i
+ 		return nil, err
+ 	}
+ 	var services []corev1.Service
++	var flipped []string
+ 	for _, ns := range a.cfg.FlipNamespaces {
+ 		list, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + oldName})
+ 		if err != nil {
+ 			return nil, err
+ 		}
+ 		services = append(services, list.Items...)
++		done, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + newName})
++		if err != nil {
++			return nil, err
++		}
++		// A retry after a crash between the patch and the saved step finds its own earlier work here.
++		for _, s := range done.Items {
++			if s.Spec.Type == corev1.ServiceTypeExternalName && s.Spec.ExternalName == host && s.Annotations[a.cfg.EpochAnnotation] == strconv.FormatInt(epoch, 10) {
++				flipped = append(flipped, s.Namespace+"/"+s.Name+" → "+host)
++			}
++		}
+ 	}
+-	var flipped []string
+ 	for _, s := range services {
+ 		if s.Spec.Type != corev1.ServiceTypeExternalName {
+ 			continue
+diff --git a/failover-controller/act/act_test.go b/failover-controller/act/act_test.go
+index d218a5b..e5fe42e 100644
+--- a/failover-controller/act/act_test.go
++++ b/failover-controller/act/act_test.go
+@@ -65,6 +65,26 @@ func TestFlipRefusesWhenNothingIsLabelled(t *testing.T) {
+ 	}
+ }
+ 
++func TestFlipIsSafeToRepeat(t *testing.T) {
++	w := testenv.New()
++	ctx := context.Background()
++	a := New(w.Dyn, w.Kube, DefaultConfig())
++	first, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 7)
++	if err != nil {
++		t.Fatal(err)
++	}
++	again, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 7)
++	if err != nil {
++		t.Fatalf("a retry of the same run failed: %v", err)
++	}
++	if len(again) != len(first) || again[0] != first[0] {
++		t.Fatalf("retry reported %v, first run %v", again, first)
++	}
++	if _, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 8); err == nil {
++		t.Fatal("another epoch counted a service it never flipped")
++	}
++}
++
+ func TestTerminatingPodIsNotAFence(t *testing.T) {
+ 	w := testenv.New()
+ 	ctx := context.Background()
+diff --git a/failover-controller/admission/admission_test.go b/failover-controller/admission/admission_test.go
+index f2636bc..7920196 100644
+--- a/failover-controller/admission/admission_test.go
++++ b/failover-controller/admission/admission_test.go
+@@ -59,6 +59,9 @@ func start(t *testing.T) *apiserver {
+ 	t.Helper()
+ 	bin := os.Getenv("BEDROCK_APISERVER_BIN")
+ 	if bin == "" {
++		if os.Getenv("BEDROCK_REQUIRE_INTEGRATION") != "" {
++			t.Fatal("BEDROCK_REQUIRE_INTEGRATION is set but BEDROCK_APISERVER_BIN is not")
++		}
+ 		t.Skip("set BEDROCK_APISERVER_BIN to a directory with etcd and kube-apiserver")
+ 	}
+ 	dir := t.TempDir()
+diff --git a/failover-controller/checker/checker.go b/failover-controller/checker/checker.go
+index e8a1804..23b6743 100644
+--- a/failover-controller/checker/checker.go
++++ b/failover-controller/checker/checker.go
+@@ -210,7 +210,7 @@ func (c *Checker) quorum(target string, ballots []store.Ballots, round *store.Ro
+ 	}
+ 	count := map[string]int{}
+ 	for _, b := range ballots {
+-		if v, ok := b.Votes[target]; ok && v.Challenge == round.Challenge && v.Ballot != observe.BallotAbstain {
++		if v, ok := b.Votes[target]; ok && fresh(v.Challenge, round) && v.Ballot != observe.BallotAbstain {
+ 			count[b.Node]++
+ 		}
+ 	}
+@@ -223,6 +223,12 @@ func (c *Checker) quorum(target string, ballots []store.Ballots, round *store.Ro
+ 	return voting >= len(eligible)/2+1
+ }
+ 
++// fresh accepts the round's challenge and the one before it: observers pick up a new challenge on their
++// next probe, so right after a rotation most votes still carry the previous one.
++func fresh(challenge string, round *store.Round) bool {
++	return challenge == round.Challenge || (round.Previous != "" && challenge == round.Previous)
++}
++
+ func (c *Checker) observerNodes(ctx context.Context) ([]string, error) {
+ 	pods, err := c.kube.CoreV1().Pods(c.cfg.Namespace).List(ctx, metav1.ListOptions{LabelSelector: c.cfg.ObserverSelector})
+ 	if err != nil {
+diff --git a/failover-controller/checker/checker_test.go b/failover-controller/checker/checker_test.go
+index 56dbdb7..ac30d61 100644
+--- a/failover-controller/checker/checker_test.go
++++ b/failover-controller/checker/checker_test.go
+@@ -54,6 +54,8 @@ type setup struct {
+ 	stallFor time.Duration
+ 	oneSlot  bool
+ 	leaseFor int32
++	stale    string
++	previous string
+ }
+ 
+ type result struct {
+@@ -90,7 +92,7 @@ func run(t *testing.T, s setup) result {
+ 	now := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+ 	st := store.New(w.Kube, store.DefaultConfig())
+ 	if s.round {
+-		if err := st.PutRound(ctx, store.Round{Number: 7, Challenge: "c7", IssuedAt: now}); err != nil {
++		if err := st.PutRound(ctx, store.Round{Number: 7, Challenge: "c7", Previous: s.previous, IssuedAt: now}); err != nil {
+ 			t.Fatal(err)
+ 		}
+ 	}
+@@ -110,7 +112,7 @@ func run(t *testing.T, s setup) result {
+ 				if s.oneSlot && slot == "b" {
+ 					continue
+ 				}
+-				v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Challenge: "c7", Ballot: observe.BallotUp}}
++				v := map[string]observe.Vote{"cluster-1/cluster-1": {Target: "cluster-1/cluster-1", Challenge: voteChallenge(s), Ballot: observe.BallotUp}}
+ 				if err := st.PublishVotes(ctx, n, slot, "", v); err != nil {
+ 					t.Fatal(err)
+ 				}
+@@ -223,6 +225,29 @@ func TestOnlyTheVerifierStallingIsEnough(t *testing.T) {
+ 	}
+ }
+ 
++func voteChallenge(s setup) string {
++	if s.stale != "" {
++		return s.stale
++	}
++	return "c7"
++}
++
++func TestVotesFromThePreviousRoundStillMakeQuorum(t *testing.T) {
++	s := healthyPath()
++	s.previous, s.stale = "c6", "c6"
++	if r := run(t, s); r.active != 0 || r.halt != 0 {
++		t.Fatalf("observers still on the previous challenge woke the checker: %+v", r)
++	}
++}
++
++func TestVotesTwoRoundsOldDoNotMakeQuorum(t *testing.T) {
++	s := healthyPath()
++	s.previous, s.stale = "c6", "c5"
++	if r := run(t, s); r.active != 1 || r.halt != 1 {
++		t.Fatalf("votes two rounds old made quorum: %+v", r)
++	}
++}
++
+ func TestNodesWithOneObserverDoNotMakeQuorum(t *testing.T) {
+ 	s := healthyPath()
+ 	s.oneSlot = true
+diff --git a/failover-controller/cmd/observer/main.go b/failover-controller/cmd/observer/main.go
+index a57eaeb..03bc834 100644
+--- a/failover-controller/cmd/observer/main.go
++++ b/failover-controller/cmd/observer/main.go
+@@ -36,7 +36,7 @@ func main() {
+ 	fs.DurationVar(&cfg.SuspectInterval, "suspect-probe-interval", 500*time.Millisecond, "time between rounds while a target looks down")
+ 	fs.DurationVar(&cfg.AskTimeout, "ask-timeout", 1500*time.Millisecond, "how long to wait for peer answers")
+ 	fs.IntVar(&cfg.Check.Port, "pg-port", 5432, "postgres port")
+-	fs.StringVar(&cfg.Check.Database, "pg-database", "app", "database holding bedrock_heartbeat")
++	fs.StringVar(&cfg.Check.Database, "pg-database", "app", "database holding the bedrock schema")
+ 	fs.StringVar(&cfg.Check.User, "pg-user", "bedrock_observer", "login of the observer")
+ 	fs.StringVar(&passwordFile, "pg-password-file", "/etc/bedrock/pg/password", "file holding the observer password")
+ 	fs.StringVar(&cfg.Check.TLSMode, "pg-sslmode", "verify-ca", "postgres sslmode")
+@@ -69,6 +69,7 @@ func main() {
+ 		os.Exit(1)
+ 	}
+ 	cfg.Check.Password = strings.TrimSpace(string(pw))
++	cfg.Check.PasswordFile = passwordFile
+ 
+ 	serverTLS, clientTLS, err := transport.LoadTLS(certFile, keyFile, caFile, serverName)
+ 	if err != nil {
+@@ -93,6 +94,9 @@ func main() {
+ 		}
+ 	}
+ 	m := metrics.New()
++	if leaf := serverTLS.Certificates[0].Leaf; leaf != nil {
++		m.Set("bedrock_observer_exchange_cert_expiry_timestamp_seconds", nil, float64(leaf.NotAfter.Unix()))
++	}
+ 	tr := transport.NewHTTP(clientTLS, cfg.AskTimeout)
+ 	o := observer.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), store.New(kube, st), cfg, key, tr, tr, m, log)
+ 
+diff --git a/failover-controller/cmd/verifier/main.go b/failover-controller/cmd/verifier/main.go
+index 4794e68..4f743ab 100644
+--- a/failover-controller/cmd/verifier/main.go
++++ b/failover-controller/cmd/verifier/main.go
+@@ -68,6 +68,7 @@ func main() {
+ 		os.Exit(1)
+ 	}
+ 	wcfg.Check.Password = strings.TrimSpace(string(pw))
++	wcfg.Check.PasswordFile = passwordFile
+ 
+ 	dyn, kube := common.Clients(log)
+ 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+diff --git a/failover-controller/decider/decider.go b/failover-controller/decider/decider.go
+index 2d028bc..9329e99 100644
+--- a/failover-controller/decider/decider.go
++++ b/failover-controller/decider/decider.go
+@@ -373,6 +373,16 @@ func eligible(nodes []string, exclude string) []string {
+ 	return out
+ }
+ 
++func union(a, b []string) []string {
++	out := append([]string(nil), a...)
++	for _, n := range b {
++		if !contains(out, n) {
++			out = append(out, n)
++		}
++	}
++	return out
++}
++
+ func candidate(f discovery.Family) (discovery.Member, bool) {
+ 	for _, m := range f.Live {
+ 		if m.ReadyInstances > 0 {
+@@ -484,6 +494,13 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
+ 			d.log.Warn("approved but the verifier stopped closing rounds, not fencing on a stale view", "target", c.Target)
+ 			return nil
+ 		}
++		// Reconciliation was still on since the claim, so an instance pod may have moved. Every node that
++		// runs one now joins the list the fence is verified on.
++		_, nodes, err := d.actor.Instances(ctx, c.Target)
++		if err != nil {
++			return err
++		}
++		c.Nodes = union(c.Nodes, nodes)
+ 		// The step is saved before the cluster is touched: once a fence annotation can exist, no path
+ 		// above can close the claim and leave the cluster fenced with nothing watching it.
+ 		return d.move(ctx, c, store.StepFencing)
+diff --git a/failover-controller/decider/decider_test.go b/failover-controller/decider/decider_test.go
+index f2e9795..0beee98 100644
+--- a/failover-controller/decider/decider_test.go
++++ b/failover-controller/decider/decider_test.go
+@@ -398,6 +398,32 @@ func TestNewLeaderResumesTheSameClaim(t *testing.T) {
+ 	}
+ }
+ 
++func TestAPodThatMovedAfterTheClaimIsFencedOnItsNewNode(t *testing.T) {
++	l := newLab(t)
++	d := l.decider("decider-0")
++	l.run(d, 32, allDown)
++	c := l.claim()
++	if c == nil || c.Step != store.StepClaimed {
++		t.Fatalf("expected a fresh claim, got %+v", c)
++	}
++	if contains(c.Nodes, "n5") {
++		t.Fatalf("n5 ran no instance at claim time: %v", c.Nodes)
++	}
++	moved, err := l.w.Kube.CoreV1().Pods("cluster-1").Get(context.Background(), "cluster-1-2", metav1.GetOptions{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	moved.Spec.NodeName = "n5"
++	if err := l.w.Kube.Tracker().Update(podsGVR, moved, "cluster-1"); err != nil {
++		t.Fatal(err)
++	}
++	l.run(d, 1, allDown)
++	c = l.claim()
++	if c.Step != store.StepFencing || !contains(c.Nodes, "n5") {
++		t.Fatalf("the fence will not check the node the pod moved to: step %s nodes %v", c.Step, c.Nodes)
++	}
++}
++
+ func TestVetoBetweenClaimAndFence(t *testing.T) {
+ 	l := newLab(t)
+ 	d := l.decider("decider-0")
+diff --git a/failover-controller/discovery/discovery.go b/failover-controller/discovery/discovery.go
+index 7fdc7e6..ca87ef7 100644
+--- a/failover-controller/discovery/discovery.go
++++ b/failover-controller/discovery/discovery.go
+@@ -99,6 +99,9 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
+ 		obj := &list.Items[i]
+ 		m := readMember(obj)
+ 		m.Declared = obj.GetLabels()[cfg.RoleLabel]
++		if m.Declared == Unmanaged {
++			continue
++		}
+ 		m.Zones = zones[m.Key()]
+ 		key := m.Key()
+ 
+@@ -195,6 +198,9 @@ func Discover(ctx context.Context, dyn dynamic.Interface, kube kubernetes.Interf
+ // disagree is the badge against the fingerprint: the label declares the role, the spec proves it. A missing
+ // label or one the facts contradict is refused, never guessed, so a relabel by hand never promotes a delayed
+ // replica and a cluster nobody declared is never acted on.
++// Unmanaged is declared on a cluster the failover must leave alone, such as a point in time restore.
++const Unmanaged = "unmanaged"
++
+ func disagree(cfg Config, m Member) string {
+ 	switch {
+ 	case m.Declared == "":
+diff --git a/failover-controller/discovery/discovery_test.go b/failover-controller/discovery/discovery_test.go
+index 412d156..69ce691 100644
+--- a/failover-controller/discovery/discovery_test.go
++++ b/failover-controller/discovery/discovery_test.go
+@@ -296,6 +296,7 @@ func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
+ 		relabel(primary("b", "b", 3), "live"),
+ 		replica("b2", "b2", "b-rw.b.svc", ""),
+ 		relabel(primary("c", "c", 3), ""),
++		relabel(primary("restore", "restore", 1), "unmanaged"),
+ 	}
+ 	kube := []runtime.Object{rw("a", "a"), rw("b", "b"), rw("c", "c")}
+ 	got := run(t, testConfig(), clusters, kube)
+@@ -310,7 +311,7 @@ func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
+ 		}
+ 	}
+ 	if len(got.Families) != 1 {
+-		t.Fatalf("a primary whose label disagrees must not form a family, got %+v", got.Families)
++		t.Fatalf("a primary whose label disagrees, or an unmanaged one, must not form a family, got %+v", got.Families)
+ 	}
+ 	f := got.Families[0]
+ 	if len(f.Live) != 1 || f.Live[0].Key() != "good/good" {
+diff --git a/failover-controller/observe/heartbeat.go b/failover-controller/observe/heartbeat.go
+index a43296c..5b7c4f8 100644
+--- a/failover-controller/observe/heartbeat.go
++++ b/failover-controller/observe/heartbeat.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/hex"
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"strconv"
+ 	"strings"
+ 	"time"
+@@ -48,15 +49,18 @@ type CheckConfig struct {
+ 	Database string
+ 	User     string
+ 	Password string
+-	Timeout  time.Duration
+-	TLSMode  string
+-	RootCA   string
++	// PasswordFile, when set, is read again on every connection, so a rotated secret is picked up
++	// without a restart. Password stays the fallback if the file cannot be read.
++	PasswordFile string
++	Timeout      time.Duration
++	TLSMode      string
++	RootCA       string
+ }
+ 
+ // Only a primary that can actually write passes; a standby fails as read only.
+ const heartbeatSQL = `
+ WITH hb AS (
+-    INSERT INTO bedrock_heartbeat (observer, nonce, at)
++    INSERT INTO bedrock.bedrock_heartbeat (observer, nonce, at)
+     VALUES ($1, $2, now())
+     ON CONFLICT (observer) DO UPDATE SET nonce = $2, at = now()
+     RETURNING nonce
+@@ -68,7 +72,7 @@ SELECT hb.nonce,
+        (SELECT timeline_id FROM pg_control_checkpoint())
+ FROM hb`
+ 
+-const proveSQL = `SELECT key_id, instance, system_id, timeline, lsn, in_recovery, at_ms, mac FROM bedrock_prove($1, $2)`
++const proveSQL = `SELECT key_id, instance, system_id, timeline, lsn, in_recovery, at_ms, mac FROM bedrock.bedrock_prove($1, $2)`
+ 
+ const sqlStateReadOnly = "25006"
+ const sqlStateQueryCanceled = "57014"
+@@ -166,7 +170,7 @@ type ReceiverState struct {
+ 	Err    string
+ }
+ 
+-// Receiver reads the instance's WAL receiver through bedrock_receiver. No row means no stream at all.
++// Receiver reads the instance's WAL receiver through bedrock.bedrock_receiver. No row means no stream at all.
+ func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
+ 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
+ 	defer cancel()
+@@ -176,7 +180,7 @@ func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
+ 	}
+ 	defer conn.Close(context.Background())
+ 	var r ReceiverState
+-	err = conn.QueryRow(ctx, "SELECT status, coalesce(age_ms, -1) FROM bedrock_receiver()").Scan(&r.Status, &r.AgeMs)
++	err = conn.QueryRow(ctx, "SELECT status, coalesce(age_ms, -1) FROM bedrock.bedrock_receiver()").Scan(&r.Status, &r.AgeMs)
+ 	if errors.Is(err, pgx.ErrNoRows) {
+ 		return ReceiverState{}
+ 	}
+@@ -257,6 +261,11 @@ func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {
+ 	connCfg.Database = cfg.Database
+ 	connCfg.User = cfg.User
+ 	connCfg.Password = cfg.Password
++	if cfg.PasswordFile != "" {
++		if pw, err := os.ReadFile(cfg.PasswordFile); err == nil && strings.TrimSpace(string(pw)) != "" {
++			connCfg.Password = strings.TrimSpace(string(pw))
++		}
++	}
+ 	connCfg.ConnectTimeout = cfg.Timeout
+ 	connCfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(cfg.Timeout.Milliseconds(), 10)
+ 	connCfg.RuntimeParams["application_name"] = "bedrock-observer"
+diff --git a/failover-controller/observe/heartbeat.sql b/failover-controller/observe/heartbeat.sql
+index d2a33d3..575271f 100644
+--- a/failover-controller/observe/heartbeat.sql
++++ b/failover-controller/observe/heartbeat.sql
+@@ -1,4 +1,20 @@
+-CREATE TABLE IF NOT EXISTS bedrock_heartbeat (
++CREATE SCHEMA IF NOT EXISTS bedrock;
++REVOKE ALL ON SCHEMA bedrock FROM PUBLIC;
++
++DO $$
++BEGIN
++    IF to_regclass('public.bedrock_heartbeat') IS NOT NULL AND to_regclass('bedrock.bedrock_heartbeat') IS NULL THEN
++        ALTER TABLE public.bedrock_heartbeat SET SCHEMA bedrock;
++    END IF;
++    IF to_regclass('public.bedrock_proof_key') IS NOT NULL AND to_regclass('bedrock.bedrock_proof_key') IS NULL THEN
++        ALTER TABLE public.bedrock_proof_key SET SCHEMA bedrock;
++    END IF;
++END
++$$;
++DROP FUNCTION IF EXISTS public.bedrock_prove(text, text);
++DROP FUNCTION IF EXISTS public.bedrock_receiver();
++
++CREATE TABLE IF NOT EXISTS bedrock.bedrock_heartbeat (
+     observer text PRIMARY KEY,
+     nonce    text NOT NULL,
+     at       timestamptz NOT NULL
+@@ -12,28 +28,29 @@ BEGIN
+ END
+ $$;
+ 
+-REVOKE ALL ON bedrock_heartbeat FROM PUBLIC;
+-GRANT SELECT (observer, nonce), INSERT (observer, nonce, at), UPDATE (nonce, at) ON bedrock_heartbeat TO bedrock_observer;
++GRANT USAGE ON SCHEMA bedrock TO bedrock_observer;
++REVOKE ALL ON bedrock.bedrock_heartbeat FROM PUBLIC;
++GRANT SELECT (observer, nonce), INSERT (observer, nonce, at), UPDATE (nonce, at) ON bedrock.bedrock_heartbeat TO bedrock_observer;
+ GRANT EXECUTE ON FUNCTION pg_control_system() TO bedrock_observer;
+ GRANT EXECUTE ON FUNCTION pg_control_checkpoint() TO bedrock_observer;
+ 
+-CREATE EXTENSION IF NOT EXISTS pgcrypto;
++CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA public;
+ 
+-CREATE TABLE IF NOT EXISTS bedrock_proof_key (
++CREATE TABLE IF NOT EXISTS bedrock.bedrock_proof_key (
+     id     text PRIMARY KEY,
+     key    bytea NOT NULL,
+     active boolean NOT NULL DEFAULT false
+ );
+-REVOKE ALL ON bedrock_proof_key FROM PUBLIC;
++REVOKE ALL ON bedrock.bedrock_proof_key FROM PUBLIC;
+ 
+-CREATE OR REPLACE FUNCTION bedrock_prove(challenge text, observer text)
++CREATE OR REPLACE FUNCTION bedrock.bedrock_prove(challenge text, observer text)
+ RETURNS TABLE (key_id text, instance text, system_id text, timeline bigint, lsn text, in_recovery boolean, at_ms bigint, mac text)
+-LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
++LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+ DECLARE
+     k record;
+     payload text;
+ BEGIN
+-    SELECT id, key INTO k FROM public.bedrock_proof_key WHERE active ORDER BY id DESC LIMIT 1;
++    SELECT id, key INTO k FROM bedrock.bedrock_proof_key WHERE active ORDER BY id DESC LIMIT 1;
+     IF NOT FOUND THEN
+         RAISE EXCEPTION 'no active proof key';
+     END IF;
+@@ -45,18 +62,18 @@ BEGIN
+     lsn := CASE WHEN in_recovery THEN pg_last_wal_replay_lsn()::text ELSE pg_current_wal_lsn()::text END;
+     at_ms := (extract(epoch FROM clock_timestamp()) * 1000)::bigint;
+     payload := concat_ws('|', key_id, challenge, observer, instance, system_id, timeline::text, lsn, CASE WHEN in_recovery THEN 'true' ELSE 'false' END, at_ms::text);
+-    mac := encode(public.hmac(convert_to(payload, 'UTF8'), k.key, 'sha256'), 'hex');
++    mac := encode(public.hmac(convert_to(payload, 'UTF8'), k.key, 'sha256'::text), 'hex');
+     RETURN NEXT;
+ END
+ $$;
+-REVOKE ALL ON FUNCTION bedrock_prove(text, text) FROM PUBLIC;
+-GRANT EXECUTE ON FUNCTION bedrock_prove(text, text) TO bedrock_observer;
++REVOKE ALL ON FUNCTION bedrock.bedrock_prove(text, text) FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION bedrock.bedrock_prove(text, text) TO bedrock_observer;
+ 
+-CREATE OR REPLACE FUNCTION bedrock_receiver()
++CREATE OR REPLACE FUNCTION bedrock.bedrock_receiver()
+ RETURNS TABLE (status text, age_ms bigint)
+ LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$
+     SELECT r.status, (extract(epoch FROM clock_timestamp() - r.last_msg_receipt_time) * 1000)::bigint
+     FROM pg_stat_wal_receiver r
+ $$;
+-REVOKE ALL ON FUNCTION bedrock_receiver() FROM PUBLIC;
+-GRANT EXECUTE ON FUNCTION bedrock_receiver() TO bedrock_observer;
++REVOKE ALL ON FUNCTION bedrock.bedrock_receiver() FROM PUBLIC;
++GRANT EXECUTE ON FUNCTION bedrock.bedrock_receiver() TO bedrock_observer;
+diff --git a/failover-controller/observe/heartbeat_test.go b/failover-controller/observe/heartbeat_test.go
+index bcef783..1bfafd7 100644
+--- a/failover-controller/observe/heartbeat_test.go
++++ b/failover-controller/observe/heartbeat_test.go
+@@ -43,11 +43,21 @@ func pgBin(t *testing.T) string {
+ 	}
+ 	matches, _ := filepath.Glob("/usr/lib/postgresql/*/bin/initdb")
+ 	if len(matches) == 0 {
+-		t.Skip("no postgres binaries found, set BEDROCK_PG_BIN")
++		skipOrFail(t, "no postgres binaries found, set BEDROCK_PG_BIN")
+ 	}
+ 	return filepath.Dir(matches[len(matches)-1])
+ }
+ 
++// skipOrFail skips on a laptop without the binaries, and fails in CI where BEDROCK_REQUIRE_INTEGRATION is
++// set, so a green run there always means these tests ran.
++func skipOrFail(t *testing.T, why string) {
++	t.Helper()
++	if os.Getenv("BEDROCK_REQUIRE_INTEGRATION") != "" {
++		t.Fatal("BEDROCK_REQUIRE_INTEGRATION is set: " + why)
++	}
++	t.Skip(why)
++}
++
+ func asPostgres(name string, args ...string) *exec.Cmd {
+ 	if os.Geteuid() == 0 {
+ 		return exec.Command("runuser", append([]string{"-u", "postgres", "--", name}, args...)...)
+@@ -101,7 +111,7 @@ func startPrimary(t *testing.T) *pgInstance {
+ 	p.start()
+ 	p.exec(readSQL(t))
+ 	p.exec(fmt.Sprintf("ALTER ROLE bedrock_observer PASSWORD '%s'", pgObserverPassword))
+-	p.exec(fmt.Sprintf("INSERT INTO bedrock_proof_key (id, key, active) VALUES ('k1', decode('%s', 'hex'), true)", testKeyHex))
++	p.exec(fmt.Sprintf("INSERT INTO bedrock.bedrock_proof_key (id, key, active) VALUES ('k1', decode('%s', 'hex'), true)", testKeyHex))
+ 	return p
+ }
+ 
+@@ -323,10 +333,10 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
+ 			t.Fatal(err)
+ 		}
+ 		defer conn.Close(ctx)
+-		if _, err := conn.Exec(ctx, "SELECT key FROM bedrock_proof_key"); err == nil {
++		if _, err := conn.Exec(ctx, "SELECT key FROM bedrock.bedrock_proof_key"); err == nil {
+ 			t.Fatal("observer read the proof key")
+ 		}
+-		if _, err := conn.Exec(ctx, "UPDATE bedrock_proof_key SET active = false"); err == nil {
++		if _, err := conn.Exec(ctx, "UPDATE bedrock.bedrock_proof_key SET active = false"); err == nil {
+ 			t.Fatal("observer changed the proof key")
+ 		}
+ 	})
+@@ -380,7 +390,7 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
+ 			t.Fatal(err)
+ 		}
+ 		defer tx.Rollback(ctx)
+-		if _, err := tx.Exec(ctx, "SELECT 1 FROM bedrock_heartbeat WHERE observer = 'node-hang' FOR UPDATE"); err != nil {
++		if _, err := tx.Exec(ctx, "SELECT 1 FROM bedrock.bedrock_heartbeat WHERE observer = 'node-hang' FOR UPDATE"); err != nil {
+ 			t.Fatal(err)
+ 		}
+ 		p := strongCheck(ctx, primary.observerConfig(500*time.Millisecond), "node-hang", "db/primary")
+@@ -406,6 +416,19 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
+ 		}
+ 	})
+ 
++	t.Run("a rotated password file is read on the next check", func(t *testing.T) {
++		cfg := primary.observerConfig(time.Second)
++		file := filepath.Join(t.TempDir(), "password")
++		if err := os.WriteFile(file, []byte(cfg.Password+"\n"), 0o600); err != nil {
++			t.Fatal(err)
++		}
++		cfg.PasswordFile = file
++		cfg.Password = "stale"
++		if p := strongCheck(ctx, cfg, "node-1", "db/primary"); p.Result != ResultUp {
++			t.Fatalf("the password from the file was not used: %+v", p)
++		}
++	})
++
+ 	t.Run("observer login can touch nothing but its heartbeat", func(t *testing.T) {
+ 		primary.exec("CREATE TABLE IF NOT EXISTS accounts (id int, balance numeric); INSERT INTO accounts VALUES (1, 100)")
+ 		cfg := primary.observerConfig(time.Second)
+@@ -417,8 +440,8 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
+ 		for _, sql := range []string{
+ 			"SELECT * FROM accounts",
+ 			"UPDATE accounts SET balance = 0",
+-			"DELETE FROM bedrock_heartbeat",
+-			"SELECT at FROM bedrock_heartbeat",
++			"DELETE FROM bedrock.bedrock_heartbeat",
++			"SELECT at FROM bedrock.bedrock_heartbeat",
+ 			"CREATE TABLE evil (x int)",
+ 		} {
+ 			if _, err := conn.Exec(ctx, sql); err == nil {
+@@ -428,6 +451,50 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
+ 	})
+ }
+ 
++func TestTheDatabaseOwnerCannotTouchTheFailoverObjects(t *testing.T) {
++	primary := startPrimary(t)
++	ctx := context.Background()
++	primary.exec(fmt.Sprintf("CREATE ROLE appowner LOGIN PASSWORD '%s'", pgObserverPassword))
++	primary.exec("CREATE DATABASE appdb OWNER appowner")
++	super := primary.super(ctx)
++	defer super.Close(ctx)
++	cfg := super.Config().Copy()
++	cfg.Database = "appdb"
++	inApp, err := pgx.ConnectConfig(ctx, cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer inApp.Close(ctx)
++	if _, err := inApp.Exec(ctx, `CREATE TABLE public.bedrock_proof_key (id text PRIMARY KEY, key bytea NOT NULL, active boolean NOT NULL DEFAULT false);
++		INSERT INTO public.bedrock_proof_key VALUES ('old', 'k', true)`); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := inApp.Exec(ctx, readSQL(t)); err != nil {
++		t.Fatalf("load: %v", err)
++	}
++	var moved string
++	if err := inApp.QueryRow(ctx, "SELECT id FROM bedrock.bedrock_proof_key").Scan(&moved); err != nil || moved != "old" {
++		t.Fatalf("the key in public was not moved into the bedrock schema: %q %v", moved, err)
++	}
++	owner, err := pgx.Connect(ctx, fmt.Sprintf("postgres://appowner:%s@127.0.0.1:%d/appdb?sslmode=disable", pgObserverPassword, primary.port))
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer owner.Close(ctx)
++	for _, sql := range []string{
++		"DROP TABLE bedrock.bedrock_heartbeat",
++		"DROP TABLE bedrock.bedrock_proof_key",
++		"DROP FUNCTION bedrock.bedrock_prove(text, text)",
++		"DROP SCHEMA bedrock CASCADE",
++		"CREATE TABLE bedrock.evil (x int)",
++		"SELECT key FROM bedrock.bedrock_proof_key",
++	} {
++		if _, err := owner.Exec(ctx, sql); err == nil {
++			t.Errorf("the database owner was allowed: %s", sql)
++		}
++	}
++}
++
+ func TestParseLSN(t *testing.T) {
+ 	a, ok1 := ParseLSN("0/3000060")
+ 	b, ok2 := ParseLSN("1/0")
+diff --git a/failover-controller/proof/proof.go b/failover-controller/proof/proof.go
+index 68dba31..59909ca 100644
+--- a/failover-controller/proof/proof.go
++++ b/failover-controller/proof/proof.go
+@@ -12,7 +12,7 @@ import (
+ 	"strings"
+ )
+ 
+-// Signed is what postgres returns from bedrock_prove. Only postgres holds the key that makes MAC.
++// Signed is what postgres returns from bedrock.bedrock_prove. Only postgres holds the key that makes MAC.
+ type Signed struct {
+ 	KeyID      string `json:"keyId"`
+ 	Challenge  string `json:"challenge"`
+@@ -26,7 +26,7 @@ type Signed struct {
+ 	MAC        string `json:"mac"`
+ }
+ 
+-// Payload must match concat_ws in bedrock_prove byte for byte.
++// Payload must match concat_ws in bedrock.bedrock_prove byte for byte.
+ func (s Signed) Payload() string {
+ 	return strings.Join([]string{
+ 		s.KeyID, s.Challenge, s.Observer, s.Instance, s.SystemID,
+diff --git a/failover-controller/store/round.go b/failover-controller/store/round.go
+index c071fa7..29a5b20 100644
+--- a/failover-controller/store/round.go
++++ b/failover-controller/store/round.go
+@@ -21,6 +21,7 @@ const (
+ type Round struct {
+ 	Number    int64               `json:"number"`
+ 	Challenge string              `json:"challenge"`
++	Previous  string              `json:"previous,omitempty"`
+ 	IssuedAt  time.Time           `json:"issuedAt"`
+ 	ValidUps  map[string][]string `json:"validUps"`
+ 	Signers   map[string][]string `json:"signers"`
+diff --git a/failover-controller/verifier/verifier.go b/failover-controller/verifier/verifier.go
+index 21ab0ac..0830e3e 100644
+--- a/failover-controller/verifier/verifier.go
++++ b/failover-controller/verifier/verifier.go
+@@ -109,6 +109,9 @@ func (v *Verifier) Tick(ctx context.Context) error {
+ 		return err
+ 	}
+ 	next.Challenge, next.IssuedAt = c, v.now()
++	if prev != nil {
++		next.Previous = prev.Challenge
++	}
+ 	if err := v.store.PutRound(ctx, next); err != nil {
+ 		return err
+ 	}
+diff --git a/tenant-workload/bootstrap/add-live-replica.yml b/tenant-workload/bootstrap/add-live-replica.yml
+index 65c1000..dd54136 100644
+--- a/tenant-workload/bootstrap/add-live-replica.yml
++++ b/tenant-workload/bootstrap/add-live-replica.yml
+@@ -9,7 +9,6 @@
+     tpl: "{{ repo_root }}/database/replica"
+     instances: 2
+     storage: 10Gi
+-    image: ghcr.io/cloudnative-pg/postgresql:17.4@sha256:3c0ba08ea353c9705a755c113e4ae395be76553e0ed68076e5410cb09b9d17d9
+   environment:
+     KUBECONFIG: "{{ kubeconfig }}"
+   tasks:
+@@ -30,51 +29,12 @@
+         that: existing_ns.stdout == ""
+         fail_msg: "namespace {{ replica }} already exists, pick a new name"
+ 
+-    - name: Read every database cluster's declared role, the facts behind it and whether it is fenced
+-      ansible.builtin.shell: |
+-        set -euo pipefail
+-        kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role -o json | jq -c '[.items[] | {
+-          ns: .metadata.namespace,
+-          name: .metadata.name,
+-          label: .metadata.labels["bedrock.io/db-role"],
+-          fact: ((.spec.replica.minApplyDelay // "") as $d |
+-                 if .spec.replica.enabled != true then "primary"
+-                 elif ($d == "" or (($d | test("^[0.]+[a-z]*$")) and ($d | test("[1-9]") | not))) then "live"
+-                 else "delayed" end),
+-          fenced: (((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") == "disabled") or
+-                   ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")),
+-          phase: (.status.phase // "")
+-        } | .liar = (.label != .fact)]'
+-      args:
+-        executable: /bin/bash
+-      register: clusters_raw
+-      changed_when: false
+-
+-    - name: Sort the clusters into roles
+-      ansible.builtin.set_fact:
+-        clusters: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | list }}"
+-        liars: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | selectattr('liar') | list }}"
+-
+-    - name: Every label agrees with its spec
+-      ansible.builtin.assert:
+-        that: liars | length == 0
+-        fail_msg: "these clusters' bedrock.io/db-role disagrees with their spec, fix them first: {{ liars }}"
+-
+-    - name: Pick the primary, the live replicas and the delayed ones
+-      ansible.builtin.set_fact:
+-        primaries: "{{ clusters | selectattr('label', 'equalto', 'primary') | list }}"
+-        lives: "{{ clusters | selectattr('label', 'equalto', 'live') | list }}"
+-        delays: "{{ clusters | selectattr('label', 'equalto', 'delayed') | list }}"
+-
+-    - name: Exactly one healthy primary
+-      ansible.builtin.assert:
+-        that:
+-          - primaries | length == 1
+-          - primaries[0].phase == 'Cluster in healthy state'
+-        fail_msg: "want exactly one healthy, unfenced primary, found {{ primaries }}"
++    - name: Find the primary from the role labels, never from a name
++      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/database-roles.yml"
+ 
+     - name: Work out who follows whom
+       ansible.builtin.set_fact:
++        image: "{{ primaries[0].image }}"
+         source: "{{ primaries[0].name }}"
+         source_ns: "{{ primaries[0].ns }}"
+         me: {name: "{{ replica }}", ns: "{{ replica }}"}
+diff --git a/tenant-workload/bootstrap/bedrock-bootstrap.yml b/tenant-workload/bootstrap/bedrock-bootstrap.yml
+index fa8696e..cd15211 100644
+--- a/tenant-workload/bootstrap/bedrock-bootstrap.yml
++++ b/tenant-workload/bootstrap/bedrock-bootstrap.yml
+@@ -113,25 +113,10 @@
+   become: true
+   tasks:
+     - name: Write RKE2 config (first server)
+-      ansible.builtin.copy:
++      ansible.builtin.template:
++        src: rke2-config.yaml.j2
+         dest: /etc/rancher/rke2/config.yaml
+         mode: "0600"
+-        content: |
+-          profile: cis
+-          cni: cilium
+-          disable-kube-proxy: true
+-          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
+-          write-kubeconfig-mode: "0600"
+-          secrets-encryption: true
+-          etcd-expose-metrics: true
+-          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
+-          disable:
+-            - rke2-traefik
+-          kube-apiserver-arg:
+-            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
+-          kubelet-arg:
+-            - "pod-max-pids=4096"
+-            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+ 
+     - name: Start rke2-server
+       ansible.builtin.systemd:
+@@ -198,27 +183,12 @@
+   tasks:
+     - name: Write RKE2 config (joining server)
+       no_log: true
+-      ansible.builtin.copy:
++      vars:
++        rke2_join: true
++      ansible.builtin.template:
++        src: rke2-config.yaml.j2
+         dest: /etc/rancher/rke2/config.yaml
+         mode: "0600"
+-        content: |
+-          server: {{ hostvars[groups['server_init'][0]].rke2_join_url }}
+-          token: {{ hostvars[groups['server_init'][0]].rke2_token }}
+-          profile: cis
+-          cni: cilium
+-          disable-kube-proxy: true
+-          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
+-          write-kubeconfig-mode: "0600"
+-          secrets-encryption: true
+-          etcd-expose-metrics: true
+-          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
+-          disable:
+-            - rke2-traefik
+-          kube-apiserver-arg:
+-            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
+-          kubelet-arg:
+-            - "pod-max-pids=4096"
+-            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+ 
+     - name: Start rke2-server
+       ansible.builtin.systemd:
+@@ -280,6 +250,7 @@
+     failover_sql: "{{ playbook_dir }}/../../failover-controller/observe/heartbeat.sql"
+   tasks:
+     - name: Wait for Kubernetes API to answer
++      tags: [always]
+       ansible.builtin.command: kubectl get --raw=/readyz
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+@@ -289,6 +260,26 @@
+       delay: 10
+       changed_when: false
+ 
++    - name: Look for a failover that already happened
++      ansible.builtin.shell: |
++        set -o pipefail
++        { kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary -o json 2>/dev/null || echo '{"items":[]}'; } \
++          | jq -r '[.items[] | select(.metadata.name != "cluster-1" or ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")) | .metadata.namespace + "/" + .metadata.name] | join(" ")'
++      args:
++        executable: /bin/bash
++      environment:
++        KUBECONFIG: "{{ kubeconfig }}"
++      register: moved_primary
++      changed_when: false
++
++    - name: Never rerun the bootstrap after a failover
++      ansible.builtin.assert:
++        that: moved_primary.stdout | trim == ""
++        fail_msg: >-
++          the primary is no longer cluster-1 ({{ moved_primary.stdout | trim }}). The bootstrap would wait on the fenced
++          cluster-1 and apply cluster-2.yaml as a replica again, turning the live primary back into a replica of a dead
++          cluster. Change one component by applying its manifest instead, as the task guides describe.
++
+     - name: Apply namespaces
+       kubernetes.core.k8s:
+         kubeconfig: "{{ kubeconfig }}"
+@@ -303,6 +294,7 @@
+         src: "{{ repo_root }}/platform/priorityclasses.yaml"
+ 
+     - name: Download Kyverno v1.19.1 (checksum verified)
++      tags: [kyverno]
+       ansible.builtin.get_url:
+         url: https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
+         dest: /tmp/kyverno-1.19.1.yaml
+@@ -315,6 +307,7 @@
+       delay: 10
+ 
+     - name: Install Kyverno v1.19.1 (policy admission must exist before validated workloads)
++      tags: [kyverno]
+       ansible.builtin.command: >
+         kubectl apply --server-side --force-conflicts
+         -f /tmp/kyverno-1.19.1.yaml
+@@ -326,6 +319,7 @@
+       delay: 15
+ 
+     - name: Wait for kyverno admission-controller Available
++      tags: [kyverno]
+       kubernetes.core.k8s_info:
+         kubeconfig: "{{ kubeconfig }}"
+         kind: Deployment
+@@ -339,11 +333,13 @@
+       delay: 10
+ 
+     - name: Kyverno admission controller to 3 replicas (fail-closed needs no single point of failure)
++      tags: [kyverno]
+       ansible.builtin.command: kubectl -n kyverno scale deployment kyverno-admission-controller --replicas=3
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Kyverno admission controller on top priority, one replica per node
++      tags: [kyverno]
+       ansible.builtin.command: >
+         kubectl -n kyverno patch deployment kyverno-admission-controller --type merge
+         -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical","affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"app.kubernetes.io/component":"admission-controller","app.kubernetes.io/instance":"kyverno"}},"topologyKey":"kubernetes.io/hostname"}]}}}}}}'
+@@ -351,6 +347,7 @@
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Kyverno background controller on top priority (keeps cloned secrets in sync)
++      tags: [kyverno]
+       ansible.builtin.command: >
+         kubectl -n kyverno patch deployment kyverno-background-controller --type merge
+         -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical"}}}}'
+@@ -358,6 +355,7 @@
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Wait for the kyverno admission controller rollout
++      tags: [kyverno]
+       ansible.builtin.command: kubectl -n kyverno rollout status deployment/kyverno-admission-controller --timeout=600s
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+@@ -365,6 +363,7 @@
+ 
+ 
+     - name: Apply Kyverno policies
++      tags: [kyverno]
+       ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/admission/
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+@@ -387,6 +386,7 @@
+         - "{{ repo_root }}/secrets/bedrock-observer.yaml"
+ 
+     - name: Download Longhorn v1.13.0 (checksum verified)
++      tags: [longhorn]
+       ansible.builtin.get_url:
+         url: https://raw.githubusercontent.com/longhorn/longhorn/v1.13.0/deploy/longhorn.yaml
+         dest: /tmp/longhorn-1.13.0.yaml
+@@ -399,35 +399,41 @@
+       delay: 10
+ 
+     - name: Longhorn RBAC without wildcards (CIS 5.1.3), RBAC rule keeps bind and escalate
++      tags: [longhorn]
+       ansible.builtin.replace:
+         path: /tmp/longhorn-1.13.0.yaml
+         regexp: 'resources: \["clusterrolebindings", "clusterroles"\]\n  verbs: \["\*"\]'
+         replace: 'resources: ["clusterrolebindings", "clusterroles"]\n  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "bind", "escalate"]'
+ 
+     - name: Longhorn RBAC without wildcards (CIS 5.1.3), remaining rules
++      tags: [longhorn]
+       ansible.builtin.replace:
+         path: /tmp/longhorn-1.13.0.yaml
+         regexp: 'verbs: \["\*"\]'
+         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
+ 
+     - name: Longhorn RBAC without wildcards (CIS 5.1.3), CRD rule
++      tags: [longhorn]
+       ansible.builtin.replace:
+         path: /tmp/longhorn-1.13.0.yaml
+         regexp: 'verbs:\n  - "\*"'
+         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
+ 
+     - name: Apply Longhorn v1.13.0
++      tags: [longhorn]
+       kubernetes.core.k8s:
+         kubeconfig: "{{ kubeconfig }}"
+         state: present
+         src: /tmp/longhorn-1.13.0.yaml
+ 
+     - name: Remove the Longhorn CSI cluster-wide Secret read (opt-out documented by Longhorn)
++      tags: [longhorn]
+       ansible.builtin.command: kubectl delete clusterrolebinding longhorn-csi-secret-bind --ignore-not-found
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Wait for longhorn-driver-deployer Available
++      tags: [longhorn]
+       kubernetes.core.k8s_info:
+         kubeconfig: "{{ kubeconfig }}"
+         kind: Deployment
+@@ -441,6 +447,7 @@
+       delay: 15
+ 
+     - name: Longhorn settings
++      tags: [longhorn]
+       ansible.builtin.command: kubectl apply -f {{ repo_root }}/storage/longhorn/longhorn-settings.yaml
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+@@ -450,6 +457,7 @@
+       delay: 10
+ 
+     - name: Download CNPG operator v1.30.1 (checksum verified)
++      tags: [cnpg-operator]
+       ansible.builtin.get_url:
+         url: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
+         dest: /tmp/cnpg-1.30.1.yaml
+@@ -462,6 +470,7 @@
+       delay: 10
+   
+     - name: Apply CNPG operator v1.30.1
++      tags: [cnpg-operator]
+       kubernetes.core.k8s:
+         kubeconfig: "{{ kubeconfig }}"
+         state: present
+@@ -470,6 +479,7 @@
+         src: /tmp/cnpg-1.30.1.yaml
+ 
+     - name: Wait for CNPG controller Available
++      tags: [cnpg-operator]
+       kubernetes.core.k8s_info:
+         kubeconfig: "{{ kubeconfig }}"
+         kind: Deployment
+@@ -483,6 +493,7 @@
+       delay: 10
+ 
+     - name: Download Prometheus operator v0.93.1 bundle
++      tags: [prometheus-operator]
+       ansible.builtin.get_url:
+         url: https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
+         dest: /tmp/prometheus-operator-0.93.1.yaml
+@@ -495,18 +506,21 @@
+       delay: 10
+ 
+     - name: Move Prometheus operator out of default
++      tags: [prometheus-operator]
+       ansible.builtin.replace:
+         path: /tmp/prometheus-operator-0.93.1.yaml
+         regexp: 'namespace: default$'
+         replace: 'namespace: prometheus-operator'
+ 
+     - name: Prometheus operator RBAC without wildcards (CIS 5.1.3)
++      tags: [prometheus-operator]
+       ansible.builtin.replace:
+         path: /tmp/prometheus-operator-0.93.1.yaml
+         regexp: "verbs:\n  - '\\*'"
+         replace: "verbs: [get, list, watch, create, update, patch, delete, deletecollection]"
+ 
+     - name: Apply Prometheus operator v0.93.1
++      tags: [prometheus-operator]
+       ansible.builtin.command: >
+         kubectl apply --server-side --force-conflicts
+         -f /tmp/prometheus-operator-0.93.1.yaml
+@@ -518,6 +532,7 @@
+       delay: 15
+ 
+     - name: Wait for prometheus-operator Available
++      tags: [prometheus-operator]
+       kubernetes.core.k8s_info:
+         kubeconfig: "{{ kubeconfig }}"
+         kind: Deployment
+@@ -709,7 +724,7 @@
+         {
+           cat "{{ failover_sql }}"
+           for f in "{{ failover_dir }}"/proof-keys/*; do
+-            printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
++            printf "INSERT INTO bedrock.bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
+           done
+         } | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+       environment:
+@@ -842,6 +857,7 @@
+ 
+ 
+     - name: Download Strimzi 1.2.0 (checksum verified)
++      tags: [strimzi]
+       when: kafka_enabled | bool
+       ansible.builtin.get_url:
+         url: https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-cluster-operator-1.2.0.yaml
+@@ -855,6 +871,7 @@
+       delay: 10
+ 
+     - name: Point Strimzi at the kafka namespace
++      tags: [strimzi]
+       when: kafka_enabled | bool
+       ansible.builtin.replace:
+         path: /tmp/strimzi-cluster-operator.yaml
+@@ -862,18 +879,21 @@
+         replace: 'namespace: kafka'
+ 
+     - name: Install Strimzi operator
++      tags: [strimzi]
+       when: kafka_enabled | bool
+       ansible.builtin.command: kubectl apply --server-side -n kafka -f /tmp/strimzi-cluster-operator.yaml
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Strimzi creates restricted pods
++      tags: [strimzi]
+       when: kafka_enabled | bool
+       ansible.builtin.command: kubectl -n kafka set env deployment/strimzi-cluster-operator STRIMZI_POD_SECURITY_PROVIDER_CLASS=restricted
+       environment:
+         KUBECONFIG: "{{ kubeconfig }}"
+ 
+     - name: Wait for Strimzi operator
++      tags: [strimzi]
+       when: kafka_enabled | bool
+       kubernetes.core.k8s_info:
+         kubeconfig: "{{ kubeconfig }}"
+diff --git a/tenant-workload/bootstrap/bedrock-teardown.yml b/tenant-workload/bootstrap/bedrock-teardown.yml
+index 67678e8..3c6e11d 100644
+--- a/tenant-workload/bootstrap/bedrock-teardown.yml
++++ b/tenant-workload/bootstrap/bedrock-teardown.yml
+@@ -2,6 +2,7 @@
+ - name: Tear down bedrock cleanly on all nodes
+   hosts: rke2_servers
+   become: true
++  any_errors_fatal: true
+   vars_prompt:
+     - name: confirm_teardown
+       prompt: "this wipes RKE2, etcd and every Longhorn volume on all nodes. type the word destroy to continue"
+@@ -52,7 +53,7 @@
+         state: directory
+         mode: "0755"
+ 
+-- name: Remove the admin kubeconfig from the controller
++- name: Remove the tenant's keys from the controller, only once every node is wiped
+   hosts: localhost
+   become: false
+   gather_facts: false
+diff --git a/tenant-workload/bootstrap/hosts.ini b/tenant-workload/bootstrap/hosts.example.ini
+similarity index 100%
+rename from tenant-workload/bootstrap/hosts.ini
+rename to tenant-workload/bootstrap/hosts.example.ini
+diff --git a/tenant-workload/bootstrap/rke2-config.yaml.j2 b/tenant-workload/bootstrap/rke2-config.yaml.j2
+new file mode 100644
+index 0000000..7e0319a
+--- /dev/null
++++ b/tenant-workload/bootstrap/rke2-config.yaml.j2
+@@ -0,0 +1,19 @@
++{% if rke2_join | default(false) %}
++server: {{ hostvars[groups['server_init'][0]].rke2_join_url }}
++token: {{ hostvars[groups['server_init'][0]].rke2_token }}
++{% endif %}
++profile: cis
++cni: cilium
++disable-kube-proxy: true
++tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
++write-kubeconfig-mode: "0600"
++secrets-encryption: true
++etcd-expose-metrics: true
++audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
++disable:
++  - rke2-traefik
++kube-apiserver-arg:
++  - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
++kubelet-arg:
++  - "pod-max-pids=4096"
++  - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+diff --git a/tenant-workload/bootstrap/rotate-exchange-cert.yml b/tenant-workload/bootstrap/rotate-exchange-cert.yml
+new file mode 100644
+index 0000000..b028f13
+--- /dev/null
++++ b/tenant-workload/bootstrap/rotate-exchange-cert.yml
+@@ -0,0 +1,55 @@
++- name: Rotate the observers' exchange certificate (a new leaf from the same ca, observers restarted one daemonset at a time)
++  hosts: localhost
++  become: false
++  gather_facts: false
++  vars:
++    kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
++    failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
++    leaf_days: 825
++  environment:
++    KUBECONFIG: "{{ kubeconfig }}"
++  tasks:
++    - name: The exchange ca there is now
++      ansible.builtin.stat:
++        path: "{{ failover_dir }}/exchange/ca.key"
++      register: exchange_ca
++
++    - name: Refuse without the ca the observers already trust
++      ansible.builtin.assert:
++        that: exchange_ca.stat.exists
++        fail_msg: "no exchange ca in {{ failover_dir }}/exchange, run the bootstrap first"
++
++    - name: The ca outlives the new leaf
++      ansible.builtin.command: openssl x509 -in {{ failover_dir }}/exchange/ca.crt -noout -checkend {{ (leaf_days | int) * 86400 }}
++      changed_when: false
++
++    - name: Sign a new leaf with the same ca
++      ansible.builtin.shell: |
++        set -eu
++        umask 077
++        cd "{{ failover_dir }}/exchange"
++        openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=bedrock-observer -keyout tls.key.new -out tls.csr
++        printf 'subjectAltName=DNS:bedrock-observer\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' > leaf.ext
++        openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days {{ leaf_days }} -extfile leaf.ext -out tls.crt.new
++        rm -f tls.csr leaf.ext
++        mv tls.key.new tls.key
++        mv tls.crt.new tls.crt
++      changed_when: true
++
++    - name: Put the new leaf in the secret
++      ansible.builtin.shell: |
++        set -eu
++        d="{{ failover_dir }}/exchange"
++        kubectl create secret generic bedrock-observer-exchange -n bedrock-failover --from-file=tls.crt="$d/tls.crt" --from-file=tls.key="$d/tls.key" --from-file=ca.crt="$d/ca.crt" --dry-run=client -o yaml | kubectl apply -f -
++      no_log: true
++      changed_when: true
++
++    - name: Restart observer a, then observer b, so a node always keeps one observer up
++      ansible.builtin.shell: |
++        set -eu
++        kubectl rollout restart -n bedrock-failover daemonset/{{ item }}
++        kubectl rollout status -n bedrock-failover daemonset/{{ item }} --timeout=600s
++      loop:
++        - bedrock-observer-a
++        - bedrock-observer-b
++      changed_when: true
+diff --git a/tenant-workload/bootstrap/rotate-proof-key.yml b/tenant-workload/bootstrap/rotate-proof-key.yml
+index 568772b..b0af3b1 100644
+--- a/tenant-workload/bootstrap/rotate-proof-key.yml
++++ b/tenant-workload/bootstrap/rotate-proof-key.yml
+@@ -20,6 +20,9 @@
+         that: old_keys.matched > 0
+         fail_msg: "no proof key in {{ failover_dir }}/proof-keys, run the bootstrap first"
+ 
++    - name: Find the primary from the role labels, never from a name
++      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/database-roles.yml"
++
+     - name: Make the new key
+       ansible.builtin.shell: |
+         set -eu
+@@ -33,11 +36,11 @@
+     - name: Give postgres the new key, not signing with it yet
+       ansible.builtin.shell: |
+         set -eu
+-        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
++        primary=$(kubectl get cluster {{ primaries[0].name }} -n {{ primaries[0].ns }} -o jsonpath='{.status.currentPrimary}')
+         test -n "$primary"
+-        printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), false) ON CONFLICT (id) DO NOTHING;\n" \
++        printf "INSERT INTO bedrock.bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), false) ON CONFLICT (id) DO NOTHING;\n" \
+           "{{ new_key.stdout }}" "$(tr -d '[:space:]' < "{{ failover_dir }}/proof-keys/{{ new_key.stdout }}")" \
+-          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
++          | kubectl exec -i -n {{ primaries[0].ns }} "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+       no_log: true
+ 
+     - name: The verifier trusts the old and the new key
+@@ -51,9 +54,9 @@
+     - name: Postgres signs with the new key only
+       ansible.builtin.shell: |
+         set -eu
+-        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+-        printf "UPDATE bedrock_proof_key SET active = (id = '%s');\n" "{{ new_key.stdout }}" \
+-          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
++        primary=$(kubectl get cluster {{ primaries[0].name }} -n {{ primaries[0].ns }} -o jsonpath='{.status.currentPrimary}')
++        printf "UPDATE bedrock.bedrock_proof_key SET active = (id = '%s');\n" "{{ new_key.stdout }}" \
++          | kubectl exec -i -n {{ primaries[0].ns }} "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+ 
+     - name: Let every round signed with the old key close
+       ansible.builtin.pause:
+@@ -62,9 +65,9 @@
+     - name: Drop the old keys from postgres
+       ansible.builtin.shell: |
+         set -eu
+-        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+-        printf "DELETE FROM bedrock_proof_key WHERE id <> '%s';\n" "{{ new_key.stdout }}" \
+-          | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
++        primary=$(kubectl get cluster {{ primaries[0].name }} -n {{ primaries[0].ns }} -o jsonpath='{.status.currentPrimary}')
++        printf "DELETE FROM bedrock.bedrock_proof_key WHERE id <> '%s';\n" "{{ new_key.stdout }}" \
++          | kubectl exec -i -n {{ primaries[0].ns }} "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
+ 
+     - name: Drop the old keys from the controller
+       ansible.builtin.file:
+diff --git a/tenant-workload/bootstrap/tasks/database-roles.yml b/tenant-workload/bootstrap/tasks/database-roles.yml
+new file mode 100644
+index 0000000..bd17db4
+--- /dev/null
++++ b/tenant-workload/bootstrap/tasks/database-roles.yml
+@@ -0,0 +1,43 @@
++- name: Read every database cluster's declared role, the facts behind it and whether it is fenced
++  ansible.builtin.shell: |
++    set -euo pipefail
++    kubectl get clusters.postgresql.cnpg.io -A -l 'bedrock.io/db-role,bedrock.io/db-role!=unmanaged' -o json | jq -c '[.items[] | {
++      ns: .metadata.namespace,
++      name: .metadata.name,
++      label: .metadata.labels["bedrock.io/db-role"],
++      fact: ((.spec.replica.minApplyDelay // "") as $d |
++             if .spec.replica.enabled != true then "primary"
++             elif ($d == "" or (($d | test("^[0.]+[a-z]*$")) and ($d | test("[1-9]") | not))) then "live"
++             else "delayed" end),
++      fenced: (((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") == "disabled") or
++               ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")),
++      phase: (.status.phase // ""),
++      image: (.spec.imageName // "")
++    } | .liar = (.label != .fact)]'
++  args:
++    executable: /bin/bash
++  register: clusters_raw
++  changed_when: false
++
++- name: Sort the clusters into roles
++  ansible.builtin.set_fact:
++    clusters: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | list }}"
++    liars: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | selectattr('liar') | list }}"
++
++- name: Every label agrees with its spec
++  ansible.builtin.assert:
++    that: liars | length == 0
++    fail_msg: "these clusters' bedrock.io/db-role disagrees with their spec, fix them first: {{ liars }}"
++
++- name: Pick the primary, the live replicas and the delayed ones
++  ansible.builtin.set_fact:
++    primaries: "{{ clusters | selectattr('label', 'equalto', 'primary') | list }}"
++    lives: "{{ clusters | selectattr('label', 'equalto', 'live') | list }}"
++    delays: "{{ clusters | selectattr('label', 'equalto', 'delayed') | list }}"
++
++- name: Exactly one healthy primary
++  ansible.builtin.assert:
++    that:
++      - primaries | length == 1
++      - primaries[0].phase == 'Cluster in healthy state'
++    fail_msg: "want exactly one healthy, unfenced primary, found {{ primaries }}"
+diff --git a/tenant-workload/database/cluster-2.yaml b/tenant-workload/database/cluster-2.yaml
+index a3f83c3..c0e5b39 100644
+--- a/tenant-workload/database/cluster-2.yaml
++++ b/tenant-workload/database/cluster-2.yaml
+@@ -11,6 +11,11 @@ spec:
+       log_statement: "ddl"
+     pg_hba:
+       - hostnossl all all all reject
++    synchronous:
++      method: any
++      number: 1
++      dataDurability: preferred
++      failoverQuorum: true
+   monitoring:
+     enablePodMonitor: true
+   instances: 2
+diff --git a/tenant-workload/database/cluster-3.yaml b/tenant-workload/database/cluster-3.yaml
+index c43ba71..c4c5077 100644
+--- a/tenant-workload/database/cluster-3.yaml
++++ b/tenant-workload/database/cluster-3.yaml
+@@ -11,6 +11,11 @@ spec:
+       log_statement: "ddl"
+     pg_hba:
+       - hostnossl all all all reject
++    synchronous:
++      method: any
++      number: 1
++      dataDurability: preferred
++      failoverQuorum: true
+   monitoring:
+     enablePodMonitor: true
+   instances: 2
+diff --git a/tenant-workload/database/pooler.yaml b/tenant-workload/database/pooler.yaml
+index 347af08..b81e50c 100644
+--- a/tenant-workload/database/pooler.yaml
++++ b/tenant-workload/database/pooler.yaml
+@@ -7,7 +7,15 @@ spec:
+   template:
+     spec:
+       priorityClassName: bedrock-data
+-      containers: []
++      containers:
++        - name: pgbouncer
++          resources:
++            requests:
++              cpu: 50m
++              memory: 64Mi
++            limits:
++              cpu: 500m
++              memory: 256Mi
+   cluster:
+     name: cluster-1
+   instances: 2
+@@ -27,7 +35,15 @@ spec:
+   template:
+     spec:
+       priorityClassName: bedrock-data
+-      containers: []
++      containers:
++        - name: pgbouncer
++          resources:
++            requests:
++              cpu: 50m
++              memory: 64Mi
++            limits:
++              cpu: 500m
++              memory: 256Mi
+   cluster:
+     name: cluster-2
+   instances: 2
+@@ -47,7 +63,15 @@ spec:
+   template:
+     spec:
+       priorityClassName: bedrock-data
+-      containers: []
++      containers:
++        - name: pgbouncer
++          resources:
++            requests:
++              cpu: 50m
++              memory: 64Mi
++            limits:
++              cpu: 500m
++              memory: 256Mi
+   cluster:
+     name: cluster-3
+   instances: 2
+diff --git a/tenant-workload/database/replica/cluster.yaml.j2 b/tenant-workload/database/replica/cluster.yaml.j2
+index 5beb637..84289b5 100644
+--- a/tenant-workload/database/replica/cluster.yaml.j2
++++ b/tenant-workload/database/replica/cluster.yaml.j2
+@@ -11,6 +11,13 @@ spec:
+       log_statement: "ddl"
+     pg_hba:
+       - hostnossl all all all reject
++{% if instances | int > 1 %}
++    synchronous:
++      method: any
++      number: 1
++      dataDurability: preferred
++      failoverQuorum: true
++{% endif %}
+   monitoring:
+     enablePodMonitor: true
+   instances: {{ instances }}
+@@ -102,7 +109,15 @@ spec:
+   template:
+     spec:
+       priorityClassName: bedrock-data
+-      containers: []
++      containers:
++        - name: pgbouncer
++          resources:
++            requests:
++              cpu: 50m
++              memory: 64Mi
++            limits:
++              cpu: 500m
++              memory: 256Mi
+   cluster:
+     name: {{ replica }}
+   instances: 2
+diff --git a/tenant-workload/database/replica/garage.yaml.j2 b/tenant-workload/database/replica/garage.yaml.j2
+index 9d0be8c..dc932d5 100644
+--- a/tenant-workload/database/replica/garage.yaml.j2
++++ b/tenant-workload/database/replica/garage.yaml.j2
+@@ -52,11 +52,15 @@ data:
+       kubectl -n "$ns" create secret generic "$secret" --from-literal=AWS_ACCESS_KEY_ID="$KID" --from-literal=AWS_SECRET_ACCESS_KEY="$KS"
+     }
+     if ! kubectl -n "$R" get secret "$R-backups" >/dev/null 2>&1; then
+-      if api "$A/GetBucketInfo?globalAlias=$R-backups" >/dev/null 2>&1; then
+-        echo "bucket $R-backups already exists: it holds another database's wal, names are never reused"
++      INFO=$(api "$A/GetBucketInfo?globalAlias=$R-backups" 2>/dev/null || true)
++      BID=$(echo "$INFO" | jq -r '.id // empty' 2>/dev/null || true)
++      if [ -n "$BID" ] && [ "$(echo "$INFO" | jq -r '.objects // 0')" != "0" ]; then
++        echo "bucket $R-backups already holds objects: it is another database's wal, names are never reused"
+         exit 1
+       fi
+-      BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
++      if [ -z "$BID" ]; then
++        BID=$(api -X POST "$A/CreateBucket" -d "{\"globalAlias\":\"$R-backups\"}" | jq -r '.id')
++      fi
+       mint "$R-backups" "$BID" true "$R-backups" "$R"
+     fi
+     for pair in {% for k in ro_keys %}{{ k.bucket }}:{{ k.ns }} {% endfor %}; do
+diff --git a/tenant-workload/event-buses/redis.yaml b/tenant-workload/event-buses/redis.yaml
+index 1362d6d..ea1072e 100644
+--- a/tenant-workload/event-buses/redis.yaml
++++ b/tenant-workload/event-buses/redis.yaml
+@@ -44,6 +44,8 @@ data:
+     requirepass ${REDIS_PASSWORD}
+     masterauth ${REDIS_PASSWORD}
+     replica-announce-ip ${SELF}
++    min-replicas-to-write 1
++    min-replicas-max-lag 10
+     CONF
+     if [ "$MASTER" != "$SELF" ]; then
+       echo "replicaof ${MASTER} 6379" >> /etc/redis/redis.conf
+diff --git a/tenant-workload/failover/checker.yaml b/tenant-workload/failover/checker.yaml
+index 9e6feb4..2b42c49 100644
+--- a/tenant-workload/failover/checker.yaml
++++ b/tenant-workload/failover/checker.yaml
+@@ -3,8 +3,6 @@ kind: Deployment
+ metadata:
+   name: bedrock-checker
+   namespace: bedrock-failover
+-  annotations:
+-    reloader.stakater.com/auto: "true"
+   labels:
+     app.kubernetes.io/name: bedrock-checker
+     app.kubernetes.io/part-of: bedrock-failover
+diff --git a/tenant-workload/failover/monitoring.yaml b/tenant-workload/failover/monitoring.yaml
+index b2dadbd..52f847b 100644
+--- a/tenant-workload/failover/monitoring.yaml
++++ b/tenant-workload/failover/monitoring.yaml
+@@ -64,11 +64,18 @@ spec:
+             description: "it answers but every observer's heartbeat write is stuck; this never fails over, look at it"
+         - alert: BedrockFailoverLostWrites
+           expr: max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) != 0
++          labels:
++            severity: warning
++          annotations:
++            summary: "{{ $labels.target }}: the promoted replica was {{ $value }} bytes behind the last signed write"
++            description: "the signed position includes the observers' own heartbeat writes, so a few bytes after a hard crash are usually heartbeats, not tenant data. -1 means unknown."
++        - alert: BedrockFailoverLostWritesLarge
++          expr: max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) > 65536 or max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) == -1
+           labels:
+             severity: critical
+           annotations:
+-            summary: "{{ $labels.target }} failed over behind its last signed write"
+-            description: "{{ $value }} bytes of WAL postgres had signed are not on the new primary, -1 means the amount could not be read"
++            summary: "{{ $labels.target }}: the promoted replica was missing more than heartbeats ({{ $value }} bytes)"
++            description: "over 64 KiB of signed WAL never reached the new primary, or the gap is unknown (-1). Tenant writes were lost: compare with the old primary's archive in Garage."
+         - alert: BedrockFailoverClaimStuck
+           expr: max by (target) (bedrock_failover_claim_open) > 0
+           for: 10m
+@@ -133,6 +140,22 @@ spec:
+           annotations:
+             summary: "observer {{ $labels.pod }} reaches no peers"
+             description: "it can only abstain when its own check fails"
++        - alert: BedrockExchangeCertExpiring
++          expr: min(bedrock_observer_exchange_cert_expiry_timestamp_seconds) - time() < 30 * 86400
++          for: 1h
++          labels:
++            severity: warning
++          annotations:
++            summary: "the observer exchange certificate expires in {{ $value | humanizeDuration }}"
++            description: "when it expires every observer exchange fails and observers can only abstain. Run make rotate-exchange-cert."
++        - alert: BedrockExchangeCertExpiryCritical
++          expr: min(bedrock_observer_exchange_cert_expiry_timestamp_seconds) - time() < 7 * 86400
++          for: 10m
++          labels:
++            severity: critical
++          annotations:
++            summary: "the observer exchange certificate expires in {{ $value | humanizeDuration }}"
++            description: "run make rotate-exchange-cert now."
+         - alert: BedrockFailoverBlind
+           expr: max by (target) (bedrock_verifier_outcome{outcome="unknown"}) == 1
+           for: 2m
+diff --git a/tenant-workload/failover/observer.yaml b/tenant-workload/failover/observer.yaml
+index 69bb131..3cd6f6c 100644
+--- a/tenant-workload/failover/observer.yaml
++++ b/tenant-workload/failover/observer.yaml
+@@ -3,8 +3,6 @@ kind: DaemonSet
+ metadata:
+   name: bedrock-observer-a
+   namespace: bedrock-failover
+-  annotations:
+-    reloader.stakater.com/auto: "true"
+   labels:
+     app.kubernetes.io/name: bedrock-observer
+     app.kubernetes.io/part-of: bedrock-failover
+@@ -121,8 +119,6 @@ kind: DaemonSet
+ metadata:
+   name: bedrock-observer-b
+   namespace: bedrock-failover
+-  annotations:
+-    reloader.stakater.com/auto: "true"
+   labels:
+     app.kubernetes.io/name: bedrock-observer
+     app.kubernetes.io/part-of: bedrock-failover
+diff --git a/tenant-workload/failover/verifier.yaml b/tenant-workload/failover/verifier.yaml
+index ec2d6bd..20280a8 100644
+--- a/tenant-workload/failover/verifier.yaml
++++ b/tenant-workload/failover/verifier.yaml
+@@ -3,8 +3,6 @@ kind: Deployment
+ metadata:
+   name: bedrock-verifier
+   namespace: bedrock-failover
+-  annotations:
+-    reloader.stakater.com/auto: "true"
+   labels:
+     app.kubernetes.io/name: bedrock-verifier
+     app.kubernetes.io/part-of: bedrock-failover
+diff --git a/tenant-workload/kyverno/generate/failover-secret-sync.yaml b/tenant-workload/kyverno/generate/failover-secret-sync.yaml
+index 43fbcda..bef92dc 100644
+--- a/tenant-workload/kyverno/generate/failover-secret-sync.yaml
++++ b/tenant-workload/kyverno/generate/failover-secret-sync.yaml
+@@ -4,12 +4,36 @@ metadata:
+   name: kyverno:background-controller:bedrock-db-cas
+   labels:
+     rbac.kyverno.io/aggregate-to-background-controller: "true"
++rules:
++  - apiGroups: [""]
++    resources: ["configmaps"]
++    verbs: ["get", "list", "watch"]
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: Role
++metadata:
++  name: kyverno-background-controller-db-cas
++  namespace: bedrock-failover
+ rules:
+   - apiGroups: [""]
+     resources: ["configmaps"]
+     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
++kind: RoleBinding
++metadata:
++  name: kyverno-background-controller-db-cas
++  namespace: bedrock-failover
++roleRef:
++  apiGroup: rbac.authorization.k8s.io
++  kind: Role
++  name: kyverno-background-controller-db-cas
++subjects:
++  - kind: ServiceAccount
++    name: kyverno-background-controller
++    namespace: kyverno
++---
++apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
+ metadata:
+   name: kyverno:admission-controller:bedrock-db-cas
+diff --git a/tenant-workload/kyverno/generate/replica-secret-sync.yaml b/tenant-workload/kyverno/generate/replica-secret-sync.yaml
+index 068e43c..27d6bb5 100644
+--- a/tenant-workload/kyverno/generate/replica-secret-sync.yaml
++++ b/tenant-workload/kyverno/generate/replica-secret-sync.yaml
+@@ -78,19 +78,33 @@ spec:
+     synchronize:
+       enabled: true
+   matchConstraints:
++    namespaceSelector:
++      matchExpressions:
++        - key: kubernetes.io/metadata.name
++          operator: In
++          values:
++            - cluster-1
+     resourceRules:
+       - apiGroups: [""]
+         apiVersions: [v1]
+         operations: [CREATE, UPDATE]
+-        resources: [namespaces]
+-        resourceNames: [cluster-2, cluster-3]
++        resources: [secrets]
++        resourceNames: [cluster-1-replication]
+   variables:
+-    - name: nsName
+-      expression: object.metadata.name
+-    - name: source
+-      expression: resource.Get("v1", "secrets", "cluster-1", "cluster-1-replication")
++    - name: copy
++      expression: |-
++        [
++          {
++            "apiVersion": dyn("v1"),
++            "kind": dyn("Secret"),
++            "metadata": dyn({"name": "cluster-1-replication"}),
++            "type": dyn(object.type),
++            "data": dyn(object.data)
++          }
++        ]
+   generate:
+-    - expression: generator.Apply(variables.nsName, [variables.source])
++    - expression: generator.Apply("cluster-2", variables.copy)
++    - expression: generator.Apply("cluster-3", variables.copy)
+ ---
+ apiVersion: policies.kyverno.io/v1
+ kind: GeneratingPolicy
+diff --git a/tenant-workload/netpols/application.yaml b/tenant-workload/netpols/application.yaml
+index 547245b..2ad11eb 100644
+--- a/tenant-workload/netpols/application.yaml
++++ b/tenant-workload/netpols/application.yaml
+@@ -13,6 +13,8 @@ specs:
+     - ports:
+       - port: '3000'
+         protocol: TCP
++      - port: '3100'
++        protocol: TCP
+       - port: '3200'
+         protocol: TCP
+       - port: '9003'
+diff --git a/tenant-workload/netpols/cluster-default-deny.yaml b/tenant-workload/netpols/cluster-default-deny.yaml
+index c08db10..f933544 100644
+--- a/tenant-workload/netpols/cluster-default-deny.yaml
++++ b/tenant-workload/netpols/cluster-default-deny.yaml
+@@ -3,7 +3,7 @@ kind: CiliumClusterwideNetworkPolicy
+ metadata:
+   name: cluster-default-deny
+ spec:
+-  description: every pod in every namespace is deny by default, so a namespace without its own policy gets kubelet probes in and dns out and nothing else
++  description: every pod is deny by default, so a namespace without its own policy gets kubelet probes in and dns out and nothing else. Namespaces whose own policy limits the host to named ports are left out, since cilium adds rules together and this host allow would cancel their limits. Database namespaces are left out by label, so a replica added later is too
+   endpointSelector:
+     matchExpressions:
+       - key: k8s:io.kubernetes.pod.namespace
+@@ -13,6 +13,13 @@ spec:
+           - falco
+           - node-agents
+           - reloader
++          - garage
++          - openbao
++          - bedrock-failover
++      - key: k8s:io.cilium.k8s.namespace.labels.bedrock.io/database
++        operator: NotIn
++        values:
++          - "true"
+   ingress:
+     - fromEntities:
+         - host
+diff --git a/tenant-workload/observability/alerting/alert-rules.yaml b/tenant-workload/observability/alerting/alert-rules.yaml
+index 9f688c5..e4daf3f 100644
+--- a/tenant-workload/observability/alerting/alert-rules.yaml
++++ b/tenant-workload/observability/alerting/alert-rules.yaml
+@@ -137,7 +137,7 @@ spec:
+     - name: cnpg.rules
+       rules:
+         - alert: CNPGReplicationLagHigh
+-          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 30
++          expr: cnpg_pg_replication_lag > 30 unless on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
+           for: 5m
+           labels:
+             severity: warning
+@@ -145,7 +145,7 @@ spec:
+             summary: "High replication lag: {{ $labels.namespace }}/{{ $labels.pod }}"
+             description: "Replica is {{ $value | humanize }}s behind for 5 minutes."
+         - alert: CNPGReplicationLagCritical
+-          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 120
++          expr: cnpg_pg_replication_lag > 120 unless on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
+           for: 5m
+           labels:
+             severity: critical
+@@ -161,13 +161,13 @@ spec:
+             summary: "cnpg instance down: {{ $labels.namespace }}/{{ $labels.pod }}"
+             description: "cnpg metrics collector unreachable for 3 minutes."
+         - alert: CNPGDelayedReplicaStuck
+-          expr: cnpg_pg_replication_lag{namespace="cluster-3"} > 600
++          expr: cnpg_pg_replication_lag > 600 and on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
+           for: 10m
+           labels:
+             severity: warning
+           annotations:
+             summary: "delayed replica stuck: {{ $labels.namespace }}/{{ $labels.pod }}"
+-            description: "cluster-3 is {{ $value | humanize }}s behind, expected about 300s."
++            description: "the delayed replica is {{ $value | humanize }}s behind, expected about 300s."
+         - alert: WALArchivingFailing
+           expr: increase(cnpg_pg_stat_archiver_failed_count[10m]) > 0
+           labels:
+@@ -177,30 +177,30 @@ spec:
+             description: "archiving to s3 failed in the last 10 minutes, point-in-time recovery is at risk."
+         - alert: CNPGRowsDeletedSpike
+           expr: |
+-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m])) > 100
++            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[5m])) > 100
+             and
+-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m]))
+-              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[6h] offset 5m))
++            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[5m]))
++              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[6h] offset 5m))
+           for: 1m
+           labels:
+             severity: critical
+           annotations:
+             summary: "mass delete on {{ $labels.namespace }}"
+-            description: "{{ $value | humanize }} rows/s deleted, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
++            description: "{{ $value | humanize }} rows/s deleted, over 10x the usual rate. the delayed replica replays it in 5 minutes: pause its replay now if this was not planned."
+         - alert: CNPGRowsUpdatedSpike
+           expr: |
+-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m])) > 100
++            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[5m])) > 100
+             and
+-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m]))
+-              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[6h] offset 5m))
++            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[5m]))
++              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[6h] offset 5m))
+           for: 1m
+           labels:
+             severity: critical
+           annotations:
+             summary: "mass update on {{ $labels.namespace }}"
+-            description: "{{ $value | humanize }} rows/s updated, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
++            description: "{{ $value | humanize }} rows/s updated, over 10x the usual rate. the delayed replica replays it in 5 minutes: pause its replay now if this was not planned."
+         - alert: CNPGStackedInstances
+-          expr: count by (namespace, node) (kube_pod_info{namespace=~"cluster-[123]", created_by_kind="Cluster"}) > 1
++          expr: count by (namespace, node) (kube_pod_info{created_by_kind="Cluster"}) > 1
+           for: 15m
+           labels:
+             severity: warning
+diff --git a/tenant-workload/observability/loki/loki.yaml b/tenant-workload/observability/loki/loki.yaml
+index 96e6844..fe6c375 100644
+--- a/tenant-workload/observability/loki/loki.yaml
++++ b/tenant-workload/observability/loki/loki.yaml
+@@ -115,6 +115,23 @@ spec:
+               name: grpc
+             - containerPort: 7946
+               name: memberlist
++          startupProbe:
++            httpGet:
++              path: /ready
++              port: http
++            periodSeconds: 10
++            failureThreshold: 60
++          readinessProbe:
++            httpGet:
++              path: /ready
++              port: http
++            periodSeconds: 10
++            failureThreshold: 3
++          livenessProbe:
++            tcpSocket:
++              port: http
++            periodSeconds: 20
++            failureThreshold: 6
+           resources:
+             requests:
+               memory: 128Mi
+@@ -192,11 +209,11 @@ data:
+       - name: postgres-ddl
+         rules:
+           - alert: PostgresDropStatement
+-            expr: 'sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0'
++            expr: 'sum by (namespace, pod) (count_over_time({container="postgres"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0'
+             labels:
+               severity: critical
+             annotations:
+-              summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, cluster-3 replays it within 5 minutes"
++              summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, the delayed replica replays it within 5 minutes"
+   falco.yaml: |
+     groups:
+       - name: falco
+diff --git a/tenant-workload/observability/prometheus/blackbox-probes.yaml b/tenant-workload/observability/prometheus/blackbox-probes.yaml
+index ebcc3a1..4c4170d 100644
+--- a/tenant-workload/observability/prometheus/blackbox-probes.yaml
++++ b/tenant-workload/observability/prometheus/blackbox-probes.yaml
+@@ -36,12 +36,6 @@ spec:
+         probe_group: postgres
+       static:
+         - postgres-rw.application.svc:5432
+-        - cluster-1-pooler-rw.cluster-1.svc:5432
+-        - cluster-2-pooler-rw.cluster-2.svc:5432
+-        - cluster-3-pooler-rw.cluster-3.svc:5432
+-        - cluster-1-rw.cluster-1.svc:5432
+-        - cluster-2-rw.cluster-2.svc:5432
+-        - cluster-3-rw.cluster-3.svc:5432
+ ---
+ apiVersion: monitoring.coreos.com/v1
+ kind: Probe
+diff --git a/tenant-workload/storage/garage/buckets.yaml b/tenant-workload/storage/garage/buckets.yaml
+index 3caf193..6f8a557 100644
+--- a/tenant-workload/storage/garage/buckets.yaml
++++ b/tenant-workload/storage/garage/buckets.yaml
+@@ -5,6 +5,31 @@ metadata:
+   namespace: garage
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
++kind: Role
++metadata:
++  name: garage-init-volume-size
++  namespace: garage
++rules:
++  - apiGroups: [""]
++    resources: ["persistentvolumeclaims"]
++    resourceNames: ["data-garage-0"]
++    verbs: ["get"]
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: RoleBinding
++metadata:
++  name: garage-init-volume-size
++  namespace: garage
++roleRef:
++  apiGroup: rbac.authorization.k8s.io
++  kind: Role
++  name: garage-init-volume-size
++subjects:
++  - kind: ServiceAccount
++    name: garage-init
++    namespace: garage
++---
++apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
+ metadata:
+   name: garage-init-secrets
+@@ -85,7 +110,9 @@ data:
+     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
+     until [ "$(api "$A/GetClusterStatus" | jq '[.nodes[] | select(.isUp)] | length')" = "3" ]; do sleep 5; done
+     if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
+-      ROLES=$(api "$A/GetClusterStatus" | jq -c '[.nodes[] | {id: .id, zone: "dc1", capacity: 35000000000, tags: []}]')
++      SIZE=$(kubectl -n garage get pvc data-garage-0 -o jsonpath='{.status.capacity.storage}')
++      CAP=$(echo "$SIZE" | awk '{ n = $0 + 0; u = $0; sub(/^[0-9.]+/, "", u); m["Ki"] = 2^10; m["Mi"] = 2^20; m["Gi"] = 2^30; m["Ti"] = 2^40; m["K"] = 1e3; m["M"] = 1e6; m["G"] = 1e9; m["T"] = 1e12; m[""] = 1; if (!(u in m)) exit 1; printf "%.0f", n * m[u] * 0.9 }')
++      ROLES=$(api "$A/GetClusterStatus" | jq -c --argjson cap "$CAP" '[.nodes[] | {id: .id, zone: "dc1", capacity: $cap, tags: []}]')
+       api -X POST "$A/UpdateClusterLayout" -d "{\"roles\":$ROLES}" >/dev/null
+       V=$(api "$A/GetClusterLayout" | jq -r '.version')
+       api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null

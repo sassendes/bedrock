@@ -296,6 +296,7 @@ func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
 		relabel(primary("b", "b", 3), "live"),
 		replica("b2", "b2", "b-rw.b.svc", ""),
 		relabel(primary("c", "c", 3), ""),
+		relabel(primary("restore", "restore", 1), "unmanaged"),
 	}
 	kube := []runtime.Object{rw("a", "a"), rw("b", "b"), rw("c", "c")}
 	got := run(t, testConfig(), clusters, kube)
@@ -310,7 +311,7 @@ func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
 		}
 	}
 	if len(got.Families) != 1 {
-		t.Fatalf("a primary whose label disagrees must not form a family, got %+v", got.Families)
+		t.Fatalf("a primary whose label disagrees, or an unmanaged one, must not form a family, got %+v", got.Families)
 	}
 	f := got.Families[0]
 	if len(f.Live) != 1 || f.Live[0].Key() != "good/good" {

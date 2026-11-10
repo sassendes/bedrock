@@ -22,14 +22,14 @@ Copy the `Digest:` line and write the image as `quay.io/example/tool:v1.2.3@sha2
 
 ## Add the publisher
 
-Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains two policies with the same pattern, one for application namespaces and one for data namespaces. The pattern has two groups:
+Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains three policies with the same pattern: one for application namespaces, one for data namespaces and one for every namespace labelled `bedrock.io/database: "true"`. The pattern has two groups:
 
 - single repositories, such as `quay\\.io/kiwigrid/k8s-sidecar`, for when you trust one image
 - whole organisations, such as `quay\\.io/(prometheus|prometheus-operator|strimzi)/`, for when you trust everything a publisher ships
 
-Add your entry to the right group in **both** policies. Prefer a single repository unless you really trust the whole organisation.
+Add your entry to the right group in **all three** policies, then run `make check-allowlist`, which fails if the three patterns are not identical. CI runs the same check. Prefer a single repository unless you really trust the whole organisation.
 
-Images from Docker Hub without a registry name, like `nats:2.14`, are matched as `docker.io/nats`. Official images from Docker Hub do not include `library/` after normalisation.
+Images from Docker Hub without a registry name, like `nats:2.14`, are matched as `docker.io/nats`. The pattern accepts official images with or without `library/`, so `docker.io/library/nats` matches too.
 
 ## Test before you apply
 

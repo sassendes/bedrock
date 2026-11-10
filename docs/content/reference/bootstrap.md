@@ -11,11 +11,15 @@ description: "The files, variables and stages of the bootstrap and teardown play
 | `make deploy` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml` |
 | `make teardown` | `ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-teardown.yml` |
 | `make redeploy` | Teardown, then deploy |
-| `make check` | Syntax check of the bootstrap playbook |
+| `make check` | Syntax check of the bootstrap playbook against the example inventory, and `make check-allowlist` |
+| `make check-allowlist` | Fails if the three registry allowlist patterns are not identical |
+| `make rotate-exchange-cert` | Signs a new exchange certificate for the observers and restarts them, see [rotate the exchange certificate]({{< relref "/tasks/rotate-exchange-cert" >}}) |
 | `make rotate-proof-key` | Rotates the failover controller's proof key with an overlap, no downtime |
 | `make add-replica REPLICA=<name>` | Adds a live replica behind the current primary, see [add a live replica]({{< relref "/tasks/add-replica" >}}) |
 
-Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
+Set `INVENTORY=path/to/hosts.ini` to use another inventory file. The default `hosts.ini` is ignored by git; copy it from `hosts.example.ini`.
+
+The bootstrap refuses to run once a failover has happened, because it would turn the new primary back into a replica. Tagged runs, `--tags kyverno`, `longhorn`, `cnpg-operator`, `prometheus-operator` or `strimzi`, skip the database and still work, as described in [upgrade a component]({{< relref "/tasks/upgrade-component" >}}).
 
 ## Inventory groups
 
@@ -63,7 +67,7 @@ Set `INVENTORY=path/to/hosts.ini` to use another inventory file.
 
 | Path | Contents |
 |---|---|
-| `/etc/rancher/rke2/config.yaml` | RKE2 configuration |
+| `/etc/rancher/rke2/config.yaml` | RKE2 configuration, rendered from `rke2-config.yaml.j2` for the first server and the joining ones |
 | `/etc/rancher/rke2/bedrock-audit.yaml` | API audit policy |
 | `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml` | Cilium settings |
 | `/etc/sysctl.d/60-rke2-cis.conf` | CIS kernel settings and inotify limits |

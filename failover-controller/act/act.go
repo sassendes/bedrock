@@ -389,14 +389,24 @@ func (a *Actor) Flip(ctx context.Context, oldPrimary, newPrimary string, epoch i
 		return nil, err
 	}
 	var services []corev1.Service
+	var flipped []string
 	for _, ns := range a.cfg.FlipNamespaces {
 		list, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + oldName})
 		if err != nil {
 			return nil, err
 		}
 		services = append(services, list.Items...)
+		done, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{LabelSelector: a.cfg.FlipLabel + "=" + newName})
+		if err != nil {
+			return nil, err
+		}
+		// A retry after a crash between the patch and the saved step finds its own earlier work here.
+		for _, s := range done.Items {
+			if s.Spec.Type == corev1.ServiceTypeExternalName && s.Spec.ExternalName == host && s.Annotations[a.cfg.EpochAnnotation] == strconv.FormatInt(epoch, 10) {
+				flipped = append(flipped, s.Namespace+"/"+s.Name+" → "+host)
+			}
+		}
 	}
-	var flipped []string
 	for _, s := range services {
 		if s.Spec.Type != corev1.ServiceTypeExternalName {
 			continue

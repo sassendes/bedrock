@@ -40,7 +40,7 @@ The same steps work for the PostgreSQL image, `imageName` in the database cluste
 
 ## Upgrade a bundled operator
 
-Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `tenant-workload/bootstrap/bedrock-bootstrap.yml`. Each download has a URL with the version in it and a `checksum`.
+Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are installed from their release manifests by `tenant-workload/bootstrap/bedrock-bootstrap.yml`. The bootstrap does more than apply them: it checks each download against a checksum, removes Longhorn's wildcard RBAC and its cluster-wide Secret read, moves the Prometheus operator out of `default`, and gives Kyverno's admission controller one replica per node, the top priority class and anti-affinity. Never apply a release URL directly, because that undoes all of it.
 
 1. Download the new manifest and compute its checksum:
 
@@ -50,19 +50,13 @@ Kyverno, Longhorn, CloudNativePG, the Prometheus operator and Strimzi are instal
 
 2. In the bootstrap task, change the version in the task name and the URL, and replace the `checksum` with `sha256:<new sum>`.
 
-3. Apply the new manifest:
+3. Run only that operator's tasks. They are tagged `kyverno`, `longhorn`, `cnpg-operator`, `prometheus-operator` and `strimzi`:
 
    ```sh
-   kubectl apply --server-side --force-conflicts -f <new release URL>
+   ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstrap/bedrock-bootstrap.yml --tags longhorn
    ```
 
-   Strimzi's manifest has no namespace of its own, so add `-n kafka`. Then wait for the operator's deployments to be ready.
-
-4. For Kyverno, the manifest resets the admission controller to its default replica count. Scale it back to one replica per server node, as the bootstrap does:
-
-   ```sh
-   kubectl -n kyverno scale deployment kyverno-admission-controller --replicas=<server nodes>
-   ```
+   Strimzi only installs with Kafka turned on, so add `-e kafka_enabled=true` for it. A tagged run skips the database tasks, so it also works after a failover, when a full bootstrap refuses to run.
 
 The bootstrap task is the record of which version a tenant runs, so a fresh install uses the new version from then on.
 

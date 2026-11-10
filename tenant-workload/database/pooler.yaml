@@ -7,7 +7,15 @@ spec:
   template:
     spec:
       priorityClassName: bedrock-data
-      containers: []
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
   cluster:
     name: cluster-1
   instances: 2
@@ -27,7 +35,15 @@ spec:
   template:
     spec:
       priorityClassName: bedrock-data
-      containers: []
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
   cluster:
     name: cluster-2
   instances: 2
@@ -47,7 +63,15 @@ spec:
   template:
     spec:
       priorityClassName: bedrock-data
-      containers: []
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
   cluster:
     name: cluster-3
   instances: 2

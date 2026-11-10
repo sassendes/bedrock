@@ -115,6 +115,23 @@ spec:
               name: grpc
             - containerPort: 7946
               name: memberlist
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
           resources:
             requests:
               memory: 128Mi
@@ -192,11 +209,11 @@ data:
       - name: postgres-ddl
         rules:
           - alert: PostgresDropStatement
-            expr: 'sum by (namespace, pod) (count_over_time({namespace=~"cluster-[123]"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0'
+            expr: 'sum by (namespace, pod) (count_over_time({container="postgres"} |~ `(?i)(statement|execute [^:]*): .*\bdrop\b` [1m])) > 0'
             labels:
               severity: critical
             annotations:
-              summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, cluster-3 replays it within 5 minutes"
+              summary: "DROP in {{ $labels.namespace }} on {{ $labels.pod }}, the delayed replica replays it within 5 minutes"
   falco.yaml: |
     groups:
       - name: falco

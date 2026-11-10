@@ -20,7 +20,7 @@ Files are in `tenant-workload/kyverno/`.
 
 `bedrock-replica-secret-sync` and `bedrock-replica-ca-sync` in `tenant-workload/kyverno/generate/replica-secret-sync.yaml` are generate policies. They copy the replication certificate and the CA's `ca.crt` from `cluster-1` into `cluster-2` and `cluster-3` and keep them in sync. `bedrock-peer-cluster-2-to-cluster-3`, in the same file, does the same from `cluster-2` into `cluster-3`, so cluster-3 can follow cluster-2 after a failover. `make add-replica` adds one more of these for each new replica.
 
-`bedrock-failover-ca-sync` and `bedrock-failover-password-sync` in `tenant-workload/kyverno/generate/failover-secret-sync.yaml` copy each database cluster's `ca.crt` and the `bedrock_observer` password into `bedrock-failover`. The CA private keys are never copied.
+`bedrock-failover-ca-sync` and `bedrock-failover-password-sync` in `tenant-workload/kyverno/generate/failover-secret-sync.yaml` copy each database cluster's `ca.crt` and the `bedrock_observer` password into `bedrock-failover`. The CA private keys are never copied. Kyverno may only write ConfigMaps in `bedrock-failover`, through a Role in that namespace.
 
 ## Allowed image publishers
 

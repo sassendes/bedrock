@@ -210,7 +210,7 @@ func (c *Checker) quorum(target string, ballots []store.Ballots, round *store.Ro
 	}
 	count := map[string]int{}
 	for _, b := range ballots {
-		if v, ok := b.Votes[target]; ok && v.Challenge == round.Challenge && v.Ballot != observe.BallotAbstain {
+		if v, ok := b.Votes[target]; ok && fresh(v.Challenge, round) && v.Ballot != observe.BallotAbstain {
 			count[b.Node]++
 		}
 	}
@@ -221,6 +221,12 @@ func (c *Checker) quorum(target string, ballots []store.Ballots, round *store.Ro
 		}
 	}
 	return voting >= len(eligible)/2+1
+}
+
+// fresh accepts the round's challenge and the one before it: observers pick up a new challenge on their
+// next probe, so right after a rotation most votes still carry the previous one.
+func fresh(challenge string, round *store.Round) bool {
+	return challenge == round.Challenge || (round.Previous != "" && challenge == round.Previous)
 }
 
 func (c *Checker) observerNodes(ctx context.Context) ([]string, error) {

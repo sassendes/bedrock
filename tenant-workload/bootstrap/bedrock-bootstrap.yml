@@ -113,25 +113,10 @@
   become: true
   tasks:
     - name: Write RKE2 config (first server)
-      ansible.builtin.copy:
+      ansible.builtin.template:
+        src: rke2-config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         mode: "0600"
-        content: |
-          profile: cis
-          cni: cilium
-          disable-kube-proxy: true
-          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
-          write-kubeconfig-mode: "0600"
-          secrets-encryption: true
-          etcd-expose-metrics: true
-          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
-          disable:
-            - rke2-traefik
-          kube-apiserver-arg:
-            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
-          kubelet-arg:
-            - "pod-max-pids=4096"
-            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -198,27 +183,12 @@
   tasks:
     - name: Write RKE2 config (joining server)
       no_log: true
-      ansible.builtin.copy:
+      vars:
+        rke2_join: true
+      ansible.builtin.template:
+        src: rke2-config.yaml.j2
         dest: /etc/rancher/rke2/config.yaml
         mode: "0600"
-        content: |
-          server: {{ hostvars[groups['server_init'][0]].rke2_join_url }}
-          token: {{ hostvars[groups['server_init'][0]].rke2_token }}
-          profile: cis
-          cni: cilium
-          disable-kube-proxy: true
-          tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
-          write-kubeconfig-mode: "0600"
-          secrets-encryption: true
-          etcd-expose-metrics: true
-          audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
-          disable:
-            - rke2-traefik
-          kube-apiserver-arg:
-            - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
-          kubelet-arg:
-            - "pod-max-pids=4096"
-            - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
 
     - name: Start rke2-server
       ansible.builtin.systemd:
@@ -280,6 +250,7 @@
     failover_sql: "{{ playbook_dir }}/../../failover-controller/observe/heartbeat.sql"
   tasks:
     - name: Wait for Kubernetes API to answer
+      tags: [always]
       ansible.builtin.command: kubectl get --raw=/readyz
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
@@ -288,6 +259,26 @@
       retries: 30
       delay: 10
       changed_when: false
+
+    - name: Look for a failover that already happened
+      ansible.builtin.shell: |
+        set -o pipefail
+        { kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary -o json 2>/dev/null || echo '{"items":[]}'; } \
+          | jq -r '[.items[] | select(.metadata.name != "cluster-1" or ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")) | .metadata.namespace + "/" + .metadata.name] | join(" ")'
+      args:
+        executable: /bin/bash
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: moved_primary
+      changed_when: false
+
+    - name: Never rerun the bootstrap after a failover
+      ansible.builtin.assert:
+        that: moved_primary.stdout | trim == ""
+        fail_msg: >-
+          the primary is no longer cluster-1 ({{ moved_primary.stdout | trim }}). The bootstrap would wait on the fenced
+          cluster-1 and apply cluster-2.yaml as a replica again, turning the live primary back into a replica of a dead
+          cluster. Change one component by applying its manifest instead, as the task guides describe.
 
     - name: Apply namespaces
       kubernetes.core.k8s:
@@ -303,6 +294,7 @@
         src: "{{ repo_root }}/platform/priorityclasses.yaml"
 
     - name: Download Kyverno v1.19.1 (checksum verified)
+      tags: [kyverno]
       ansible.builtin.get_url:
         url: https://github.com/kyverno/kyverno/releases/download/v1.19.1/install.yaml
         dest: /tmp/kyverno-1.19.1.yaml
@@ -315,6 +307,7 @@
       delay: 10
 
     - name: Install Kyverno v1.19.1 (policy admission must exist before validated workloads)
+      tags: [kyverno]
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts
         -f /tmp/kyverno-1.19.1.yaml
@@ -326,6 +319,7 @@
       delay: 15
 
     - name: Wait for kyverno admission-controller Available
+      tags: [kyverno]
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Deployment
@@ -339,11 +333,13 @@
       delay: 10
 
     - name: Kyverno admission controller to 3 replicas (fail-closed needs no single point of failure)
+      tags: [kyverno]
       ansible.builtin.command: kubectl -n kyverno scale deployment kyverno-admission-controller --replicas=3
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Kyverno admission controller on top priority, one replica per node
+      tags: [kyverno]
       ansible.builtin.command: >
         kubectl -n kyverno patch deployment kyverno-admission-controller --type merge
         -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical","affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"app.kubernetes.io/component":"admission-controller","app.kubernetes.io/instance":"kyverno"}},"topologyKey":"kubernetes.io/hostname"}]}}}}}}'
@@ -351,6 +347,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Kyverno background controller on top priority (keeps cloned secrets in sync)
+      tags: [kyverno]
       ansible.builtin.command: >
         kubectl -n kyverno patch deployment kyverno-background-controller --type merge
         -p '{"spec":{"template":{"spec":{"priorityClassName":"system-cluster-critical"}}}}'
@@ -358,6 +355,7 @@
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for the kyverno admission controller rollout
+      tags: [kyverno]
       ansible.builtin.command: kubectl -n kyverno rollout status deployment/kyverno-admission-controller --timeout=600s
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
@@ -365,6 +363,7 @@
 
 
     - name: Apply Kyverno policies
+      tags: [kyverno]
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/kyverno/admission/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
@@ -387,6 +386,7 @@
         - "{{ repo_root }}/secrets/bedrock-observer.yaml"
 
     - name: Download Longhorn v1.13.0 (checksum verified)
+      tags: [longhorn]
       ansible.builtin.get_url:
         url: https://raw.githubusercontent.com/longhorn/longhorn/v1.13.0/deploy/longhorn.yaml
         dest: /tmp/longhorn-1.13.0.yaml
@@ -399,35 +399,41 @@
       delay: 10
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), RBAC rule keeps bind and escalate
+      tags: [longhorn]
       ansible.builtin.replace:
         path: /tmp/longhorn-1.13.0.yaml
         regexp: 'resources: \["clusterrolebindings", "clusterroles"\]\n  verbs: \["\*"\]'
         replace: 'resources: ["clusterrolebindings", "clusterroles"]\n  verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection", "bind", "escalate"]'
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), remaining rules
+      tags: [longhorn]
       ansible.builtin.replace:
         path: /tmp/longhorn-1.13.0.yaml
         regexp: 'verbs: \["\*"\]'
         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
 
     - name: Longhorn RBAC without wildcards (CIS 5.1.3), CRD rule
+      tags: [longhorn]
       ansible.builtin.replace:
         path: /tmp/longhorn-1.13.0.yaml
         regexp: 'verbs:\n  - "\*"'
         replace: 'verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]'
 
     - name: Apply Longhorn v1.13.0
+      tags: [longhorn]
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
         src: /tmp/longhorn-1.13.0.yaml
 
     - name: Remove the Longhorn CSI cluster-wide Secret read (opt-out documented by Longhorn)
+      tags: [longhorn]
       ansible.builtin.command: kubectl delete clusterrolebinding longhorn-csi-secret-bind --ignore-not-found
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for longhorn-driver-deployer Available
+      tags: [longhorn]
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Deployment
@@ -441,6 +447,7 @@
       delay: 15
 
     - name: Longhorn settings
+      tags: [longhorn]
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/storage/longhorn/longhorn-settings.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
@@ -450,6 +457,7 @@
       delay: 10
 
     - name: Download CNPG operator v1.30.1 (checksum verified)
+      tags: [cnpg-operator]
       ansible.builtin.get_url:
         url: https://github.com/cloudnative-pg/cloudnative-pg/releases/download/v1.30.1/cnpg-1.30.1.yaml
         dest: /tmp/cnpg-1.30.1.yaml
@@ -462,6 +470,7 @@
       delay: 10
   
     - name: Apply CNPG operator v1.30.1
+      tags: [cnpg-operator]
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
@@ -470,6 +479,7 @@
         src: /tmp/cnpg-1.30.1.yaml
 
     - name: Wait for CNPG controller Available
+      tags: [cnpg-operator]
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Deployment
@@ -483,6 +493,7 @@
       delay: 10
 
     - name: Download Prometheus operator v0.93.1 bundle
+      tags: [prometheus-operator]
       ansible.builtin.get_url:
         url: https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.93.1/bundle.yaml
         dest: /tmp/prometheus-operator-0.93.1.yaml
@@ -495,18 +506,21 @@
       delay: 10
 
     - name: Move Prometheus operator out of default
+      tags: [prometheus-operator]
       ansible.builtin.replace:
         path: /tmp/prometheus-operator-0.93.1.yaml
         regexp: 'namespace: default$'
         replace: 'namespace: prometheus-operator'
 
     - name: Prometheus operator RBAC without wildcards (CIS 5.1.3)
+      tags: [prometheus-operator]
       ansible.builtin.replace:
         path: /tmp/prometheus-operator-0.93.1.yaml
         regexp: "verbs:\n  - '\\*'"
         replace: "verbs: [get, list, watch, create, update, patch, delete, deletecollection]"
 
     - name: Apply Prometheus operator v0.93.1
+      tags: [prometheus-operator]
       ansible.builtin.command: >
         kubectl apply --server-side --force-conflicts
         -f /tmp/prometheus-operator-0.93.1.yaml
@@ -518,6 +532,7 @@
       delay: 15
 
     - name: Wait for prometheus-operator Available
+      tags: [prometheus-operator]
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: Deployment
@@ -709,7 +724,7 @@
         {
           cat "{{ failover_sql }}"
           for f in "{{ failover_dir }}"/proof-keys/*; do
-            printf "INSERT INTO bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
+            printf "INSERT INTO bedrock.bedrock_proof_key (id, key, active) VALUES ('%s', decode('%s', 'hex'), true) ON CONFLICT (id) DO NOTHING;\n" "$(basename "$f")" "$(tr -d '[:space:]' < "$f")"
           done
         } | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d app
       environment:
@@ -842,6 +857,7 @@
 
 
     - name: Download Strimzi 1.2.0 (checksum verified)
+      tags: [strimzi]
       when: kafka_enabled | bool
       ansible.builtin.get_url:
         url: https://github.com/strimzi/strimzi-kafka-operator/releases/download/1.2.0/strimzi-cluster-operator-1.2.0.yaml
@@ -855,6 +871,7 @@
       delay: 10
 
     - name: Point Strimzi at the kafka namespace
+      tags: [strimzi]
       when: kafka_enabled | bool
       ansible.builtin.replace:
         path: /tmp/strimzi-cluster-operator.yaml
@@ -862,18 +879,21 @@
         replace: 'namespace: kafka'
 
     - name: Install Strimzi operator
+      tags: [strimzi]
       when: kafka_enabled | bool
       ansible.builtin.command: kubectl apply --server-side -n kafka -f /tmp/strimzi-cluster-operator.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Strimzi creates restricted pods
+      tags: [strimzi]
       when: kafka_enabled | bool
       ansible.builtin.command: kubectl -n kafka set env deployment/strimzi-cluster-operator STRIMZI_POD_SECURITY_PROVIDER_CLASS=restricted
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
     - name: Wait for Strimzi operator
+      tags: [strimzi]
       when: kafka_enabled | bool
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"

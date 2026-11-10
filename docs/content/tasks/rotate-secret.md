@@ -20,6 +20,7 @@ The values in `tenant-workload/secrets/` are the source of truth, so change them
 | `redis-auth` | `redis` | Redis and Sentinel | No |
 | `user-secret-1` | `cluster-1` | CloudNativePG, for the `appuser` role | Yes, in PostgreSQL |
 | `longhorn-crypto` | `longhorn-system` | Longhorn volume encryption | Yes, in every encrypted volume |
+| `bedrock-observer` | `cluster-1`, copied into `bedrock-failover` by Kyverno | CloudNativePG for the `bedrock_observer` role, the failover observers and verifier | Yes, in PostgreSQL |
 
 ## Grafana admin password
 
@@ -69,6 +70,21 @@ kubectl apply -f tenant-workload/secrets/user-secret-1.yaml
 ```
 
 `cluster-1-1` is an example; run it against whichever instance is the current primary, shown by `kubectl -n cluster-1 get cluster cluster-1`. The replica clusters receive the change through replication.
+
+## Failover observer password
+
+CloudNativePG sets the `bedrock_observer` role's password from this Secret, and Kyverno copies the Secret into `bedrock-failover`. The observers and the verifier read the mounted file again on every connection, so no restart is needed: Kubernetes refreshes a mounted Secret within about a minute.
+
+1. Change `password` in `tenant-workload/secrets/bedrock-observer.yaml` and apply it.
+2. Wait until the copy in `bedrock-failover` has the new value:
+
+   ```sh
+   kubectl -n bedrock-failover get secret bedrock-observer -o jsonpath='{.data.password}' | base64 -d
+   ```
+
+3. Watch `bedrock_observer_ballot` in Grafana. For the minute between CloudNativePG changing the role and the mounted file refreshing, observers can vote down. The verifier needs three witnesses as well as the votes, so this never fails over a live database, but `BedrockFailoverBlind` can fire briefly.
+
+The role is managed by cluster-1's spec. After a failover, add the same `managed.roles` entry to the new primary's cluster before rotating.
 
 ## Longhorn encryption key
 

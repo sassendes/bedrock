@@ -18,9 +18,9 @@ Kyverno v1.19.1 is installed from the release's `install.yaml`, checked against 
 
 The bootstrap waits for the rollout to finish before it applies the policies.
 
-## Scoped with match conditions
+## Scoped by namespace
 
-Each policy has a `webhookConfiguration` with a CEL `matchConditions` expression listing the namespaces it covers. The API server evaluates that expression before calling Kyverno at all, so a request for a namespace outside the list never reaches the webhook. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno.
+Each policy names the namespaces it covers in `matchConstraints.namespaceSelector`, by name or by a label such as `bedrock.io/database: "true"`. Kyverno registers its webhook with that selector, so the API server never sends it a request for a namespace outside the list. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno. Only the failover syncs also use a CEL `matchConditions` expression.
 
 ## Policies
 

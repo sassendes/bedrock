@@ -373,6 +373,16 @@ func eligible(nodes []string, exclude string) []string {
 	return out
 }
 
+func union(a, b []string) []string {
+	out := append([]string(nil), a...)
+	for _, n := range b {
+		if !contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 func candidate(f discovery.Family) (discovery.Member, bool) {
 	for _, m := range f.Live {
 		if m.ReadyInstances > 0 {
@@ -484,6 +494,13 @@ func (d *Decider) advance(ctx context.Context, c *store.Claim, ballots []store.B
 			d.log.Warn("approved but the verifier stopped closing rounds, not fencing on a stale view", "target", c.Target)
 			return nil
 		}
+		// Reconciliation was still on since the claim, so an instance pod may have moved. Every node that
+		// runs one now joins the list the fence is verified on.
+		_, nodes, err := d.actor.Instances(ctx, c.Target)
+		if err != nil {
+			return err
+		}
+		c.Nodes = union(c.Nodes, nodes)
 		// The step is saved before the cluster is touched: once a fence annotation can exist, no path
 		// above can close the claim and leave the cluster fenced with nothing watching it.
 		return d.move(ctx, c, store.StepFencing)

@@ -1,0 +1,55 @@
+- name: Rotate the observers' exchange certificate (a new leaf from the same ca, observers restarted one daemonset at a time)
+  hosts: localhost
+  become: false
+  gather_facts: false
+  vars:
+    kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
+    failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
+    leaf_days: 825
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+  tasks:
+    - name: The exchange ca there is now
+      ansible.builtin.stat:
+        path: "{{ failover_dir }}/exchange/ca.key"
+      register: exchange_ca
+
+    - name: Refuse without the ca the observers already trust
+      ansible.builtin.assert:
+        that: exchange_ca.stat.exists
+        fail_msg: "no exchange ca in {{ failover_dir }}/exchange, run the bootstrap first"
+
+    - name: The ca outlives the new leaf
+      ansible.builtin.command: openssl x509 -in {{ failover_dir }}/exchange/ca.crt -noout -checkend {{ (leaf_days | int) * 86400 }}
+      changed_when: false
+
+    - name: Sign a new leaf with the same ca
+      ansible.builtin.shell: |
+        set -eu
+        umask 077
+        cd "{{ failover_dir }}/exchange"
+        openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /CN=bedrock-observer -keyout tls.key.new -out tls.csr
+        printf 'subjectAltName=DNS:bedrock-observer\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth,clientAuth\n' > leaf.ext
+        openssl x509 -req -in tls.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days {{ leaf_days }} -extfile leaf.ext -out tls.crt.new
+        rm -f tls.csr leaf.ext
+        mv tls.key.new tls.key
+        mv tls.crt.new tls.crt
+      changed_when: true
+
+    - name: Put the new leaf in the secret
+      ansible.builtin.shell: |
+        set -eu
+        d="{{ failover_dir }}/exchange"
+        kubectl create secret generic bedrock-observer-exchange -n bedrock-failover --from-file=tls.crt="$d/tls.crt" --from-file=tls.key="$d/tls.key" --from-file=ca.crt="$d/ca.crt" --dry-run=client -o yaml | kubectl apply -f -
+      no_log: true
+      changed_when: true
+
+    - name: Restart observer a, then observer b, so a node always keeps one observer up
+      ansible.builtin.shell: |
+        set -eu
+        kubectl rollout restart -n bedrock-failover daemonset/{{ item }}
+        kubectl rollout status -n bedrock-failover daemonset/{{ item }} --timeout=600s
+      loop:
+        - bedrock-observer-a
+        - bedrock-observer-b
+      changed_when: true

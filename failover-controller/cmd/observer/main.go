@@ -36,7 +36,7 @@ func main() {
 	fs.DurationVar(&cfg.SuspectInterval, "suspect-probe-interval", 500*time.Millisecond, "time between rounds while a target looks down")
 	fs.DurationVar(&cfg.AskTimeout, "ask-timeout", 1500*time.Millisecond, "how long to wait for peer answers")
 	fs.IntVar(&cfg.Check.Port, "pg-port", 5432, "postgres port")
-	fs.StringVar(&cfg.Check.Database, "pg-database", "app", "database holding bedrock_heartbeat")
+	fs.StringVar(&cfg.Check.Database, "pg-database", "app", "database holding the bedrock schema")
 	fs.StringVar(&cfg.Check.User, "pg-user", "bedrock_observer", "login of the observer")
 	fs.StringVar(&passwordFile, "pg-password-file", "/etc/bedrock/pg/password", "file holding the observer password")
 	fs.StringVar(&cfg.Check.TLSMode, "pg-sslmode", "verify-ca", "postgres sslmode")
@@ -69,6 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Check.Password = strings.TrimSpace(string(pw))
+	cfg.Check.PasswordFile = passwordFile
 
 	serverTLS, clientTLS, err := transport.LoadTLS(certFile, keyFile, caFile, serverName)
 	if err != nil {
@@ -93,6 +94,9 @@ func main() {
 		}
 	}
 	m := metrics.New()
+	if leaf := serverTLS.Certificates[0].Leaf; leaf != nil {
+		m.Set("bedrock_observer_exchange_cert_expiry_timestamp_seconds", nil, float64(leaf.NotAfter.Unix()))
+	}
 	tr := transport.NewHTTP(clientTLS, cfg.AskTimeout)
 	o := observer.New(kube, dyn, common.Act.Discovery, act.New(dyn, kube, common.Act), store.New(kube, st), cfg, key, tr, tr, m, log)
 

@@ -38,7 +38,7 @@ v0.33.1, also run by the operator. Only Prometheus, Loki's ruler and the blackbo
 | Deletion API | Turned off, so logs cannot be erased over the API |
 | Disruption budget | Keeps 2 |
 
-A write needs a majority of copies, so Loki runs an odd number of replicas spread across nodes and keeps serving as long as a majority is up. Loki's ruler sends `PostgresDropStatement` to Alertmanager when a database logs a `DROP`.
+A write needs a majority of copies, so Loki runs an odd number of replicas spread across nodes and keeps serving as long as a majority is up. A pod counts as ready only once `/ready` answers, which is after it has joined the ring, so the Service and the disruption budget never count a pod that cannot take writes yet. Loki's ruler sends `PostgresDropStatement` to Alertmanager when a database logs a `DROP`.
 
 Loki 3.6 moved to version 2 of the AWS SDK, which sends checksums Garage does not accept by default. The `AWS_REQUEST_CHECKSUM_CALCULATION` and `AWS_RESPONSE_CHECKSUM_VALIDATION` variables set to `when_required` fix that.
 
@@ -47,8 +47,14 @@ Loki 3.6 moved to version 2 of the AWS SDK, which sends checksums Garage does no
 A DaemonSet in `node-agents`. It collects:
 
 - pod logs, labelled with `namespace`, `pod` and `container`
-- the Kubernetes audit log from `/var/lib/rancher/rke2/server/logs/audit.log`, labelled `job="kube-audit"`, `node` and `verb`
+- the Kubernetes audit log, labelled `job="kube-audit"`, `node` and `verb`
 - OpenTelemetry traces, forwarded to Tempo
+
+The audit log is read from this file on every node:
+
+```
+/var/lib/rancher/rke2/server/logs/audit.log
+```
 
 Alloy runs as root to read the root-owned audit log, but drops every Linux capability and cannot escalate. It keeps its read positions on the node, so a restart neither resends nor skips log lines.
 

@@ -9,7 +9,6 @@
     tpl: "{{ repo_root }}/database/replica"
     instances: 2
     storage: 10Gi
-    image: ghcr.io/cloudnative-pg/postgresql:17.4@sha256:3c0ba08ea353c9705a755c113e4ae395be76553e0ed68076e5410cb09b9d17d9
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
   tasks:
@@ -30,51 +29,12 @@
         that: existing_ns.stdout == ""
         fail_msg: "namespace {{ replica }} already exists, pick a new name"
 
-    - name: Read every database cluster's declared role, the facts behind it and whether it is fenced
-      ansible.builtin.shell: |
-        set -euo pipefail
-        kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role -o json | jq -c '[.items[] | {
-          ns: .metadata.namespace,
-          name: .metadata.name,
-          label: .metadata.labels["bedrock.io/db-role"],
-          fact: ((.spec.replica.minApplyDelay // "") as $d |
-                 if .spec.replica.enabled != true then "primary"
-                 elif ($d == "" or (($d | test("^[0.]+[a-z]*$")) and ($d | test("[1-9]") | not))) then "live"
-                 else "delayed" end),
-          fenced: (((.metadata.annotations["cnpg.io/reconciliationLoop"] // "") == "disabled") or
-                   ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")),
-          phase: (.status.phase // "")
-        } | .liar = (.label != .fact)]'
-      args:
-        executable: /bin/bash
-      register: clusters_raw
-      changed_when: false
-
-    - name: Sort the clusters into roles
-      ansible.builtin.set_fact:
-        clusters: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | list }}"
-        liars: "{{ clusters_raw.stdout | from_json | rejectattr('fenced') | selectattr('liar') | list }}"
-
-    - name: Every label agrees with its spec
-      ansible.builtin.assert:
-        that: liars | length == 0
-        fail_msg: "these clusters' bedrock.io/db-role disagrees with their spec, fix them first: {{ liars }}"
-
-    - name: Pick the primary, the live replicas and the delayed ones
-      ansible.builtin.set_fact:
-        primaries: "{{ clusters | selectattr('label', 'equalto', 'primary') | list }}"
-        lives: "{{ clusters | selectattr('label', 'equalto', 'live') | list }}"
-        delays: "{{ clusters | selectattr('label', 'equalto', 'delayed') | list }}"
-
-    - name: Exactly one healthy primary
-      ansible.builtin.assert:
-        that:
-          - primaries | length == 1
-          - primaries[0].phase == 'Cluster in healthy state'
-        fail_msg: "want exactly one healthy, unfenced primary, found {{ primaries }}"
+    - name: Find the primary from the role labels, never from a name
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/tasks/database-roles.yml"
 
     - name: Work out who follows whom
       ansible.builtin.set_fact:
+        image: "{{ primaries[0].image }}"
         source: "{{ primaries[0].name }}"
         source_ns: "{{ primaries[0].ns }}"
         me: {name: "{{ replica }}", ns: "{{ replica }}"}

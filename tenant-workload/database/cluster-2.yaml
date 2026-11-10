@@ -11,6 +11,11 @@ spec:
       log_statement: "ddl"
     pg_hba:
       - hostnossl all all all reject
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: preferred
+      failoverQuorum: true
   monitoring:
     enablePodMonitor: true
   instances: 2

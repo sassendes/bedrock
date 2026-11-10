@@ -22,7 +22,7 @@ Garage pods find each other through Kubernetes discovery. The `GarageNode` custo
 
 ## The bucket job
 
-`garage-init` runs once after Garage starts. It waits for every Garage node to join, applies the cluster layout, then creates the buckets and keys and writes each key into a Secret in the namespace that uses it:
+`garage-init` runs once after Garage starts. It waits for every Garage node to join and applies the cluster layout, with each node's capacity set to 90% of the size of its data volume, read from the volume claim. Then it creates the buckets and keys and writes each key into a Secret in the namespace that uses it:
 
 - one bucket per consumer, with a key that can read and write but never own the bucket
 - a separate read-only key on cluster-1's bucket for the replica clusters

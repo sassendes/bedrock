@@ -1,0 +1,19 @@
+{% if rke2_join | default(false) %}
+server: {{ hostvars[groups['server_init'][0]].rke2_join_url }}
+token: {{ hostvars[groups['server_init'][0]].rke2_token }}
+{% endif %}
+profile: cis
+cni: cilium
+disable-kube-proxy: true
+tls-san: {{ groups['rke2_servers'] | map('extract', hostvars, 'ansible_host') | list | to_json }}
+write-kubeconfig-mode: "0600"
+secrets-encryption: true
+etcd-expose-metrics: true
+audit-policy-file: /etc/rancher/rke2/bedrock-audit.yaml
+disable:
+  - rke2-traefik
+kube-apiserver-arg:
+  - "enable-admission-plugins=NodeRestriction,DenyServiceExternalIPs"
+kubelet-arg:
+  - "pod-max-pids=4096"
+  - "tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"

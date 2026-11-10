@@ -8,7 +8,9 @@ Inside a tenant, Cilium handles every packet between pods. It does three jobs: i
 
 ## Default deny
 
-A cluster-wide policy selects every pod in every namespace. Once a pod is selected by any policy, Cilium drops all traffic to and from it that no policy allows. The cluster-wide policy allows only two things: health checks from the node and DNS lookups to the cluster DNS server.
+A cluster-wide policy selects every pod in every namespace. Once a pod is selected by any policy, Cilium drops all traffic to and from it that no policy allows. The cluster-wide policy allows only two things: anything from the node itself and DNS lookups to the cluster DNS server.
+
+Cilium adds rules together, so that node allow would cancel any namespace that limits the node to a few ports. Those namespaces are left out of the cluster-wide policy and carry the same deny by default in their own: `application`, `falco`, `node-agents`, `reloader`, `garage`, `openbao`, `bedrock-failover`, and every namespace labelled `bedrock.io/database: "true"`, which includes a replica added later.
 
 Each namespace then has its own `CiliumNetworkPolicy` that adds the flows its components need. Policies only add allows, so a namespace without its own policy is closed, not open. The bootstrap checks this at the end of every deploy and fails if any namespace running pods has no policy.
 

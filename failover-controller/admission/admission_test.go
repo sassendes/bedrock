@@ -59,6 +59,9 @@ func start(t *testing.T) *apiserver {
 	t.Helper()
 	bin := os.Getenv("BEDROCK_APISERVER_BIN")
 	if bin == "" {
+		if os.Getenv("BEDROCK_REQUIRE_INTEGRATION") != "" {
+			t.Fatal("BEDROCK_REQUIRE_INTEGRATION is set but BEDROCK_APISERVER_BIN is not")
+		}
 		t.Skip("set BEDROCK_APISERVER_BIN to a directory with etcd and kube-apiserver")
 	}
 	dir := t.TempDir()

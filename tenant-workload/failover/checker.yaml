@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: bedrock-checker
   namespace: bedrock-failover
-  annotations:
-    reloader.stakater.com/auto: "true"
   labels:
     app.kubernetes.io/name: bedrock-checker
     app.kubernetes.io/part-of: bedrock-failover

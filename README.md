@@ -95,7 +95,8 @@ Requirements: three Debian 12 nodes (4 vCPU, 12 GB RAM, 200 GB disk absolute min
 
 ```sh
 sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
-# fill in tenant-workload/bootstrap/hosts.ini
+cp tenant-workload/bootstrap/hosts.example.ini tenant-workload/bootstrap/hosts.ini
+# fill in hosts.ini, which git ignores
 make deploy
 ```
 

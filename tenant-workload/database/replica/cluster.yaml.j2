@@ -11,6 +11,13 @@ spec:
       log_statement: "ddl"
     pg_hba:
       - hostnossl all all all reject
+{% if instances | int > 1 %}
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: preferred
+      failoverQuorum: true
+{% endif %}
   monitoring:
     enablePodMonitor: true
   instances: {{ instances }}
@@ -102,7 +109,15 @@ spec:
   template:
     spec:
       priorityClassName: bedrock-data
-      containers: []
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
   cluster:
     name: {{ replica }}
   instances: 2

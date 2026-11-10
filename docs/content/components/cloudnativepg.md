@@ -31,7 +31,7 @@ Each instance requests 256 MiB and 100m of CPU, with limits of 1 GiB and 1 CPU.
 
 ## Synchronous replication
 
-cluster-1 uses quorum-based synchronous replication:
+Every cluster carries the same quorum-based synchronous replication block:
 
 ```yaml
 synchronous:
@@ -40,7 +40,7 @@ synchronous:
   dataDurability: preferred
 ```
 
-A commit returns once at least one standby instance has written it. `preferred` means that if no standby is up, the primary carries on alone instead of blocking every write. cluster-2 and cluster-3 are separate clusters and are not part of this.
+A commit returns once at least one standby instance has written it. `preferred` means that if no standby is up, the primary carries on alone instead of blocking every write. cluster-2 and cluster-3 stream from cluster-1 asynchronously as separate clusters. The block does nothing on them while they are replicas, and takes effect between their own instances the moment one is promoted, so a new primary never runs without it. A replica added with `make add-replica` gets it too when it has more than one instance.
 
 ## Replica clusters
 
@@ -50,7 +50,7 @@ The replicas need cluster-1's CA and replication certificate in their own namesp
 
 ## Poolers
 
-Each cluster has a PgBouncer `Pooler` with more than one instance in transaction mode, `max_client_conn` 1000 and `default_pool_size` 25, and a disruption budget that keeps one running. The poolers on cluster-2 and cluster-3 stay ready but only accept writes once their cluster is promoted.
+Each cluster has a PgBouncer `Pooler` with more than one instance in transaction mode, `max_client_conn` 1000 and `default_pool_size` 25, and a disruption budget that keeps one running. Each pooler pod requests 50m and 64 MiB, with limits of 500m and 256 MiB, so it is never a best effort pod in the write path. The poolers on cluster-2 and cluster-3 stay ready but only accept writes once their cluster is promoted.
 
 `postgres-rw.application.svc` is an `ExternalName` service pointing at the active pooler. Promotion changes only where it points.
 

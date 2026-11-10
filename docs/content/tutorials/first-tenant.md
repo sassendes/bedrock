@@ -10,7 +10,7 @@ In this tutorial you deploy a complete bedrock tenant on your machines, check th
 
 - **Three machines** running Debian 12, each with at least 4 vCPU, 12 GB of RAM and 200 GB of disk, and more RAM if you turn on event buses. Virtual machines are fine.
 - **SSH access** to each machine with a key, for a user that has passwordless `sudo`.
-- **A controller**: any Linux machine that can reach every node over SSH. Your laptop works.
+- **A controller**: any Linux machine that can reach every node over SSH and reach GitHub, since the bootstrap downloads the bundled operators on the controller. Your laptop works.
 - **Network access** from the nodes to GitHub and the container registries, to download releases and images.
 
 ## Get the code
@@ -27,7 +27,7 @@ This installs Ansible, the Python Kubernetes client and the `kubernetes.core` co
 
 ## Describe your machines
 
-Open `tenant-workload/bootstrap/hosts.ini` and replace the placeholders with your machines. The first node creates the cluster and the other two join it.
+Copy `tenant-workload/bootstrap/hosts.example.ini` to `tenant-workload/bootstrap/hosts.ini`, open the copy and replace the placeholders with your machines. Git ignores `hosts.ini`, so your real addresses and key paths never end up in a commit. The first node creates the cluster and the other two join it.
 
 ```ini
 [server_init]

@@ -137,7 +137,7 @@ spec:
     - name: cnpg.rules
       rules:
         - alert: CNPGReplicationLagHigh
-          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 30
+          expr: cnpg_pg_replication_lag > 30 unless on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
           for: 5m
           labels:
             severity: warning
@@ -145,7 +145,7 @@ spec:
             summary: "High replication lag: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "Replica is {{ $value | humanize }}s behind for 5 minutes."
         - alert: CNPGReplicationLagCritical
-          expr: cnpg_pg_replication_lag{namespace!="cluster-3"} > 120
+          expr: cnpg_pg_replication_lag > 120 unless on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
           for: 5m
           labels:
             severity: critical
@@ -161,13 +161,13 @@ spec:
             summary: "cnpg instance down: {{ $labels.namespace }}/{{ $labels.pod }}"
             description: "cnpg metrics collector unreachable for 3 minutes."
         - alert: CNPGDelayedReplicaStuck
-          expr: cnpg_pg_replication_lag{namespace="cluster-3"} > 600
+          expr: cnpg_pg_replication_lag > 600 and on (namespace, pod) cnpg_pg_settings_setting{name="recovery_min_apply_delay"} > 0
           for: 10m
           labels:
             severity: warning
           annotations:
             summary: "delayed replica stuck: {{ $labels.namespace }}/{{ $labels.pod }}"
-            description: "cluster-3 is {{ $value | humanize }}s behind, expected about 300s."
+            description: "the delayed replica is {{ $value | humanize }}s behind, expected about 300s."
         - alert: WALArchivingFailing
           expr: increase(cnpg_pg_stat_archiver_failed_count[10m]) > 0
           labels:
@@ -177,30 +177,30 @@ spec:
             description: "archiving to s3 failed in the last 10 minutes, point-in-time recovery is at risk."
         - alert: CNPGRowsDeletedSpike
           expr: |
-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m])) > 100
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[5m])) > 100
             and
-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[5m]))
-              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted{namespace="cluster-1"}[6h] offset 5m))
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[5m]))
+              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_deleted[6h] offset 5m))
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "mass delete on {{ $labels.namespace }}"
-            description: "{{ $value | humanize }} rows/s deleted, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
+            description: "{{ $value | humanize }} rows/s deleted, over 10x the usual rate. the delayed replica replays it in 5 minutes: pause its replay now if this was not planned."
         - alert: CNPGRowsUpdatedSpike
           expr: |
-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m])) > 100
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[5m])) > 100
             and
-            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[5m]))
-              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated{namespace="cluster-1"}[6h] offset 5m))
+            sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[5m]))
+              > 10 * sum by (namespace) (rate(cnpg_pg_stat_database_tup_updated[6h] offset 5m))
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "mass update on {{ $labels.namespace }}"
-            description: "{{ $value | humanize }} rows/s updated, over 10x the usual rate. cluster-3 replays it in 5 minutes: pause its replay now if this was not planned."
+            description: "{{ $value | humanize }} rows/s updated, over 10x the usual rate. the delayed replica replays it in 5 minutes: pause its replay now if this was not planned."
         - alert: CNPGStackedInstances
-          expr: count by (namespace, node) (kube_pod_info{namespace=~"cluster-[123]", created_by_kind="Cluster"}) > 1
+          expr: count by (namespace, node) (kube_pod_info{created_by_kind="Cluster"}) > 1
           for: 15m
           labels:
             severity: warning

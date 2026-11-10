@@ -2,6 +2,7 @@
 - name: Tear down bedrock cleanly on all nodes
   hosts: rke2_servers
   become: true
+  any_errors_fatal: true
   vars_prompt:
     - name: confirm_teardown
       prompt: "this wipes RKE2, etcd and every Longhorn volume on all nodes. type the word destroy to continue"
@@ -52,7 +53,7 @@
         state: directory
         mode: "0755"
 
-- name: Remove the admin kubeconfig from the controller
+- name: Remove the tenant's keys from the controller, only once every node is wiped
   hosts: localhost
   become: false
   gather_facts: false

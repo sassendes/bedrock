@@ -35,9 +35,9 @@ Each part has its own service account. The observers, the verifier and the check
 Every observer connects to the primary as `bedrock_observer` over TLS, verifying the cluster's CA, and runs two statements:
 
 1. It writes its heartbeat row with a nonce and reads it back. The write must commit.
-2. Only after the commit, it calls `bedrock_prove(challenge, observer)`. Postgres returns an HMAC-SHA256 over the key id, the challenge, the observer, the instance, the system identifier, the timeline, the WAL position, whether it is in recovery and the time.
+2. Only after the commit, it calls `bedrock.bedrock_prove(challenge, observer)`. Postgres returns an HMAC-SHA256 over the key id, the challenge, the observer, the instance, the system identifier, the timeline, the WAL position, whether it is in recovery and the time.
 
-The key sits in `bedrock_proof_key`. The observer login cannot read that table. The function runs as its owner, so postgres signs with a key the observer never sees. The verifier holds the same key in the `bedrock-proof-keys` Secret and checks every signature.
+The key sits in `bedrock.bedrock_proof_key`. The observer login cannot read that table. The function runs as its owner, so postgres signs with a key the observer never sees. The verifier holds the same key in the `bedrock-proof-keys` Secret and checks every signature.
 
 A signature is valid only if it covers this round's challenge, names the observer that carries it, verifies with a known key and says the instance is not in recovery. A valid signature is called an up, and one up outweighs every vote that says dead.
 
@@ -49,7 +49,9 @@ A signature is valid only if it covers this round's challenge, names the observe
 | Primary with `default_transaction_read_only` | Refused while not in recovery | No | Down, marked stuck |
 | Not reachable | No connection | No | Asks the other observers first |
 
-The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`. The bootstrap loads them into the cluster-1 primary on every deploy. The replica clusters receive them through replication.
+The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`, in their own `bedrock` schema owned by the superuser. They are not in `public` on purpose: the application user owns its database, and with it the `public` schema, so it could drop anything there and blind the controller. The bootstrap loads them into the cluster-1 primary on every deploy and moves any older copy out of `public`. The replica clusters receive them through replication.
+
+The observers and the verifier read the observer password from its mounted file again on every connection, so a rotated password is picked up without a restart. See [rotate a secret]({{< relref "/tasks/rotate-secret" >}}).
 
 ## Votes
 
@@ -61,7 +63,9 @@ An observer that cannot reach the primary does not vote down on its own. It asks
 | Up | Abstain, its own path is broken |
 | No answers | Abstain, it is isolated |
 
-Each observer writes its votes to its own ConfigMap, `vote-<node>-<slot>`. Admission reads the node and the pod name from the observer's service account token, so an observer can write only its own object.
+Each observer writes its votes to its own ConfigMap, `vote-<node>-<slot>`, on every probe. The decider measures freshness from that write, so it has to happen even when the vote did not change: about three writes a second into etcd for three nodes, which etcd handles easily. Admission reads the node and the pod name from the observer's service account token, so an observer can write only its own object.
+
+The two observers on a node run the same binary from the same image. The pair protects against one pod crashing, being stuck, losing its network path or being compromised, since one of them alone can never vote its node down. It does not protect against a bug in the code itself, which both would share.
 
 The two observers on a node count as one vote:
 
@@ -75,7 +79,7 @@ The node that runs the primary does not vote on it. A vote counts only while it 
 
 ## Rounds and the verifier
 
-The verifier closes a round every 4 seconds, whatever the evidence shows, and opens the next one with a new random challenge in `bedrock-round`. A signature belongs to one round, so one taken before a crash cannot be replayed later.
+The verifier closes a round every 4 seconds, whatever the evidence shows, and opens the next one with a new random challenge in `bedrock-round`. The round also keeps the previous challenge, which only the checker uses: observers pick up a new challenge on their next probe, so right after a rotation most votes still carry the old one. A signature belongs to one round, so one taken before a crash cannot be replayed later.
 
 For each primary, the verifier counts the node votes and asks four witnesses:
 
@@ -101,7 +105,7 @@ If two different instances sign as primary in two consecutive rounds, the verifi
 
 ## Deciding to act
 
-Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
+Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. A cluster labelled `unmanaged`, such as a point in time restore, is skipped entirely: it is never watched and never reported as a problem. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
 
 The leading decider ticks every second. A primary becomes suspect when a majority of eligible nodes vote down and no node votes up. It is declared dead after it stays suspect for:
 
@@ -140,10 +144,10 @@ The decider opens a run by writing `claim-<namespace>.<name>`. Writing it is a c
 | Fenced | Checks the fence again, then sets `spec.replica.enabled: false` on cluster-2 | The fence still holds and the patch is applied |
 | Promoting | Waits for cluster-2 | cluster-2 is healthy, or after 5 minutes with a page, since cluster-1 is fenced |
 | Promoted | Points every follower's `spec.replica.source` at cluster-2 | Done for every follower, each one that cannot be moved is paged |
-| Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done |
+| Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done. A retry after a crash counts the Services this run already moved, recognised by the new label, the approved host and this epoch |
 | Flipped | Closes the claim | |
 
-A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages. Because the step is saved before the fence starts, a run never closes with cluster-1 half fenced. A cluster that carries a fence annotation with no open or halted run behind it pages.
+The list of nodes the fence is verified on is taken when the claim opens and taken again when the step is saved as fencing, since reconciliation is still on in between and an instance pod can move to another node. A fence is verified on node readiness, not only on the pod list. A pod that was force deleted while its node was away may still run there when the node returns, so any Ready transition after the claim fails the fence. A fence that does not verify within a minute halts the run and pages. Because the step is saved before the fence starts, a run never closes with cluster-1 half fenced. A cluster that carries a fence annotation with no open or halted run behind it pages.
 
 The verifier approves a run only when all of these hold:
 
@@ -202,7 +206,9 @@ Awake, it calls the primary's `/readyz` itself:
 | Up | Writes `<target>.halt: "true"` to `bedrock-checker`. Admission blocks every decider action, the verifier revokes, the decider closes its claim. No page, a healthy database needs nobody |
 | Down | Pages a person, because the normal path cannot act |
 
-It never halts once a fence has started, because finishing a run is safer than stopping half way.
+It never halts once a fence has started, because finishing a run is safer than stopping half way. A halt on any primary holds every primary, because admission reads the halt flags as one set.
+
+Its quorum check accepts votes carrying the current challenge or the one before it, so the normal gap between a round rotating and the observers' next probe never wakes it.
 
 ## A primary that stops writing
 
@@ -295,6 +301,7 @@ All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns 
 | `bedrock_observer_ballot` | Each observer's current vote per primary |
 | `bedrock_observer_write_stuck_seconds` | How long the primary has answered without committing |
 | `bedrock_observer_peers` | Other observers this one reaches |
+| `bedrock_observer_exchange_cert_expiry_timestamp_seconds` | When the exchange certificate this observer loaded expires |
 | `bedrock_verifier_outcome` | Up, proven dead, contradiction or unknown, per primary |
 | `bedrock_verifier_dead_witnesses` | Witnesses that say dead |
 | `bedrock_verifier_round` | The current round number |
@@ -311,17 +318,18 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded. 
 
 | Model | Checks |
 |---|---|
-| `Proof` | Grades, rounds on a timer, split brain over two rounds |
+| `Proof` | An up cannot be forged, no failover while the API tells the truth, liars cannot block a real outage |
 | `Evidence` | Witnesses and votes never prove a live database dead |
 | `Approval` | One approval slot per primary, no write from an old run |
-| `Instances` | A force deleted pod never leaves two primaries |
+| `Instances` | Two instances signing as primary in two consecutive rounds page a split brain, a switchover does not |
 | `Pairs` | Two observers per node: two liars anywhere cannot vote a live database down |
 | `Halt` | A stalled verifier with a recovered database never leads to a fence |
-| `Promotion` | Sign after commit, the CloudNativePG minute, the catch-up window, the instance pin, the stuck write page. No run ever waits for a person |
+| `Promotion` | Sign after commit, the CloudNativePG minute, the instance pin, the stuck write page. No run ever waits for a person. It still models catch-up as a fixed window; the rule in the code, waiting while replay moves, is checked in `Candidate` |
 | `Candidate` | Only a ready live replica with no apply delay is promoted, and only what the verifier checked. Fence, promote and flip are bound to the approval. A candidate is never promoted while its replay could still move |
 | `HalfFence` | The run is saved as fencing before the fence starts, so a half done fence is never orphaned |
 | `Signer` | A signature counts for the cluster it names, never a sibling sharing the system identifier |
-| `Decider`, `Exchange`, `Fallback` | The claim steps, the observer exchange, the earlier fallback design |
+| `Decider` | The claim steps, and a force deleted pod on a node that comes back never leaves two primaries |
+| `Exchange`, `Fallback` | The observer exchange, and the earlier fallback design, which the checker replaced |
 
 ## What it does not do
 

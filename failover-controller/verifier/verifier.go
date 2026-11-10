@@ -109,6 +109,9 @@ func (v *Verifier) Tick(ctx context.Context) error {
 		return err
 	}
 	next.Challenge, next.IssuedAt = c, v.now()
+	if prev != nil {
+		next.Previous = prev.Challenge
+	}
 	if err := v.store.PutRound(ctx, next); err != nil {
 		return err
 	}

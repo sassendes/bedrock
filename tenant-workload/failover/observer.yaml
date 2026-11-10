@@ -3,8 +3,6 @@ kind: DaemonSet
 metadata:
   name: bedrock-observer-a
   namespace: bedrock-failover
-  annotations:
-    reloader.stakater.com/auto: "true"
   labels:
     app.kubernetes.io/name: bedrock-observer
     app.kubernetes.io/part-of: bedrock-failover
@@ -121,8 +119,6 @@ kind: DaemonSet
 metadata:
   name: bedrock-observer-b
   namespace: bedrock-failover
-  annotations:
-    reloader.stakater.com/auto: "true"
   labels:
     app.kubernetes.io/name: bedrock-observer
     app.kubernetes.io/part-of: bedrock-failover

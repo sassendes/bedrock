@@ -65,10 +65,17 @@ spec:
         - alert: BedrockFailoverLostWrites
           expr: max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) != 0
           labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.target }}: the promoted replica was {{ $value }} bytes behind the last signed write"
+            description: "the signed position includes the observers' own heartbeat writes, so a few bytes after a hard crash are usually heartbeats, not tenant data. -1 means unknown."
+        - alert: BedrockFailoverLostWritesLarge
+          expr: max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) > 65536 or max by (target, epoch) (bedrock_verifier_promoted_behind_bytes) == -1
+          labels:
             severity: critical
           annotations:
-            summary: "{{ $labels.target }} failed over behind its last signed write"
-            description: "{{ $value }} bytes of WAL postgres had signed are not on the new primary, -1 means the amount could not be read"
+            summary: "{{ $labels.target }}: the promoted replica was missing more than heartbeats ({{ $value }} bytes)"
+            description: "over 64 KiB of signed WAL never reached the new primary, or the gap is unknown (-1). Tenant writes were lost: compare with the old primary's archive in Garage."
         - alert: BedrockFailoverClaimStuck
           expr: max by (target) (bedrock_failover_claim_open) > 0
           for: 10m
@@ -133,6 +140,22 @@ spec:
           annotations:
             summary: "observer {{ $labels.pod }} reaches no peers"
             description: "it can only abstain when its own check fails"
+        - alert: BedrockExchangeCertExpiring
+          expr: min(bedrock_observer_exchange_cert_expiry_timestamp_seconds) - time() < 30 * 86400
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "the observer exchange certificate expires in {{ $value | humanizeDuration }}"
+            description: "when it expires every observer exchange fails and observers can only abstain. Run make rotate-exchange-cert."
+        - alert: BedrockExchangeCertExpiryCritical
+          expr: min(bedrock_observer_exchange_cert_expiry_timestamp_seconds) - time() < 7 * 86400
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "the observer exchange certificate expires in {{ $value | humanizeDuration }}"
+            description: "run make rotate-exchange-cert now."
         - alert: BedrockFailoverBlind
           expr: max by (target) (bedrock_verifier_outcome{outcome="unknown"}) == 1
           for: 2m

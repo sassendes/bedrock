@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -48,15 +49,18 @@ type CheckConfig struct {
 	Database string
 	User     string
 	Password string
-	Timeout  time.Duration
-	TLSMode  string
-	RootCA   string
+	// PasswordFile, when set, is read again on every connection, so a rotated secret is picked up
+	// without a restart. Password stays the fallback if the file cannot be read.
+	PasswordFile string
+	Timeout      time.Duration
+	TLSMode      string
+	RootCA       string
 }
 
 // Only a primary that can actually write passes; a standby fails as read only.
 const heartbeatSQL = `
 WITH hb AS (
-    INSERT INTO bedrock_heartbeat (observer, nonce, at)
+    INSERT INTO bedrock.bedrock_heartbeat (observer, nonce, at)
     VALUES ($1, $2, now())
     ON CONFLICT (observer) DO UPDATE SET nonce = $2, at = now()
     RETURNING nonce
@@ -68,7 +72,7 @@ SELECT hb.nonce,
        (SELECT timeline_id FROM pg_control_checkpoint())
 FROM hb`
 
-const proveSQL = `SELECT key_id, instance, system_id, timeline, lsn, in_recovery, at_ms, mac FROM bedrock_prove($1, $2)`
+const proveSQL = `SELECT key_id, instance, system_id, timeline, lsn, in_recovery, at_ms, mac FROM bedrock.bedrock_prove($1, $2)`
 
 const sqlStateReadOnly = "25006"
 const sqlStateQueryCanceled = "57014"
@@ -166,7 +170,7 @@ type ReceiverState struct {
 	Err    string
 }
 
-// Receiver reads the instance's WAL receiver through bedrock_receiver. No row means no stream at all.
+// Receiver reads the instance's WAL receiver through bedrock.bedrock_receiver. No row means no stream at all.
 func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout+cfg.Timeout/2)
 	defer cancel()
@@ -176,7 +180,7 @@ func Receiver(ctx context.Context, cfg CheckConfig) ReceiverState {
 	}
 	defer conn.Close(context.Background())
 	var r ReceiverState
-	err = conn.QueryRow(ctx, "SELECT status, coalesce(age_ms, -1) FROM bedrock_receiver()").Scan(&r.Status, &r.AgeMs)
+	err = conn.QueryRow(ctx, "SELECT status, coalesce(age_ms, -1) FROM bedrock.bedrock_receiver()").Scan(&r.Status, &r.AgeMs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ReceiverState{}
 	}
@@ -257,6 +261,11 @@ func connect(ctx context.Context, cfg CheckConfig) (*pgx.Conn, error) {
 	connCfg.Database = cfg.Database
 	connCfg.User = cfg.User
 	connCfg.Password = cfg.Password
+	if cfg.PasswordFile != "" {
+		if pw, err := os.ReadFile(cfg.PasswordFile); err == nil && strings.TrimSpace(string(pw)) != "" {
+			connCfg.Password = strings.TrimSpace(string(pw))
+		}
+	}
 	connCfg.ConnectTimeout = cfg.Timeout
 	connCfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(cfg.Timeout.Milliseconds(), 10)
 	connCfg.RuntimeParams["application_name"] = "bedrock-observer"

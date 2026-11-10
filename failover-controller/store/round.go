@@ -21,6 +21,7 @@ const (
 type Round struct {
 	Number    int64               `json:"number"`
 	Challenge string              `json:"challenge"`
+	Previous  string              `json:"previous,omitempty"`
 	IssuedAt  time.Time           `json:"issuedAt"`
 	ValidUps  map[string][]string `json:"validUps"`
 	Signers   map[string][]string `json:"signers"`

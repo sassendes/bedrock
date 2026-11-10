@@ -30,7 +30,7 @@ On every node:
 - the CIS kernel settings file
 - `/var/lib/longhorn`, every volume replica on the node
 
-On the controller, it deletes `~/.bedrock`, which holds the admin kubeconfig.
+On the controller, it deletes `~/.bedrock`. That holds more than the admin kubeconfig: OpenBao's unseal shares and root token, the failover proof keys and the observers' exchange certificate authority. It only runs once every node has been wiped. If any node fails, the teardown stops there and the controller keeps the keys, because those nodes still hold data the keys belong to.
 
 ## Deploy again
 

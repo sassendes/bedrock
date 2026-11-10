@@ -65,6 +65,26 @@ func TestFlipRefusesWhenNothingIsLabelled(t *testing.T) {
 	}
 }
 
+func TestFlipIsSafeToRepeat(t *testing.T) {
+	w := testenv.New()
+	ctx := context.Background()
+	a := New(w.Dyn, w.Kube, DefaultConfig())
+	first, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 7)
+	if err != nil {
+		t.Fatalf("a retry of the same run failed: %v", err)
+	}
+	if len(again) != len(first) || again[0] != first[0] {
+		t.Fatalf("retry reported %v, first run %v", again, first)
+	}
+	if _, err := a.Flip(ctx, "cluster-1/cluster-1", "cluster-2/cluster-2", 8); err == nil {
+		t.Fatal("another epoch counted a service it never flipped")
+	}
+}
+
 func TestTerminatingPodIsNotAFence(t *testing.T) {
 	w := testenv.New()
 	ctx := context.Background()

@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// Signed is what postgres returns from bedrock_prove. Only postgres holds the key that makes MAC.
+// Signed is what postgres returns from bedrock.bedrock_prove. Only postgres holds the key that makes MAC.
 type Signed struct {
 	KeyID      string `json:"keyId"`
 	Challenge  string `json:"challenge"`
@@ -26,7 +26,7 @@ type Signed struct {
 	MAC        string `json:"mac"`
 }
 
-// Payload must match concat_ws in bedrock_prove byte for byte.
+// Payload must match concat_ws in bedrock.bedrock_prove byte for byte.
 func (s Signed) Payload() string {
 	return strings.Join([]string{
 		s.KeyID, s.Challenge, s.Observer, s.Instance, s.SystemID,

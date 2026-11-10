@@ -11,7 +11,8 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 | From | To | Port |
 |---|---|---|
 | Any pod | CoreDNS in `kube-system` | 53 TCP and UDP |
-| The node (kubelet probes) | Any pod | any |
+| The node | Any pod in a namespace covered by the cluster-wide policy | any |
+| The node (kubelet probes) | Pods in the namespaces that limit the node themselves: `application`, `falco`, `node-agents`, `reloader`, `garage`, `openbao`, `bedrock-failover` and the database namespaces | only their probe and named ports |
 
 ## Metrics collection
 

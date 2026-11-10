@@ -4,7 +4,7 @@ weight: 13
 description: "Replace the key postgres signs proofs of life with, without the failover controller losing a round."
 ---
 
-Postgres signs every proof of life with the active key in `bedrock_proof_key`. The verifier checks each signature against the keys in the `bedrock-proof-keys` Secret. The keys are kept on the controller machine in `~/.bedrock/failover/proof-keys/`, one file per key, named by the time it was made, such as `k20261101180000`.
+Postgres signs every proof of life with the active key in `bedrock.bedrock_proof_key`. The verifier checks each signature against the keys in the `bedrock-proof-keys` Secret. The keys are kept on the controller machine in `~/.bedrock/failover/proof-keys/`, one file per key, named by the time it was made, such as `k20261101180000`.
 
 A rotation adds the new key everywhere before postgres uses it, so no signature is ever made with a key the verifier does not know.
 
@@ -21,7 +21,7 @@ The playbook is `tenant-workload/bootstrap/rotate-proof-key.yml`. It runs these 
 | Step | Effect |
 |---|---|
 | 1 | Generates a new 32-byte key in `~/.bedrock/failover/proof-keys/` |
-| 2 | Inserts it into `bedrock_proof_key` on the cluster-1 primary, inactive |
+| 2 | Inserts it into `bedrock.bedrock_proof_key` on the primary, inactive. The primary is found from the `bedrock.io/db-role` labels, so this works after a failover too |
 | 3 | Rebuilds `bedrock-proof-keys` with the old and the new key and restarts the verifier |
 | 4 | Makes the new key the only active key, so postgres signs with it from the next round |
 | 5 | Waits 60 seconds, so every round signed with the old key has closed |

@@ -42,7 +42,8 @@ The table shows what an attacker who gains a shell in one pod can reach.
 |---|---|---|
 | An application pod in its own namespace | Only the services its own policy names, such as its database pooler | Other tenants, the monitoring stack, Garage, other databases |
 | Grafana | Prometheus, Loki, Tempo and the Kubernetes API | Alertmanager, Garage, databases |
-| A pod in `node-agents` | Loki on 3100, Tempo on 4317 and the Kubernetes API | Each other, Alertmanager, Garage, databases |
+| Alloy in `node-agents` | Loki on 3100, Tempo on 4317 and the Kubernetes API | Alertmanager, Garage, databases |
+| node-exporter in `node-agents` | It runs on the host network, so Cilium treats it as the node itself: whatever each namespace lets the node reach, such as kubelet probe ports | Ports a namespace does not open to the node |
 | A database replica | Its own cluster, Garage on 3900, the primary on 5432, the Kubernetes API | The primary's backups for writing, other tenants |
 
 A breach in one tenant does not reach another, because tenants share no cluster, node or network.
@@ -54,7 +55,7 @@ Some findings are left in place on purpose. Each has a reason.
 | Finding | Why it stays |
 |---|---|
 | CIS 5.1.6: some pods mount API tokens | They are operators and controllers that need the Kubernetes API to work. The exception is documented, not hidden by editing the benchmark. |
-| Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. |
+| Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. Its ConfigMap writes are limited to `bedrock-failover` by a Role; cluster-wide it can only read ConfigMaps. |
 | Pod traffic on the same node is not encrypted | It never leaves the machine. |
 | Placeholder secrets in the repository | They exist so a fresh deploy works. Change them before anything is exposed. |
 

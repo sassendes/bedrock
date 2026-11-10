@@ -12,6 +12,8 @@ The three event buses are off by default, because most tenants do not need them 
 | Redis with Sentinel | `redis_enabled` | Sessions, rate limits and caches |
 | Kafka (Strimzi) | `kafka_enabled` | Data pipelines, change data capture and long-term event retention |
 
+Redis refuses writes while none of its replicas is in sync with the master (`min-replicas-to-write 1`, `min-replicas-max-lag 10`). A master cut off from its replicas therefore cannot accept writes that a Sentinel failover would later throw away. The cost is that Redis stops taking writes if both replicas are down.
+
 ## Turn one on
 
 Run the bootstrap with the variable set to `true`. For NATS:
@@ -28,6 +30,17 @@ ansible-playbook -i tenant-workload/bootstrap/hosts.ini tenant-workload/bootstra
 ```
 
 The bootstrap leaves everything that is already installed as it is and waits for every pod of the bus to be ready.
+
+{{< note "warning" >}}
+The bootstrap refuses to run once a failover has happened, because it would turn the new primary back into a replica. After a failover, turn NATS or Redis on by applying its manifest directly, since its secret and network policy are already in place:
+
+```sh
+kubectl apply -f tenant-workload/event-buses/nats.yaml
+kubectl apply -f tenant-workload/event-buses/redis.yaml
+```
+
+Kafka also needs the Strimzi operator, which the bootstrap downloads, checks and patches first. Follow the Strimzi and Kafka tasks in `tenant-workload/bootstrap/bedrock-bootstrap.yml` by hand.
+{{< /note >}}
 
 ## Check it
 

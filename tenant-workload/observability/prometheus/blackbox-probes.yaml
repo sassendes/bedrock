@@ -36,12 +36,6 @@ spec:
         probe_group: postgres
       static:
         - postgres-rw.application.svc:5432
-        - cluster-1-pooler-rw.cluster-1.svc:5432
-        - cluster-2-pooler-rw.cluster-2.svc:5432
-        - cluster-3-pooler-rw.cluster-3.svc:5432
-        - cluster-1-rw.cluster-1.svc:5432
-        - cluster-2-rw.cluster-2.svc:5432
-        - cluster-3-rw.cluster-3.svc:5432
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe

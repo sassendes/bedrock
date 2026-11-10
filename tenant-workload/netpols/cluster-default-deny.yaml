@@ -3,7 +3,7 @@ kind: CiliumClusterwideNetworkPolicy
 metadata:
   name: cluster-default-deny
 spec:
-  description: every pod in every namespace is deny by default, so a namespace without its own policy gets kubelet probes in and dns out and nothing else
+  description: every pod is deny by default, so a namespace without its own policy gets kubelet probes in and dns out and nothing else. Namespaces whose own policy limits the host to named ports are left out, since cilium adds rules together and this host allow would cancel their limits. Database namespaces are left out by label, so a replica added later is too
   endpointSelector:
     matchExpressions:
       - key: k8s:io.kubernetes.pod.namespace
@@ -13,6 +13,13 @@ spec:
           - falco
           - node-agents
           - reloader
+          - garage
+          - openbao
+          - bedrock-failover
+      - key: k8s:io.cilium.k8s.namespace.labels.bedrock.io/database
+        operator: NotIn
+        values:
+          - "true"
   ingress:
     - fromEntities:
         - host
