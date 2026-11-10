@@ -16,7 +16,7 @@ Names are never reused: a name whose namespace or Garage bucket already exists i
 
 1. Reads every database cluster's `bedrock.io/db-role` label and checks it against its spec. It stops if any label disagrees, or if there is not exactly one healthy, unfenced primary.
 2. Creates the namespace, labelled `bedrock.io/database: "true"`, so the priority class policies, the registry allowlist and the database CA sync cover it without any name list.
-3. Applies the replica's network policies, plus the extra allows it needs in `garage`, `cnpg-system`, `application` and `bedrock-failover`. Cilium adds allows together, so no existing policy is edited.
+3. Applies the replica's own network policy. Garage, the operator, monitoring, the failover controller and the other database clusters already select database namespaces by label, so nothing outside the replica's namespace changes.
 4. Runs a Garage job: a bucket and a read-write key for the replica, and one read-only key per pair below, each with its own name so no other replica's key is ever deleted.
 5. Pairs the replica with every cluster that can become primary (the primary and every live replica), and every existing replica with the new one: Kyverno copies the peer's `ca.crt` and replication certificate across, and a network policy on each side allows the stream on 5432.
 6. Takes a fresh base backup of the primary, then creates the cluster, its pooler and its scheduled backups, with an `externalClusters` entry for every peer.

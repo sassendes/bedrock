@@ -72,10 +72,12 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 
 ## Databases
 
+A database namespace is any namespace labelled `bedrock.io/database: "true"`. Every rule here selects it by that label, so a replica added later gets the same flows without a new policy anywhere else.
+
 | From | To | Port |
 |---|---|---|
-| cluster-2 and cluster-3 | cluster-1 (streaming replication) | 5432 |
-| cluster-1, cluster-2, cluster-3 | Garage S3 (WAL and base backups) | 3900 |
+| Database instances | Database instances in any other database namespace (streaming replication, either way) | 5432 |
+| Database instances and backup jobs | Garage S3 (WAL and base backups) | 3900 |
 | CloudNativePG operator | Database instances | 8000 |
 | Database instances | Kubernetes API | any |
 | The nodes | Database instances | 8000, 5432 |

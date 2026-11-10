@@ -48,6 +48,14 @@ spec:
                 path: "/metrics"
     - fromEndpoints:
         - matchLabels:
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
             k8s:io.kubernetes.pod.namespace: bedrock-failover
             app.kubernetes.io/name: bedrock-observer
         - matchLabels:
@@ -83,15 +91,7 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-1
-            cnpg.io/podRole: instance
-      toPorts:
-        - ports:
-            - port: "5432"
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-2
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
             cnpg.io/podRole: instance
       toPorts:
         - ports:

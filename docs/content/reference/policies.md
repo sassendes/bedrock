@@ -14,7 +14,7 @@ Files are in `tenant-workload/kyverno/`.
 | `require-resource-limits` | CPU and memory limits on containers and init containers | `application`, `node-agents` | Deny | Fail closed |
 | `harden-run-as-nonroot` | Fills in `runAsNonRoot`, `seccompProfile`, `allowPrivilegeEscalation: false` and `drop: ALL` | `application` | Mutate | Fail closed |
 | `registry-allowlist-strict` | Images come from an allowed publisher | `application`, `node-agents`, `reloader` | Deny | Fail closed |
-| `registry-allowlist-data` | Images come from an allowed publisher | `garage`, `openbao`, `falco`, `nats`, `redis`, `kafka`, `cluster-1`, `cluster-2`, `cluster-3`, `prometheus-operator`, `bedrock-failover` | Deny | Fail open |
+| `registry-allowlist-data` | Images come from an allowed publisher | `garage`, `openbao`, `falco`, `nats`, `redis`, `kafka`, `prometheus-operator`, `bedrock-failover` | Deny | Fail open |
 | `registry-allowlist-database` | Images come from an allowed publisher | Any namespace labelled `bedrock.io/database: "true"`, such as a replica added with `make add-replica` | Deny | Fail open |
 | `restrict-priority-classes` | Reserved priority classes are used only where allowed | all | Deny | Fail open |
 
@@ -36,7 +36,7 @@ Files are in `tenant-workload/kyverno/`.
 `bedrock-reserved-priority-classes` in `tenant-workload/platform/priorityclasses.yaml` runs inside the API server and needs no webhook. It denies pod creation when:
 
 - `bedrock-storage` is used outside `garage`
-- `bedrock-data` is used outside `cluster-1`, `cluster-2`, `cluster-3`, `falco`, `bedrock-failover` and namespaces labelled `bedrock.io/database: "true"`
+- `bedrock-data` is used outside `falco`, `bedrock-failover` and namespaces labelled `bedrock.io/database: "true"`
 - `system-cluster-critical` or `system-node-critical` is used outside `kube-system` and `kyverno`
 
 The failover controller adds seven more in `tenant-workload/failover/admission.yaml`. They decide what the observers, the verifier, the checker and the decider may write, and they are described on the [failover controller]({{< relref "/components/failover" >}}) page.

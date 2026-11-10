@@ -48,6 +48,14 @@ spec:
                 path: "/metrics"
     - fromEndpoints:
         - matchLabels:
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
             k8s:io.kubernetes.pod.namespace: bedrock-failover
             app.kubernetes.io/name: bedrock-observer
         - matchLabels:
@@ -83,139 +91,17 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+            cnpg.io/podRole: instance
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
             k8s:io.kubernetes.pod.namespace: kube-system
             k8s:k8s-app: kube-dns
       toPorts:
         - ports:
             - port: "53"
               protocol: ANY
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ replica }}-s3
-  namespace: garage
-spec:
-  endpointSelector:
-    matchLabels:
-      app: garage
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ replica }}
-            cnpg.io/podRole: instance
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ replica }}
-          matchExpressions:
-            - key: cnpg.io/jobRole
-              operator: Exists
-      toPorts:
-        - ports:
-            - port: "3900"
-              protocol: TCP
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ replica }}-operator
-  namespace: cnpg-system
-spec:
-  endpointSelector:
-    matchLabels:
-      app.kubernetes.io/name: cloudnative-pg
-  egress:
-    - toEndpoints:
-        - matchLabels:
-            k8s:io.kubernetes.pod.namespace: {{ replica }}
-            cnpg.io/podRole: instance
-      toPorts:
-        - ports:
-            - port: "8000"
-              protocol: TCP
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ replica }}-monitoring
-  namespace: application
-specs:
-  - endpointSelector:
-      matchLabels:
-        app.kubernetes.io/name: prometheus
-    egress:
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: instance
-        toPorts:
-          - ports:
-              - port: "9187"
-                protocol: TCP
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: pooler
-        toPorts:
-          - ports:
-              - port: "9127"
-                protocol: TCP
-  - endpointSelector:
-      matchLabels:
-        app: blackbox-exporter
-    egress:
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: instance
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: pooler
-        toPorts:
-          - ports:
-              - port: "5432"
-                protocol: TCP
----
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: {{ replica }}
-  namespace: bedrock-failover
-specs:
-  - endpointSelector:
-      matchLabels:
-        app.kubernetes.io/name: bedrock-observer
-    egress:
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: instance
-        toPorts:
-          - ports:
-              - port: "5432"
-                protocol: TCP
-  - endpointSelector:
-      matchLabels:
-        app.kubernetes.io/name: bedrock-verifier
-    egress:
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: instance
-        toPorts:
-          - ports:
-              - port: "5432"
-                protocol: TCP
-              - port: "8000"
-                protocol: TCP
-  - endpointSelector:
-      matchLabels:
-        app.kubernetes.io/name: bedrock-checker
-    egress:
-      - toEndpoints:
-          - matchLabels:
-              k8s:io.kubernetes.pod.namespace: {{ replica }}
-              cnpg.io/podRole: instance
-        toPorts:
-          - ports:
-              - port: "8000"
-                protocol: TCP

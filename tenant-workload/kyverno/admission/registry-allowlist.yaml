@@ -65,9 +65,6 @@ spec:
             - nats
             - redis
             - kafka
-            - cluster-1
-            - cluster-2
-            - cluster-3
             - prometheus-operator
             - bedrock-failover
     resourceRules:

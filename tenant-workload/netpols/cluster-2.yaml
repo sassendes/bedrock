@@ -48,7 +48,7 @@ spec:
                 path: "/metrics"
     - fromEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-3
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
             cnpg.io/podRole: instance
       toPorts:
         - ports:
@@ -91,7 +91,7 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
-            k8s:io.kubernetes.pod.namespace: cluster-1
+            k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
             cnpg.io/podRole: instance
       toPorts:
         - ports:

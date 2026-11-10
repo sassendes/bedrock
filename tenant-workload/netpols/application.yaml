@@ -133,13 +133,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-1
-        cnpg.io/podRole: instance
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-2
-        cnpg.io/podRole: instance
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-3
+        k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
         cnpg.io/podRole: instance
     toPorts:
     - ports:
@@ -147,13 +141,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-1
-        cnpg.io/podRole: pooler
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-2
-        cnpg.io/podRole: pooler
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-3
+        k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
         cnpg.io/podRole: pooler
     toPorts:
     - ports:
@@ -589,22 +577,10 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-1
+        k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
         cnpg.io/podRole: instance
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-2
-        cnpg.io/podRole: instance
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-3
-        cnpg.io/podRole: instance
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-1
-        cnpg.io/podRole: pooler
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-2
-        cnpg.io/podRole: pooler
-    - matchLabels:
-        k8s:io.kubernetes.pod.namespace: cluster-3
+        k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
         cnpg.io/podRole: pooler
     toPorts:
     - ports:
