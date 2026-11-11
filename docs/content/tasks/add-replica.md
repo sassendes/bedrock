@@ -26,8 +26,8 @@ Names are never reused: a name whose namespace or Garage bucket already exists i
 
 | Variable | Default |
 |---|---|
-| `instances` | 2 |
+| `instances` | 3 |
 | `storage` | 10Gi |
 | `image` | the PostgreSQL image pinned in `database/cluster-1.yaml` |
 
-Pass them with `-e`, for example `ansible-playbook tenant-workload/bootstrap/add-live-replica.yml -e replica=cluster-4 -e instances=3`.
+Pass them with `-e`, for example `ansible-playbook tenant-workload/bootstrap/add-live-replica.yml -e replica=cluster-4 -e storage=20Gi`.
