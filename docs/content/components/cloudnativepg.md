@@ -11,7 +11,7 @@ CloudNativePG 1.30.1 runs PostgreSQL 17.4. The operator lives in `cnpg-system` a
 | Setting | cluster-1 | cluster-2 | cluster-3 |
 |---|---|---|---|
 | Role | Primary | Live replica | Delayed replica |
-| Instances | 2 | 2 | 2 |
+| Instances | 3 | 3 | 2 |
 | Created by | `initdb` (database `app`, owner `appuser`) | Recovery from cluster-1's backups | Recovery from cluster-1's backups |
 | Replication | Synchronous inside the cluster | Streams from cluster-1 | Streams from cluster-1, 5 minutes behind |
 | Volume | 10 GiB on `longhorn-encrypted` | 10 GiB on `longhorn-encrypted` | 10 GiB on `longhorn-encrypted` |
