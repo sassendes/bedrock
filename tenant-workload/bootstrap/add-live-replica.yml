@@ -7,7 +7,7 @@
     kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
     repo_root: "{{ playbook_dir }}/.."
     tpl: "{{ repo_root }}/database/replica"
-    instances: 2
+    instances: 3
     storage: 10Gi
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
