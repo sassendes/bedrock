@@ -285,6 +285,10 @@
         kubeconfig: "{{ kubeconfig }}"
         state: present
         src: "{{ repo_root }}/platform/namespace.yaml"
+      register: platform_ns
+      until: platform_ns is succeeded
+      retries: 5
+      delay: 2
 
 
     - name: Apply priority classes
@@ -1008,6 +1012,10 @@
       ansible.builtin.command: kubectl apply -f {{ failover_deploy }}/namespace.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
+      register: failover_ns
+      until: failover_ns.rc == 0
+      retries: 5
+      delay: 2
 
     - name: Failover admission (its parameters ship first inside the same file)
       when: failover_enabled | bool

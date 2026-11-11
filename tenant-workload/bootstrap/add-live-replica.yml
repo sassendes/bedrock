@@ -63,6 +63,10 @@
         kubeconfig: "{{ kubeconfig }}"
         state: present
         template: "{{ tpl }}/namespace.yaml.j2"
+      register: replica_ns
+      until: replica_ns is succeeded
+      retries: 5
+      delay: 2
 
     - name: The replica's own network policies
       kubernetes.core.k8s:
