@@ -154,3 +154,48 @@ func TestFlipOnlyTouchesTheConfiguredNamespaces(t *testing.T) {
 		t.Fatalf("a service outside the flip namespaces was rewritten: %+v", got)
 	}
 }
+
+func TestFenceScalesOnlyItsOwnPoolersToZero(t *testing.T) {
+	w := testenv.New()
+	ctx := context.Background()
+	a := New(w.Dyn, w.Kube, DefaultConfig())
+	for i := 0; i < 2; i++ {
+		if err := a.Fence(ctx, "cluster-1/cluster-1", 4); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := w.Dyn.Resource(testenv.Poolers).Namespace("cluster-1").Get(ctx, "cluster-1-pooler-rw", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, _, _ := unstructured.NestedInt64(p.Object, "spec", "instances"); n != 0 {
+		t.Fatalf("pooler left at %d instances", n)
+	}
+	if p.GetAnnotations()["bedrock.io/failover-epoch"] != "4" {
+		t.Fatalf("pooler write carries no epoch: %v", p.GetAnnotations())
+	}
+	other, err := w.Dyn.Resource(testenv.Poolers).Namespace("cluster-2").Get(ctx, "cluster-2-pooler-rw", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found, _ := unstructured.NestedInt64(other.Object, "spec", "instances"); found {
+		t.Fatal("the fence touched another cluster's pooler")
+	}
+}
+
+func TestAPoolerStillUpIsNotAFence(t *testing.T) {
+	w := testenv.New()
+	ctx := context.Background()
+	for _, p := range []string{"cluster-1-1", "cluster-1-2"} {
+		if err := w.Kube.CoreV1().Pods("cluster-1").Delete(ctx, p, metav1.DeleteOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ok, reason, err := New(w.Dyn, w.Kube, DefaultConfig()).VerifyFence(ctx, "cluster-1/cluster-1", []string{"n1", "n2"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok || !strings.Contains(reason, "cluster-1-pooler-rw") {
+		t.Fatalf("a pooler with instances passed the fence check: %v %s", ok, reason)
+	}
+}

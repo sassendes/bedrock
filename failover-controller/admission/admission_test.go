@@ -38,6 +38,7 @@ import (
 // way the cluster evaluates it. BEDROCK_APISERVER_BIN names a directory with etcd and kube-apiserver.
 
 var clustersGVR = schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: "clusters"}
+var poolersGVR = schema.GroupVersionResource{Group: "postgresql.cnpg.io", Version: "v1", Resource: "poolers"}
 
 const admissionFile = "../../tenant-workload/failover/admission.yaml"
 
@@ -205,6 +206,23 @@ spec:
         openAPIV3Schema:
           type: object
           x-kubernetes-preserve-unknown-fields: true
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: poolers.postgresql.cnpg.io
+spec:
+  group: postgresql.cnpg.io
+  scope: Namespaced
+  names: {kind: Pooler, plural: poolers, singular: pooler, listKind: PoolerList}
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          x-kubernetes-preserve-unknown-fields: true
 `
 
 func decode(t *testing.T, data []byte) []*unstructured.Unstructured {
@@ -257,11 +275,13 @@ func setup(t *testing.T) *world {
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
-		if _, err := dyn.Resource(clustersGVR).Namespace("cluster-1").List(ctx, metav1.ListOptions{}); err == nil {
+		_, err1 := dyn.Resource(clustersGVR).Namespace("cluster-1").List(ctx, metav1.ListOptions{})
+		_, err2 := dyn.Resource(poolersGVR).Namespace("cluster-1").List(ctx, metav1.ListOptions{})
+		if err1 == nil && err2 == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("cluster crd never served")
+			t.Fatal("cluster or pooler crd never served")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -276,6 +296,16 @@ func setup(t *testing.T) *world {
 		}
 		_ = unstructured.SetNestedField(created.Object, c.GetName()+"-1", "status", "currentPrimary")
 		if _, err := dyn.Resource(clustersGVR).Namespace(c.GetNamespace()).UpdateStatus(ctx, created, metav1.UpdateOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []string{"cluster-1", "cluster-2"} {
+		p := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "postgresql.cnpg.io/v1", "kind": "Pooler",
+			"metadata": map[string]any{"name": c + "-pooler-rw", "namespace": c},
+			"spec":     map[string]any{"cluster": map[string]any{"name": c}, "type": "rw", "instances": int64(2)},
+		}}
+		if _, err := dyn.Resource(poolersGVR).Namespace(c).Create(ctx, p, metav1.CreateOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -386,6 +416,18 @@ func (w *world) patchCluster(name string, epoch int64, body map[string]any) erro
 	return err
 }
 
+func (w *world) patchPooler(ns string, epoch int64, spec map[string]any) error {
+	b, err := json.Marshal(map[string]any{
+		"metadata": map[string]any{"annotations": map[string]any{"bedrock.io/failover-epoch": fmt.Sprint(epoch)}},
+		"spec":     spec,
+	})
+	if err != nil {
+		return err
+	}
+	_, err = w.dDyn.Resource(poolersGVR).Namespace(ns).Patch(w.ctx, ns+"-pooler-rw", types.MergePatchType, b, metav1.PatchOptions{})
+	return err
+}
+
 func (w *world) flip(host string, epoch int64) error {
 	b, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{
@@ -483,6 +525,14 @@ func TestAdmissionAgainstARealAPIServer(t *testing.T) {
 		denied(t, "another workload writing a vote", write(strangerUser, "vote-n2-b"), "no workload but an observer writes votes")
 	})
 
+	t.Run("only the dead primary's poolers go to 0 and nothing else changes", func(t *testing.T) {
+		w.approve(good(1))
+		denied(t, "scaling the candidate's pooler", w.patchPooler("cluster-2", 1, map[string]any{"instances": 0}), "only the poolers of the approved dead primary")
+		denied(t, "scaling the dead primary's pooler up", w.patchPooler("cluster-1", 1, map[string]any{"instances": 3}), "only scales a pooler to 0")
+		denied(t, "changing the pooler type", w.patchPooler("cluster-1", 1, map[string]any{"instances": 0, "type": "ro"}), "only scales a pooler to 0")
+		denied(t, "scaling with another epoch", w.patchPooler("cluster-1", 7, map[string]any{"instances": 0}), "valid approval for the epoch")
+	})
+
 	t.Run("only a follower is repointed", func(t *testing.T) {
 		w.approve(good(1))
 		denied(t, "repointing the candidate", w.patchCluster("cluster-2", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"source": "cluster-3"}}}), "only a follower is repointed")
@@ -522,6 +572,11 @@ func TestAdmissionAgainstARealAPIServer(t *testing.T) {
 		if err != nil || len(pods.Items) != 0 {
 			t.Fatalf("fence left %d pods: %v", len(pods.Items), err)
 		}
+		p, err := w.dyn.Resource(poolersGVR).Namespace("cluster-1").Get(w.ctx, "cluster-1-pooler-rw", metav1.GetOptions{})
+		if n, _, _ := unstructured.NestedInt64(p.Object, "spec", "instances"); err != nil || n != 0 {
+			t.Fatalf("fence left the pooler at %d instances: %v", n, err)
+		}
+		allowed(t, "fence again", w.decider.Fence(w.ctx, "cluster-1/cluster-1", 1))
 		allowed(t, "repoint the delayed follower", w.patchCluster("cluster-3", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"source": "cluster-2"}}}))
 		allowed(t, "promote", w.decider.Promote(w.ctx, "cluster-2/cluster-2", 1))
 		allowed(t, "flip", w.flip(host2, 1))

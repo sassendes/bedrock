@@ -89,6 +89,14 @@ func (a *Actor) Get(ctx context.Context, key string) (*unstructured.Unstructured
 
 // patch stamps every write with the run's epoch, so admission can refuse a decider from an older run.
 func (a *Actor) patch(ctx context.Context, key string, epoch int64, body map[string]any) error {
+	ns, name, err := splitKey(key)
+	if err != nil {
+		return err
+	}
+	return a.patchIn(ctx, a.cluster(ns), name, epoch, body)
+}
+
+func (a *Actor) patchIn(ctx context.Context, ri dynamic.ResourceInterface, name string, epoch int64, body map[string]any) error {
 	meta, _ := body["metadata"].(map[string]any)
 	if meta == nil {
 		meta = map[string]any{}
@@ -100,16 +108,35 @@ func (a *Actor) patch(ctx context.Context, key string, epoch int64, body map[str
 		meta["annotations"] = an
 	}
 	an[a.cfg.EpochAnnotation] = strconv.FormatInt(epoch, 10)
-	ns, name, err := splitKey(key)
-	if err != nil {
-		return err
-	}
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	_, err = a.cluster(ns).Patch(ctx, name, types.MergePatchType, b, metav1.PatchOptions{})
+	_, err = ri.Patch(ctx, name, types.MergePatchType, b, metav1.PatchOptions{})
 	return err
+}
+
+func (a *Actor) ownPoolers(ctx context.Context, ns, cluster string) ([]unstructured.Unstructured, error) {
+	list, err := a.dyn.Resource(a.cfg.PoolerGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list poolers in %s: %w", ns, err)
+	}
+	var out []unstructured.Unstructured
+	for _, p := range list.Items {
+		if owner, _, _ := unstructured.NestedString(p.Object, "spec", "cluster", "name"); owner == cluster {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].GetName() < out[j].GetName() })
+	return out, nil
+}
+
+func poolerInstances(p unstructured.Unstructured) int64 {
+	n, found, err := unstructured.NestedInt64(p.Object, "spec", "instances")
+	if !found || err != nil {
+		return 1
+	}
+	return n
 }
 
 func (a *Actor) Fenced(obj *unstructured.Unstructured) bool {
@@ -193,6 +220,19 @@ func (a *Actor) Fence(ctx context.Context, key string, epoch int64) error {
 			return fmt.Errorf("delete %s/%s: %w", ns, p.Name, err)
 		}
 	}
+	poolers, err := a.ownPoolers(ctx, ns, name)
+	if err != nil {
+		return err
+	}
+	for _, p := range poolers {
+		if poolerInstances(p) == 0 {
+			continue
+		}
+		body := map[string]any{"spec": map[string]any{"instances": int64(0)}}
+		if err := a.patchIn(ctx, a.dyn.Resource(a.cfg.PoolerGVR).Namespace(ns), p.GetName(), epoch, body); err != nil {
+			return fmt.Errorf("scale pooler %s/%s to 0: %w", ns, p.GetName(), err)
+		}
+	}
 	return nil
 }
 
@@ -229,6 +269,15 @@ func (a *Actor) VerifyFence(ctx context.Context, key string, nodes []string, rea
 		}
 		sort.Strings(names)
 		return false, fmt.Sprintf("%d instance pod(s) still exist: %s", len(names), strings.Join(names, ", ")), nil
+	}
+	poolers, err := a.ownPoolers(ctx, ns, name)
+	if err != nil {
+		return false, "", err
+	}
+	for _, p := range poolers {
+		if n := poolerInstances(p); n != 0 {
+			return false, fmt.Sprintf("pooler %s still has %d instance(s)", p.GetName(), n), nil
+		}
 	}
 	return true, "", nil
 }
@@ -311,19 +360,16 @@ func (a *Actor) StableHost(ctx context.Context, key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	poolers, err := a.dyn.Resource(a.cfg.PoolerGVR).Namespace(ns).List(ctx, metav1.ListOptions{})
+	poolers, err := a.ownPoolers(ctx, ns, name)
 	if err != nil {
-		return "", fmt.Errorf("list poolers in %s: %w", ns, err)
+		return "", err
 	}
 	var owners []string
-	for _, p := range poolers.Items {
-		cluster, _, _ := unstructured.NestedString(p.Object, "spec", "cluster", "name")
-		typ, _, _ := unstructured.NestedString(p.Object, "spec", "type")
-		if cluster == name && typ == "rw" {
+	for _, p := range poolers {
+		if typ, _, _ := unstructured.NestedString(p.Object, "spec", "type"); typ == "rw" {
 			owners = append(owners, p.GetName())
 		}
 	}
-	sort.Strings(owners)
 	svcs, err := a.kube.CoreV1().Services(ns).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err

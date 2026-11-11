@@ -165,7 +165,7 @@ spec:
       - apiGroups: ["postgresql.cnpg.io"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE", "DELETE"]
-        resources: ["clusters"]
+        resources: ["clusters", "poolers"]
       - apiGroups: [""]
         apiVersions: ["v1"]
         operations: ["CREATE", "UPDATE", "DELETE"]
@@ -211,7 +211,7 @@ spec:
       - apiGroups: ["postgresql.cnpg.io"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE", "DELETE"]
-        resources: ["clusters"]
+        resources: ["clusters", "poolers"]
       - apiGroups: [""]
         apiVersions: ["v1"]
         operations: ["CREATE", "UPDATE", "DELETE"]
@@ -264,11 +264,23 @@ spec:
       expression: "variables.slots.map(s, variables.approvals[?(s + '.candidate')].orValue('')).filter(c, c != '')"
     - name: hosts
       expression: "variables.slots.map(s, variables.approvals[?(s + '.host')].orValue('')).filter(h, h != '')"
+    - name: isPoolerUpdate
+      expression: "request.resource.resource == 'poolers' && request.operation == 'UPDATE'"
+    - name: poolerTarget
+      expression: "variables.isPoolerUpdate ? request.namespace + '.' + object.spec.?cluster.?name.orValue('') : ''"
   validations:
     - expression: request.resource.resource != "clusters" || (request.operation == "UPDATE" && variables.approvedEpoch)
       message: a cluster write needs a valid approval for the epoch it carries
     - expression: request.resource.resource != "services" || (request.operation == "UPDATE" && variables.approvedEpoch)
       message: a service write needs a valid approval for the epoch it carries
+    - expression: request.resource.resource != "poolers" || (request.operation == "UPDATE" && variables.approvedEpoch)
+      message: a pooler write needs a valid approval for the epoch it carries
+    - expression: "!variables.isPoolerUpdate || variables.poolerTarget in variables.slots"
+      messageExpression: "'only the poolers of the approved dead primary are scaled down, ' + variables.poolerTarget + ' is not it'"
+    - expression: "!variables.isPoolerUpdate || (object.spec.?instances.orValue(1) == 0 && oldObject.spec.all(k, k == 'instances' || (k in object.spec && object.spec[k] == oldObject.spec[k])) && object.spec.all(k, k == 'instances' || k in oldObject.spec))"
+      message: the decider only scales a pooler to 0 and changes nothing else in its spec
+    - expression: "!variables.isPoolerUpdate || object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({})"
+      message: the decider changes no label on a pooler
     - expression: "request.resource.resource != 'clusters' || request.operation != 'UPDATE' || (oldObject.spec.all(k, k == 'replica' || k == 'postgresql' || (k in object.spec && object.spec[k] == oldObject.spec[k])) && object.spec.all(k, k == 'replica' || k == 'postgresql' || k in oldObject.spec))"
       message: during a failover the decider may change spec.replica and nothing else in a cluster
     - expression: "!variables.isClusterUpdate || (variables.oldPg.all(k, k == 'parameters' || (k in variables.newPg && variables.newPg[k] == variables.oldPg[k])) && variables.newPg.all(k, k == 'parameters' || k in variables.oldPg) && variables.oldParams.all(k, k == 'archive_mode' || (k in variables.newParams && variables.newParams[k] == variables.oldParams[k])) && variables.newParams.all(k, k == 'archive_mode' || k in variables.oldParams))"
@@ -329,7 +341,7 @@ spec:
       - apiGroups: ["postgresql.cnpg.io"]
         apiVersions: ["*"]
         operations: ["CREATE", "UPDATE", "DELETE"]
-        resources: ["clusters"]
+        resources: ["clusters", "poolers"]
       - apiGroups: [""]
         apiVersions: ["v1"]
         operations: ["CREATE", "UPDATE", "DELETE"]

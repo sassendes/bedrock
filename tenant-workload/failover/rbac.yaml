@@ -116,7 +116,7 @@ metadata:
   name: bedrock-decider-act
 rules:
   - apiGroups: ["postgresql.cnpg.io"]
-    resources: ["clusters"]
+    resources: ["clusters", "poolers"]
     verbs: ["patch"]
   - apiGroups: [""]
     resources: ["pods"]
