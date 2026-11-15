@@ -54,7 +54,7 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 | 7 | Placeholder secrets |
 | 8 | Longhorn, with its RBAC rewritten without wildcards |
 | 9 | CloudNativePG operator and prometheus-operator |
-| 10 | Longhorn encryption key and storage classes, Garage, the bucket job, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed |
+| 10 | Longhorn encryption key and storage classes, Garage, the bucket job, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed. Then the Secrets Store CSI driver and the OpenBao CSI provider, and OpenBao's kubernetes auth, the `apps` key value engine and the Grafana role |
 | 11 | cluster-1, the failover functions and the proof key loaded into it, its first backup, the certificate sync, then cluster-2 and cluster-3 |
 | 12 | Poolers, scheduled backups and disruption budgets |
 | 13 | Event buses, if enabled |
@@ -81,4 +81,5 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 |---|---|
 | `~/.bedrock/kubeconfig` | The admin kubeconfig |
 | `~/.bedrock/openbao-init.json` | OpenBao's unseal key shares and root token, mode 0600 |
+| `~/.bedrock/grafana-admin` | Grafana's admin password, also stored in OpenBao, mode 0600 |
 | `~/.bedrock/failover/` | The failover controller's proof keys and exchange certificates |

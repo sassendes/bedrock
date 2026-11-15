@@ -14,7 +14,6 @@ The values in `tenant-workload/secrets/` are the source of truth, so change them
 
 | Secret | Namespace | Read by | Kept in the component's own data |
 |---|---|---|---|
-| `grafana-admin` | `application` | Grafana | Yes, in its database |
 | `garage-secrets` | `garage` | Garage | No |
 | `nats-auth` | `nats` | NATS | No |
 | `redis-auth` | `redis` | Redis and Sentinel | No |
@@ -24,17 +23,19 @@ The values in `tenant-workload/secrets/` are the source of truth, so change them
 
 ## Grafana admin password
 
-Grafana only reads the admin password from its environment the first time it starts with an empty database. After that the password lives in its database, so set it there, then update the Secret to match:
+Grafana's password lives in OpenBao at `apps/grafana/admin` and reaches the pod as a file through the Secrets Store CSI driver. Grafana only reads it the first time it starts with an empty database. After that the password lives in Grafana's database, so set it there first:
 
 ```sh
 kubectl -n application exec deploy/grafana -c grafana -- grafana cli admin reset-admin-password '<new password>'
 ```
 
-Put the same value in `tenant-workload/secrets/grafana-admin.yaml` and apply it, so a fresh install uses it too:
+Then put the same value in OpenBao and in `~/.bedrock/grafana-admin` on the controller, so a fresh install uses it too. With the root token from `~/.bedrock/openbao-init.json`:
 
 ```sh
-kubectl apply -f tenant-workload/secrets/grafana-admin.yaml
+kubectl -n openbao exec -it openbao-0 -- sh -c 'read -rs BAO_TOKEN; export BAO_TOKEN; read -rs p; printf %s "$p" | bao kv put -mount=apps grafana/admin username=admin password=-'
 ```
+
+Paste the root token and then the new password. Neither shows on screen or in the shell history.
 
 ## Garage admin token
 

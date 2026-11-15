@@ -108,6 +108,10 @@ A database namespace is any namespace labelled `bedrock.io/database: "true"`. Ev
 |---|---|---|
 | OpenBao | OpenBao (API and raft) | 8200, 8201 |
 | The nodes | OpenBao | 8200 |
+| OpenBao CSI provider | OpenBao | 8200 |
+| OpenBao | Kubernetes API (TokenReview) | any |
+| CSI driver, OpenBao CSI provider | Kubernetes API | any |
+| The nodes | CSI driver, OpenBao CSI provider (probes) | 9808, 8080 |
 
 ## Admission webhooks
 

@@ -100,6 +100,22 @@ data:
           path: /tmp/dashboards
           foldersFromFilesStructure: true
 ---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: grafana-admin
+  namespace: application
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: http://openbao.openbao.svc:8200
+    roleName: grafana
+    audience: openbao
+    objects: |
+      - objectName: admin-password
+        secretPath: apps/data/grafana/admin
+        secretKey: password
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -129,15 +145,9 @@ spec:
           image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
           env:
             - name: GF_SECURITY_ADMIN_USER
-              valueFrom:
-                secretKeyRef:
-                  name: grafana-admin
-                  key: username
-            - name: GF_SECURITY_ADMIN_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: grafana-admin
-                  key: password
+              value: admin
+            - name: GF_SECURITY_ADMIN_PASSWORD__FILE
+              value: /run/secrets/openbao/admin-password
             - name: GF_ANALYTICS_REPORTING_ENABLED
               value: "false"
             - name: GF_ANALYTICS_CHECK_FOR_UPDATES
@@ -175,6 +185,9 @@ spec:
               mountPath: /tmp/dashboards
             - name: storage
               mountPath: /var/lib/grafana
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
         - name: sc-dashboards
           image: quay.io/kiwigrid/k8s-sidecar:2.14.1@sha256:092dbe0c335fba9af414a27630ca68f34df6185784fa847d9954187e69dbfdd7
           env:
@@ -210,6 +223,12 @@ spec:
         - name: storage
           persistentVolumeClaim:
             claimName: grafana-data
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: grafana-admin
 ---
 apiVersion: v1
 kind: Service

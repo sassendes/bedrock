@@ -25,6 +25,8 @@ These labels pick which pods a rule applies to.
 | `garage` | `app: garage` | Garage nodes | `garage.yaml` |
 | `garage` | `app: garage-init` | The bucket setup Job | `garage.yaml` |
 | `openbao` | `app: openbao` | OpenBao, for its raft peers | `openbao.yaml` |
+| `secrets-store` | `app: csi-secrets-store` | The CSI driver | `secrets-store.yaml` |
+| `secrets-store` | `app.kubernetes.io/name: openbao-csi-provider` | The OpenBao CSI provider | `secrets-store.yaml` |
 | `kube-system` | `k8s-app: kube-dns` | CoreDNS | `kube-system.yaml` |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Both observer DaemonSets | `tenant-workload/failover/netpol.yaml` |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | The verifier | `tenant-workload/failover/netpol.yaml` |
@@ -48,6 +50,8 @@ These labels are named as peers by policies in other namespaces.
 | `kyverno` | `app.kubernetes.io/component: admission-controller` | Probed by the blackbox exporter |
 | `cnpg-system` | `app.kubernetes.io/name: cloudnative-pg` | Scraped and probed from `application` |
 | `garage` | `app: garage` | Scraped by Prometheus |
+| `secrets-store` | `app.kubernetes.io/name: openbao-csi-provider` | Reaches OpenBao on 8200 |
+| `openbao` | `app: openbao` | Reached by the OpenBao CSI provider |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Reaches the database instances on 5432 |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | Reaches the database instances on 5432 and 8000 |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | Reaches the database instances on 8000 |

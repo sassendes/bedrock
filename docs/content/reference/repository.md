@@ -18,6 +18,7 @@ description: "Where each part of a tenant lives in the repository."
 | `tenant-workload/event-buses/` | NATS, Redis and Kafka |
 | `tenant-workload/failover/` | The failover controller's deployment, admission policies, network policy and alerts |
 | `tenant-workload/openbao/` | OpenBao: three pods on raft |
+| `tenant-workload/secrets-store/` | The Secrets Store CSI driver and the OpenBao CSI provider |
 | `tenant-workload/secrets/` | Placeholder secrets |
 | `tenant-workload/bootstrap/dependencies/` | Controller setup |
 | `failover-controller/` | The failover controller's Go code, its Dockerfile and its TLA+ models |

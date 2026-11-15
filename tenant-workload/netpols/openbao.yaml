@@ -46,3 +46,19 @@ specs:
                 protocol: TCP
               - port: "8201"
                 protocol: TCP
+  - description: the csi provider logs in as each pod and reads its secrets, openbao checks every pod token with the api server
+    endpointSelector:
+      matchLabels:
+        app: openbao
+    ingress:
+      - fromEndpoints:
+          - matchLabels:
+              k8s:io.kubernetes.pod.namespace: secrets-store
+              app.kubernetes.io/name: openbao-csi-provider
+        toPorts:
+          - ports:
+              - port: "8200"
+                protocol: TCP
+    egress:
+      - toEntities:
+          - kube-apiserver

@@ -14,7 +14,7 @@ Files are in `tenant-workload/kyverno/`.
 | `require-resource-limits` | CPU and memory limits on containers and init containers | `application`, `node-agents` | Deny | Fail closed |
 | `harden-run-as-nonroot` | Fills in `runAsNonRoot`, `seccompProfile`, `allowPrivilegeEscalation: false` and `drop: ALL` | `application` | Mutate | Fail closed |
 | `registry-allowlist-strict` | Images come from an allowed publisher | `application`, `node-agents`, `reloader` | Deny | Fail closed |
-| `registry-allowlist-data` | Images come from an allowed publisher | `garage`, `openbao`, `falco`, `nats`, `redis`, `kafka`, `prometheus-operator`, `bedrock-failover` | Deny | Fail open |
+| `registry-allowlist-data` | Images come from an allowed publisher | `garage`, `openbao`, `secrets-store`, `falco`, `nats`, `redis`, `kafka`, `prometheus-operator`, `bedrock-failover` | Deny | Fail open |
 | `registry-allowlist-database` | Images come from an allowed publisher | Any namespace labelled `bedrock.io/database: "true"`, such as a replica added with `make add-replica` | Deny | Fail open |
 | `restrict-priority-classes` | Reserved priority classes are used only where allowed | all | Deny | Fail open |
 
@@ -28,8 +28,8 @@ Files are in `tenant-workload/kyverno/`.
 |---|---|
 | Docker Hub | `grafana/*`, `falcosecurity/*`, `nats`, `redis`, `dxflrs/garage`, `alpine/k8s` |
 | ghcr.io | `cloudnative-pg/*`, `opencost/*`, `stakater/reloader`, `sassendes/bedrock-failover` |
-| quay.io | `prometheus/*`, `prometheus-operator/*`, `strimzi/*`, `kiwigrid/k8s-sidecar`, `openbao/openbao` |
-| registry.k8s.io | `kube-state-metrics/kube-state-metrics` |
+| quay.io | `prometheus/*`, `prometheus-operator/*`, `strimzi/*`, `kiwigrid/k8s-sidecar`, `openbao/openbao`, `openbao/openbao-csi-provider` |
+| registry.k8s.io | `kube-state-metrics/kube-state-metrics`, `csi-secrets-store/driver`, `sig-storage/csi-node-driver-registrar`, `sig-storage/livenessprobe` |
 
 ## ValidatingAdmissionPolicy
 

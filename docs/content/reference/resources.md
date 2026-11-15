@@ -44,6 +44,9 @@ All run at `bedrock-data`.
 | Workload | Container | Requests | Limits | Priority |
 |---|---|---|---|---|
 | OpenBao | `openbao` | 100m, 256Mi | 1 CPU, 512Mi | `bedrock-default` |
+| CSI driver | `secrets-store` | 50m, 100Mi | 200m, 200Mi | `bedrock-default` |
+| CSI driver | `node-driver-registrar`, `liveness-probe` | 10m, 20Mi | 100m, 100Mi | `bedrock-default` |
+| OpenBao CSI provider | `provider-openbao` | 50m, 100Mi | 200m, 200Mi | `bedrock-default` |
 
 ## Monitoring
 

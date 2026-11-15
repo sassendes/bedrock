@@ -386,7 +386,6 @@
         - "{{ repo_root }}/secrets/garage-secrets.yaml"
         - "{{repo_root }}/secrets/nats-auth.yaml"
         - "{{repo_root }}/secrets/redis-auth.yaml"
-        - "{{ repo_root }}/secrets/grafana-admin.yaml"
         - "{{ repo_root }}/secrets/bedrock-observer.yaml"
 
     - name: Download Longhorn v1.13.0 (checksum verified)
@@ -684,6 +683,92 @@
       retries: 30
       delay: 10
 
+    - name: Download Secrets Store CSI driver v1.6.2 CRDs (checksum verified)
+      tags: [secrets-store]
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/kubernetes-sigs/secrets-store-csi-driver/v1.6.2/deploy/{{ item.file }}"
+        dest: "/tmp/{{ item.file }}"
+        checksum: "sha256:{{ item.sum }}"
+        mode: "0644"
+        timeout: 120
+      loop:
+        - file: secrets-store.csi.x-k8s.io_secretproviderclasses.yaml
+          sum: 452b61776bb26a61da4bfd03ec34a660fe2ba9c1d3ab7e5d199ba42e9f735718
+        - file: secrets-store.csi.x-k8s.io_secretproviderclasspodstatuses.yaml
+          sum: 0e750af5383c82e98acb50987c48f0dc7590a22246a419c6a09b9ebb31115a46
+      register: ss_crds
+      until: ss_crds is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Apply Secrets Store CSI driver CRDs
+      tags: [secrets-store]
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "/tmp/{{ item }}"
+      loop:
+        - secrets-store.csi.x-k8s.io_secretproviderclasses.yaml
+        - secrets-store.csi.x-k8s.io_secretproviderclasspodstatuses.yaml
+
+    - name: Apply the Secrets Store CSI driver and the OpenBao provider
+      tags: [secrets-store]
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/secrets-store/{{ item }}"
+      loop:
+        - csi-driver.yaml
+        - openbao-csi-provider.yaml
+
+    - name: Wait for the CSI driver and the provider on every node
+      tags: [secrets-store]
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: DaemonSet
+        namespace: secrets-store
+        name: "{{ item }}"
+      register: ss_ds
+      until: >
+        ss_ds.resources | default([]) | length > 0 and
+        (ss_ds.resources[0].status.desiredNumberScheduled | default(0)) > 0 and
+        (ss_ds.resources[0].status.numberReady | default(0)) == (ss_ds.resources[0].status.desiredNumberScheduled | default(-1))
+      retries: 40
+      delay: 10
+      loop:
+        - csi-secrets-store
+        - openbao-csi-provider
+
+    - name: Make the Grafana admin password once, kept on the controller only
+      ansible.builtin.copy:
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/grafana-admin"
+        content: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
+        mode: "0600"
+        force: false
+      no_log: true
+
+    - name: Configure OpenBao kubernetes auth, the apps kv engine and the Grafana role
+      ansible.builtin.shell: |
+        set -eu
+        printf '%s\n%s\n' "$BAO_ROOT" "$GF_PASS" | kubectl -n openbao exec -i openbao-0 -- sh -c "$BAO_SCRIPT"
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+        BAO_ROOT: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).root_token }}"
+        GF_PASS: "{{ lookup('file', lookup('env', 'HOME') + '/.bedrock/grafana-admin') }}"
+        BAO_SCRIPT: |
+          set -eu
+          read -r BAO_TOKEN
+          read -r gf
+          export BAO_TOKEN
+          bao auth list -format=json | grep -q '"kubernetes/"' || bao auth enable kubernetes
+          bao write auth/kubernetes/config kubernetes_host=https://kubernetes.default.svc:443 >/dev/null
+          bao secrets list -format=json | grep -q '"apps/"' || bao secrets enable -path=apps kv-v2
+          printf 'path "apps/data/grafana/*" {\n  capabilities = ["read"]\n}\n' | bao policy write grafana - >/dev/null
+          bao write auth/kubernetes/role/grafana bound_service_account_names=grafana bound_service_account_namespaces=application audience=openbao policies=grafana token_ttl=10m token_max_ttl=30m >/dev/null
+          bao kv get -mount=apps grafana/admin >/dev/null 2>&1 || printf '%s' "$gf" | bao kv put -mount=apps grafana/admin username=admin password=- >/dev/null
+      no_log: true
+      changed_when: false
+
     - name: Apply CNPG cluster-1 (primary)
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -959,6 +1044,12 @@
         kubeconfig: "{{ kubeconfig }}"
         state: present
         src: "{{ repo_root }}/observability/grafana/grafana.yaml"
+
+    - name: Remove the old grafana-admin Secret, Grafana reads its password from OpenBao now
+      ansible.builtin.command: kubectl -n application delete secret grafana-admin --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      changed_when: false
 
     - name: Apply OpenCost
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/opencost/

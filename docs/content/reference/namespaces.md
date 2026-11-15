@@ -15,6 +15,7 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 | `cnpg-system` | CloudNativePG operator | set by the upstream bundle | Allowed |
 | `garage` | Garage and its init job | restricted | Per component only |
 | `openbao` | OpenBao, three pods on raft | restricted | OpenBao pods only |
+| `secrets-store` | Secrets Store CSI driver and the OpenBao CSI provider, one pod of each per node | privileged | None |
 | `longhorn-system` | Longhorn | privileged | Allowed |
 | `kyverno` | Kyverno controllers | set by the upstream bundle | Allowed |
 | `prometheus-operator` | prometheus-operator | restricted | Allowed |

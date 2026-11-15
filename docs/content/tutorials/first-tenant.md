@@ -113,7 +113,7 @@ Dashboards are not exposed outside the cluster. Forward Grafana's port to the co
 kubectl -n application port-forward svc/grafana 3000:3000
 ```
 
-Open `http://localhost:3000` and log in with the user and password from `tenant-workload/secrets/grafana-admin.yaml`. The node and database dashboards are already loaded.
+Open `http://localhost:3000` and log in as `admin` with the password in `~/.bedrock/grafana-admin` on the controller. The node and database dashboards are already loaded.
 
 ## What you built
 

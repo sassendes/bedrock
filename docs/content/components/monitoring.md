@@ -64,7 +64,7 @@ Tempo 3.1.0, a single instance, storing traces in the `tempo-data` Garage bucket
 
 ## Grafana
 
-Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki and Tempo are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `application` only. The admin login comes from the `grafana-admin` Secret. Update checks, plugin checks and the news feed are turned off.
+Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki and Tempo are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `application` only. The admin user is `admin` and its password comes from OpenBao through the Secrets Store CSI driver, as a file in memory that never becomes a Kubernetes Secret. Update checks, plugin checks and the news feed are turned off.
 
 ## OpenCost
 

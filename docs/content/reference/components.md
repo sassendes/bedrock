@@ -36,6 +36,8 @@ All images are pinned by digest in the repository. Upstream bundles are checked 
 | Component | Version | Namespace |
 |---|---|---|
 | OpenBao | 2.7.2 | `openbao` |
+| Secrets Store CSI driver | v1.6.2 | `secrets-store` |
+| OpenBao CSI provider | 2.0.3 | `secrets-store` |
 
 ## Observability
 
