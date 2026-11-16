@@ -958,7 +958,7 @@
         bao read -format=json database/static-roles/bedrock-app >/dev/null 2>&1 || bao write database/static-roles/bedrock-app db_name=cluster-1 username=bedrock_app rotation_period=24h >/dev/null
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
-        CRED: "{% raw %}{{username}}:{{password}}{% endraw %}"
+        CRED: !unsafe "{{username}}:{{password}}"
         BAO_ROOT: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).root_token }}"
         BAO_SCRIPT: |
           set -eu
