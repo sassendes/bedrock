@@ -872,6 +872,26 @@
       changed_when: false
       no_log: true
 
+    - name: Kyverno may read the database cas and write their copies in openbao
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/kyverno/generate/openbao-ca-sync-rbac.yaml"
+
+    - name: Wait for Kyverno's aggregated rights (a generating policy checks them once, when it is created)
+      ansible.builtin.shell: |
+        set -eu
+        sa=system:serviceaccount:kyverno:kyverno-background-controller
+        test "$(kubectl auth can-i list secrets --all-namespaces --as=$sa)" = yes
+        test "$(kubectl auth can-i create configmaps -n openbao --as=$sa)" = yes
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: kyverno_rights
+      until: kyverno_rights.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
     - name: Kyverno copies every database cluster's ca into openbao
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
