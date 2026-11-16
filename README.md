@@ -54,7 +54,7 @@ flowchart TB
 | Observability | Prometheus, Alertmanager, Loki, Tempo, Alloy, Grafana, OpenCost, blackbox |
 | Failover | bedrock's own controller: two observers per node, a database that proves it is alive with a signature, a separate verifier, every action gated by admission. Model checked with TLA+, tested live: 73.6 s, 0 bytes lost |
 | Runtime | Falco, Reloader |
-| Event buses (optional) | NATS JetStream, Redis with Sentinel, Kafka on Strimzi |
+| Event buses (optional) | NATS JetStream, Valkey with Sentinel, Kafka on Strimzi |
 
 ## Security posture
 
@@ -79,7 +79,7 @@ tenant-workload/database/        CloudNativePG clusters, poolers, backups, the a
 tenant-workload/failover/        the failover controller: deployment, admission, network policy, alerts
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
-tenant-workload/event-buses/     NATS, Redis, Kafka
+tenant-workload/event-buses/     NATS, Valkey, Kafka
 tenant-workload/openbao/         OpenBao, three pods on raft
 tenant-workload/secrets/         placeholder secrets
 failover-controller/             the failover controller: Go code, Dockerfile, TLA+ models

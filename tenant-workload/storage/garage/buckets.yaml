@@ -98,6 +98,22 @@ subjects:
     name: garage-init
     namespace: garage
 ---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: garage-admin
+  namespace: garage
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: http://openbao.openbao.svc:8200
+    roleName: garage-init
+    audience: openbao
+    objects: |
+      - objectName: admin-token
+        secretPath: apps/data/garage/admin
+        secretKey: token
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -107,6 +123,7 @@ data:
   init.sh: |
     set -euo pipefail
     A="http://garage.garage.svc:3903/v2"
+    ADMIN_TOKEN=$(cat /run/secrets/openbao/admin-token)
     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
     until [ "$(api "$A/GetClusterStatus" | jq '[.nodes[] | select(.isUp)] | length')" = "3" ]; do sleep 5; done
     if [ "$(api "$A/GetClusterLayout" | jq -r '.roles | length')" = "0" ]; then
@@ -198,11 +215,6 @@ spec:
           env:
             - name: HOME
               value: /tmp
-            - name: ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: garage-secrets
-                  key: admin_token
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -220,9 +232,18 @@ spec:
               mountPath: /script
             - name: tmp
               mountPath: /tmp
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
       volumes:
         - name: script
           configMap:
             name: garage-init
         - name: tmp
           emptyDir: {}
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: garage-admin

@@ -29,7 +29,7 @@ Inside each cluster, bedrock installs the same tested stack:
 | PostgreSQL | CloudNativePG, a primary cluster and replica clusters per tenant |
 | Metrics, logs, traces, dashboards | Prometheus, Loki, Tempo, Alloy, Grafana |
 | Runtime threat detection | Falco |
-| Event buses, when a tenant needs them | NATS, Redis, Kafka |
+| Event buses, when a tenant needs them | NATS, Valkey, Kafka |
 
 The operator chooses **what** a tenant needs, such as which event buses it runs. bedrock decides **how** each part is built. Fewer free choices means fewer combinations to test, so every tenant runs a configuration that has been tested as a whole.
 

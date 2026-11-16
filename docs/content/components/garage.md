@@ -43,7 +43,9 @@ The admin API can create keys and delete buckets, which is why it is the most re
 
 ## Secrets
 
-`rpc_secret` and `admin_token` come from the `garage-secrets` Secret, which holds placeholder values. Change them before anything is exposed.
+The RPC secret and the admin token live in OpenBao at `apps/garage/rpc` and `apps/garage/admin`. The bootstrap makes them once and keeps a copy on the controller in `~/.bedrock/garage-rpc-secret` and `~/.bedrock/garage-admin-token`. They reach the Garage pods as files through the Secrets Store CSI driver, and Garage reads them with `GARAGE_RPC_SECRET_FILE` and `GARAGE_ADMIN_TOKEN_FILE`. The `garage-init` job gets only the admin token, through its own OpenBao role.
+
+The CSI driver writes the files with mode 0644 and Garage refuses secret files that others can read, so `GARAGE_ALLOW_WORLD_READABLE_SECRETS` is set. The files sit in memory inside the pod and the only process there is Garage.
 
 ## Monitoring
 

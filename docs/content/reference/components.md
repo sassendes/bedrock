@@ -67,6 +67,6 @@ All images are pinned by digest in the repository. Upstream bundles are checked 
 | Component | Version | Namespace |
 |---|---|---|
 | NATS | 2.14.7 | `nats` |
-| Redis | 8.8.3 | `redis` |
+| Valkey | 9.1.3 | `valkey` |
 | Strimzi | 1.2.0 | `kafka` |
 | Kafka | 4.3.1 | `kafka` |

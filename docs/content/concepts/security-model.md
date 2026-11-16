@@ -57,7 +57,8 @@ Some findings are left in place on purpose. Each has a reason.
 | CIS 5.1.6: some pods mount API tokens | They are operators and controllers that need the Kubernetes API to work. The exception is documented, not hidden by editing the benchmark. |
 | Kyverno can write Secrets cluster-wide | It copies the replication certificates into the replica namespaces and keeps them current when they rotate. Its ConfigMap writes are limited to `bedrock-failover` by a Role; cluster-wide it can only read ConfigMaps. |
 | Pod traffic on the same node is not encrypted | It never leaves the machine. |
-| Placeholder secrets in the repository | They exist so a fresh deploy works. Change them before anything is exposed. |
+| Placeholder secrets in the repository | They exist so a fresh deploy works. Change them before anything is exposed. Grafana, NATS, Valkey, Garage and the database application user no longer use them: their secrets are made at bootstrap and kept in OpenBao. |
+| Garage accepts secret files others can read | The CSI driver writes files with mode 0644, so `GARAGE_ALLOW_WORLD_READABLE_SECRETS` is set. The files sit in memory inside the pod and Garage is the only process there. |
 
 ## Compliance
 

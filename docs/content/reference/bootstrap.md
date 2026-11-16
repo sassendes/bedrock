@@ -15,6 +15,7 @@ description: "The files, variables and stages of the bootstrap and teardown play
 | `make check-allowlist` | Fails if the three registry allowlist patterns are not identical |
 | `make rotate-exchange-cert` | Signs a new exchange certificate for the observers and restarts them, see [rotate the exchange certificate]({{< relref "/tasks/rotate-exchange-cert" >}}) |
 | `make rotate-proof-key` | Rotates the failover controller's proof key with an overlap, no downtime |
+| `make rotate-grafana-password` | Sets a new Grafana admin password in Grafana, OpenBao and on the controller, no restart, see [rotate a secret]({{< relref "/tasks/rotate-secret" >}}) |
 | `make add-replica REPLICA=<name>` | Adds a live replica behind the current primary, see [add a live replica]({{< relref "/tasks/add-replica" >}}) |
 
 Set `INVENTORY=path/to/hosts.ini` to use another inventory file. The default `hosts.ini` is ignored by git; copy it from `hosts.example.ini`.
@@ -35,7 +36,7 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 |---|---|---|
 | `rke2_version` | `v1.36.4+rke2r1` | RKE2 release to install |
 | `nats_enabled` | `false` | Deploy NATS JetStream |
-| `redis_enabled` | `false` | Deploy Redis with Sentinel |
+| `valkey_enabled` | `false` | Deploy Valkey with Sentinel |
 | `kafka_enabled` | `false` | Deploy Strimzi and Kafka |
 | `kubeconfig` | `~/.bedrock/kubeconfig` | Where the admin kubeconfig is written on the controller |
 | `failover_enabled` | `true` | Deploy the failover controller |
@@ -54,8 +55,8 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 | 7 | Placeholder secrets |
 | 8 | Longhorn, with its RBAC rewritten without wildcards |
 | 9 | CloudNativePG operator and prometheus-operator |
-| 10 | Longhorn encryption key and storage classes, Garage, the bucket job, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed. Then the Secrets Store CSI driver and the OpenBao CSI provider, and OpenBao's kubernetes auth, the `apps` key value engine and the Grafana role |
-| 11 | cluster-1, the failover functions and the proof key loaded into it, its first backup, the certificate sync, then cluster-2 and cluster-3 |
+| 10 | Longhorn encryption key and storage classes, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed. Then the Secrets Store CSI driver and the OpenBao CSI provider, the platform passwords made once on the controller, and OpenBao's kubernetes auth, the `apps` key value engine and one role per component. Then Garage and the bucket job, which read their secrets from OpenBao |
+| 11 | cluster-1, the failover functions and the proof key loaded into it, the `openbao` and `bedrock_app` roles handed to OpenBao's database engine, its first backup, the certificate sync, then cluster-2 and cluster-3 |
 | 12 | Poolers, scheduled backups and disruption budgets |
 | 13 | Event buses, if enabled |
 | 14 | Loki, Alloy, Tempo, Prometheus and exporters, alerting, Grafana, OpenCost, Falco, Reloader, dashboards |
@@ -82,4 +83,7 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 | `~/.bedrock/kubeconfig` | The admin kubeconfig |
 | `~/.bedrock/openbao-init.json` | OpenBao's unseal key shares and root token, mode 0600 |
 | `~/.bedrock/grafana-admin` | Grafana's admin password, also stored in OpenBao, mode 0600 |
+| `~/.bedrock/valkey-password` | Valkey's password, also stored in OpenBao, mode 0600 |
+| `~/.bedrock/nats-route-password`, `nats-sys-password`, `nats-app-password` | NATS passwords, also stored in OpenBao, mode 0600 |
+| `~/.bedrock/garage-rpc-secret`, `garage-admin-token` | Garage's RPC secret and admin token, also stored in OpenBao, mode 0600 |
 | `~/.bedrock/failover/` | The failover controller's proof keys and exchange certificates |

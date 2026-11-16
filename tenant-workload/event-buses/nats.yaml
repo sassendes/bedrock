@@ -1,10 +1,35 @@
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nats
+  namespace: nats
+automountServiceAccountToken: false
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: nats-auth
+  namespace: nats
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: http://openbao.openbao.svc:8200
+    roleName: nats
+    audience: openbao
+    objects: |
+      - objectName: auth.conf
+        secretPath: apps/data/nats/server
+        secretKey: auth.conf
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nats-config
   namespace: nats
 data:
   nats.conf: |
+    include ./secrets/auth.conf
+
     server_name: $POD_NAME
     port: 4222
     http_port: 8222
@@ -100,6 +125,7 @@ spec:
       labels:
         app: nats
     spec:
+      serviceAccountName: nats
       priorityClassName: bedrock-workload
       terminationGracePeriodSeconds: 60
       securityContext:
@@ -128,27 +154,6 @@ spec:
                   fieldPath: metadata.name
             - name: GOMEMLIMIT
               value: "1800MiB"
-            - name: ROUTE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: nats-auth
-                  key: route_password
-            - name: ROUTE_0
-              value: "nats://route:$(ROUTE_PASSWORD)@nats-0.nats-headless.nats.svc.cluster.local:6222"
-            - name: ROUTE_1
-              value: "nats://route:$(ROUTE_PASSWORD)@nats-1.nats-headless.nats.svc.cluster.local:6222"
-            - name: ROUTE_2
-              value: "nats://route:$(ROUTE_PASSWORD)@nats-2.nats-headless.nats.svc.cluster.local:6222"
-            - name: SYS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: nats-auth
-                  key: sys_password
-            - name: APP_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: nats-auth
-                  key: app_password
           ports:
             - name: client
               containerPort: 4222
@@ -192,7 +197,11 @@ spec:
               memory: 2Gi
           volumeMounts:
             - name: config
-              mountPath: /etc/nats
+              mountPath: /etc/nats/nats.conf
+              subPath: nats.conf
+            - name: openbao-secrets
+              mountPath: /etc/nats/secrets
+              readOnly: true
             - name: data
               mountPath: /data
             - name: run
@@ -203,6 +212,12 @@ spec:
             name: nats-config
         - name: run
           emptyDir: {}
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: nats-auth
   volumeClaimTemplates:
     - metadata:
         name: data

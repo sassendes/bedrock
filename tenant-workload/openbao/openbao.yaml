@@ -37,6 +37,30 @@ data:
       }
     }
 ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: openbao-db-ca
+  namespace: openbao
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: openbao-db-ca
+  namespace: openbao
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: openbao-db-ca
+subjects:
+  - kind: ServiceAccount
+    name: openbao
+    namespace: openbao
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -132,12 +156,57 @@ spec:
             - name: kube-api
               mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
+            - name: db-ca
+              mountPath: /etc/bedrock/db-ca
+              readOnly: true
+        - name: db-ca-bundle
+          image: alpine/k8s:1.36.4@sha256:358ddfc2d6ff3f00dd461dbd79aaa6d6738709f225b8da0945bb63bd4dbc304e
+          command:
+            - sh
+            - -c
+            - |
+              set -u
+              while true; do
+                if kubectl -n openbao get configmap -l bedrock.io/db-ca=true -o jsonpath='{range .items[*]}{.data.ca\.crt}{"\n"}{end}' > /bundle/.ca.crt.new && [ -s /bundle/.ca.crt.new ]; then
+                  mv /bundle/.ca.crt.new /bundle/ca.crt
+                fi
+                sleep 60
+              done
+          env:
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: db-ca
+              mountPath: /bundle
+            - name: sidecar-tmp
+              mountPath: /tmp
+            - name: kube-api
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: openbao-config
         - name: tmp
           emptyDir: {}
+        - name: sidecar-tmp
+          emptyDir: {}
+        - name: db-ca
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
         - name: kube-api
           projected:
             sources:

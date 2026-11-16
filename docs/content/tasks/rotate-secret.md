@@ -4,73 +4,110 @@ weight: 11
 description: "Change a password or token that a platform component reads, and get the component to use it."
 ---
 
-The platform's credentials live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Every component reads them as environment variables, which a process only reads when it starts. Changing a Secret therefore does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
+Grafana, NATS, Valkey, Garage and the database application user get their secrets from OpenBao. The rest still live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Both kinds are read when a process starts, so changing one does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
 
-{{< note >}}
-The values in `tenant-workload/secrets/` are the source of truth, so change them there and apply the file rather than editing the Secret in the cluster.
-{{< /note >}}
+The bootstrap makes every OpenBao value once and keeps a copy on the controller in `~/.bedrock/`. Change the copy too, so a fresh install uses the new value.
 
-## Which components read which Secret
+## Which components read which secret
 
-| Secret | Namespace | Read by | Kept in the component's own data |
+| Secret | Where | Read by | Kept in the component's own data |
 |---|---|---|---|
-| `garage-secrets` | `garage` | Garage | No |
-| `nats-auth` | `nats` | NATS | No |
-| `redis-auth` | `redis` | Redis and Sentinel | No |
-| `user-secret-1` | `cluster-1` | CloudNativePG, for the `appuser` role | Yes, in PostgreSQL |
+| `apps/grafana/admin` | OpenBao | Grafana | Yes, in Grafana's database |
+| `apps/garage/rpc`, `apps/garage/admin` | OpenBao | Garage, the bucket jobs (admin token only) | No |
+| `apps/nats/server`, `apps/nats/app` | OpenBao | NATS, applications | No |
+| `apps/valkey/auth` | OpenBao | Valkey and Sentinel, applications | No |
+| `database/static-creds/bedrock-app` | OpenBao, rotated every 24 hours | Applications, as the `bedrock_app` role | Yes, in PostgreSQL, set by OpenBao |
+| `cluster-1-app` | `cluster-1`, made by CloudNativePG | CloudNativePG, for the `appuser` role that owns the database | Yes, in PostgreSQL |
 | `longhorn-crypto` | `longhorn-system` | Longhorn volume encryption | Yes, in every encrypted volume |
 | `bedrock-observer` | `cluster-1`, copied into `bedrock-failover` by Kyverno | CloudNativePG for the `bedrock_observer` role, the failover observers and verifier | Yes, in PostgreSQL |
 
+## Write to OpenBao by hand
+
+The commands below need the root token from `~/.bedrock/openbao-init.json`. Open a shell in OpenBao that reads it without showing it:
+
+```sh
+kubectl -n openbao exec -it openbao-0 -- sh -c 'read -rs BAO_TOKEN; export BAO_TOKEN; exec sh'
+```
+
+Paste the root token, then run the `bao` commands in that shell.
+
 ## Grafana admin password
 
-Grafana's password lives in OpenBao at `apps/grafana/admin` and reaches the pod as a file through the Secrets Store CSI driver. Grafana only reads it the first time it starts with an empty database. After that the password lives in Grafana's database, so set it there first:
+Grafana only reads its password from OpenBao the first time it starts with an empty database. After that the password lives in Grafana's database, so it has to be changed there and in OpenBao together. One command does both and updates the copy on the controller:
 
 ```sh
-kubectl -n application exec deploy/grafana -c grafana -- grafana cli admin reset-admin-password '<new password>'
+make rotate-grafana-password
 ```
 
-Then put the same value in OpenBao and in `~/.bedrock/grafana-admin` on the controller, so a fresh install uses it too. With the root token from `~/.bedrock/openbao-init.json`:
-
-```sh
-kubectl -n openbao exec -it openbao-0 -- sh -c 'read -rs BAO_TOKEN; export BAO_TOKEN; read -rs p; printf %s "$p" | bao kv put -mount=apps grafana/admin username=admin password=-'
-```
-
-Paste the root token and then the new password. Neither shows on screen or in the shell history.
+It makes a new random password, sets it with `grafana cli admin reset-admin-password` inside the running pod, then writes it to `apps/grafana/admin` and `~/.bedrock/grafana-admin`. Grafana does not restart. Read the new password from `~/.bedrock/grafana-admin`.
 
 ## Garage admin token
 
-Change `admin_token` in `tenant-workload/secrets/garage-secrets.yaml`, apply it and restart Garage:
+```sh
+read -rs t; printf %s "$t" | bao kv put -mount=apps garage/admin token=-
+```
+
+Then restart Garage and put the same value in `~/.bedrock/garage-admin-token`:
 
 ```sh
-kubectl apply -f tenant-workload/secrets/garage-secrets.yaml
 kubectl -n garage rollout restart statefulset/garage
 kubectl -n garage rollout status statefulset/garage
 ```
 
-Leave `rpc_secret` alone on a running tenant. Every Garage node must share it, so nodes restarted with a new value cannot talk to the ones still running the old one.
+Leave the RPC secret alone on a running tenant. Every Garage node must share it, so nodes restarted with a new value cannot talk to the ones still running the old one.
 
-## NATS and Redis passwords
-
-Change the values in `tenant-workload/secrets/nats-auth.yaml` or `tenant-workload/secrets/redis-auth.yaml`, apply the file and restart the StatefulSet:
+## Valkey password
 
 ```sh
-kubectl apply -f tenant-workload/secrets/redis-auth.yaml
-kubectl -n redis rollout restart statefulset/redis
-kubectl -n redis rollout status statefulset/redis
+read -rs p; printf %s "$p" | bao kv put -mount=apps valkey/auth password=-
 ```
 
-The pods use the same password to talk to each other, so while the restart rolls through, pods on the new value cannot reach pods on the old one. The bus is degraded until the last pod has restarted. Clients must be given the new password at the same time.
+Then restart the StatefulSet and put the same value in `~/.bedrock/valkey-password`:
+
+```sh
+kubectl -n valkey rollout restart statefulset/valkey
+kubectl -n valkey rollout status statefulset/valkey
+```
+
+## NATS passwords
+
+NATS reads one file, `auth.conf`, which holds the three passwords and the route addresses built from the route password. Rewrite it whole with the new values:
+
+```sh
+read -rs route; read -rs sys; read -rs app
+{
+  printf 'ROUTE_PASSWORD: "%s"\nSYS_PASSWORD: "%s"\nAPP_PASSWORD: "%s"\n' "$route" "$sys" "$app"
+  for i in 0 1 2; do printf 'ROUTE_%s: "nats://route:%s@nats-%s.nats-headless.nats.svc.cluster.local:6222"\n' "$i" "$route" "$i"; done
+} | bao kv put -mount=apps nats/server auth.conf=-
+printf %s "$app" | bao kv put -mount=apps nats/app user=app password=-
+```
+
+Then restart the StatefulSet and put the same values in `~/.bedrock/nats-route-password`, `nats-sys-password` and `nats-app-password`:
+
+```sh
+kubectl -n nats rollout restart statefulset/nats
+kubectl -n nats rollout status statefulset/nats
+```
+
+For Valkey and NATS the pods use the same password to talk to each other, so while the restart rolls through, pods on the new value cannot reach pods on the old one. The bus is degraded until the last pod has restarted. Clients must be given the new password at the same time.
 
 ## Database application user
 
-The `appuser` password is a role in PostgreSQL. Set it on the primary, then store it in the Secret:
+Applications log in as `bedrock_app`. OpenBao owns its password and changes it every 24 hours on its own, so there is nothing to rotate by hand. To rotate it now:
 
 ```sh
-kubectl -n cluster-1 exec cluster-1-1 -c postgres -- psql -U postgres -c "ALTER ROLE appuser PASSWORD '<new password>'"
-kubectl apply -f tenant-workload/secrets/user-secret-1.yaml
+bao write -force database/rotate-role/bedrock-app
 ```
 
-`cluster-1-1` is an example; run it against whichever instance is the current primary, shown by `kubectl -n cluster-1 get cluster cluster-1`. The replica clusters receive the change through replication.
+The new password reaches the pods' files within two minutes. Connections that are already open keep working, because PostgreSQL only checks a password at login.
+
+`appuser` owns the `app` database. CloudNativePG made its password at `initdb` and keeps it in the `cluster-1-app` Secret. Applications should not use it.
+
+OpenBao's own login, the `openbao` role, was rotated by OpenBao right after the bootstrap gave it to it. Nobody knows that password. To rotate it again:
+
+```sh
+bao write -force database/rotate-root/cluster-1
+```
 
 ## Failover observer password
 

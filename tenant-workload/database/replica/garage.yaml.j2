@@ -38,6 +38,7 @@ data:
     set -euo pipefail
     A="http://garage.garage.svc:3903/v2"
     R="{{ replica }}"
+    ADMIN_TOKEN=$(cat /run/secrets/openbao/admin-token)
     api() { curl -fsS -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" "$@"; }
     mint() {
       local name="$1" bid="$2" write="$3" secret="$4" ns="$5"
@@ -100,11 +101,6 @@ spec:
           env:
             - name: HOME
               value: /tmp
-            - name: ADMIN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: garage-secrets
-                  key: admin_token
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -122,9 +118,18 @@ spec:
               mountPath: /script
             - name: tmp
               mountPath: /tmp
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
       volumes:
         - name: script
           configMap:
             name: garage-init-{{ replica }}
         - name: tmp
           emptyDir: {}
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: garage-admin

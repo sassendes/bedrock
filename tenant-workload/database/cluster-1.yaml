@@ -48,8 +48,6 @@ spec:
     initdb:
       database: app
       owner: appuser
-      secret:
-        name: user-secret-1
   managed:
     roles:
       - name: bedrock_observer

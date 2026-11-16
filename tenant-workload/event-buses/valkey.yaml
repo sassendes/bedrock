@@ -1,12 +1,37 @@
 apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: valkey
+  namespace: valkey
+automountServiceAccountToken: false
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: valkey-auth
+  namespace: valkey
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: http://openbao.openbao.svc:8200
+    roleName: valkey
+    audience: openbao
+    objects: |
+      - objectName: password
+        secretPath: apps/data/valkey/auth
+        secretKey: password
+---
+apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: redis-init
-  namespace: redis
+  name: valkey-init
+  namespace: valkey
 data:
   init.sh: |
     set -eu
-    DOMAIN="redis-headless.redis.svc.cluster.local"
+    PASS=$(cat /run/secrets/openbao/password)
+    export VALKEYCLI_AUTH="$PASS"
+    DOMAIN="valkey-headless.valkey.svc.cluster.local"
     SELF="${POD_NAME}.${DOMAIN}"
     SAVED="/data/sentinel.conf"
     MASTER=""
@@ -14,9 +39,9 @@ data:
     CONFIG_EPOCH=0
 
     for i in 0 1 2; do
-      PEER="redis-${i}.${DOMAIN}"
+      PEER="valkey-${i}.${DOMAIN}"
       if [ "$PEER" = "$SELF" ]; then continue; fi
-      FOUND=$(timeout 3 redis-cli -h "$PEER" -p 26379 --no-auth-warning -a "$REDIS_PASSWORD" sentinel get-master-addr-by-name bedrock 2>/dev/null | head -n 1 || true)
+      FOUND=$(timeout 3 valkey-cli -h "$PEER" -p 26379 sentinel get-master-addr-by-name bedrock 2>/dev/null | head -n 1 || true)
       if [ -n "$FOUND" ]; then MASTER="$FOUND"; break; fi
     done
 
@@ -30,9 +55,9 @@ data:
       CONFIG_EPOCH=${CONFIG_EPOCH:-0}
     fi
 
-    if [ -z "$MASTER" ]; then MASTER="redis-0.${DOMAIN}"; fi
+    if [ -z "$MASTER" ]; then MASTER="valkey-0.${DOMAIN}"; fi
 
-    cat > /etc/redis/redis.conf <<CONF
+    cat > /etc/valkey/valkey.conf <<CONF
     port 6379
     bind 0.0.0.0
     protected-mode no
@@ -41,14 +66,14 @@ data:
     appendfsync everysec
     maxmemory 768mb
     maxmemory-policy volatile-lru
-    requirepass ${REDIS_PASSWORD}
-    masterauth ${REDIS_PASSWORD}
+    requirepass ${PASS}
+    primaryauth ${PASS}
     replica-announce-ip ${SELF}
     min-replicas-to-write 1
     min-replicas-max-lag 10
     CONF
     if [ "$MASTER" != "$SELF" ]; then
-      echo "replicaof ${MASTER} 6379" >> /etc/redis/redis.conf
+      echo "replicaof ${MASTER} 6379" >> /etc/valkey/valkey.conf
     fi
 
     cat > "$SAVED" <<CONF
@@ -56,28 +81,34 @@ data:
     sentinel resolve-hostnames yes
     sentinel announce-hostnames yes
     sentinel announce-ip ${SELF}
-    requirepass ${REDIS_PASSWORD}
-    sentinel sentinel-pass ${REDIS_PASSWORD}
+    requirepass ${PASS}
+    sentinel sentinel-pass ${PASS}
     sentinel current-epoch ${CURRENT_EPOCH}
     sentinel monitor bedrock ${MASTER} 6379 2
     sentinel config-epoch bedrock ${CONFIG_EPOCH}
-    sentinel auth-pass bedrock ${REDIS_PASSWORD}
+    sentinel auth-pass bedrock ${PASS}
     sentinel down-after-milliseconds bedrock 5000
     sentinel failover-timeout bedrock 60000
     sentinel parallel-syncs bedrock 1
     CONF
+  cli.sh: |
+    VALKEYCLI_AUTH=$(cat /run/secrets/openbao/password)
+    export VALKEYCLI_AUTH
+    exec valkey-cli "$@"
   prestop.sh: |
-    ROLE=$(redis-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
+    VALKEYCLI_AUTH=$(cat /run/secrets/openbao/password)
+    export VALKEYCLI_AUTH
+    ROLE=$(valkey-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
     if [ "$ROLE" != "master" ]; then exit 0; fi
-    DOMAIN="redis-headless.redis.svc.cluster.local"
+    DOMAIN="valkey-headless.valkey.svc.cluster.local"
     SELF="${POD_NAME}.${DOMAIN}"
     for i in 0 1 2; do
-      PEER="redis-${i}.${DOMAIN}"
+      PEER="valkey-${i}.${DOMAIN}"
       if [ "$PEER" = "$SELF" ]; then continue; fi
-      if timeout 3 redis-cli -h "$PEER" -p 26379 sentinel failover bedrock 2>/dev/null | grep -q OK; then break; fi
+      if timeout 3 valkey-cli -h "$PEER" -p 26379 sentinel failover bedrock 2>/dev/null | grep -q OK; then break; fi
     done
     for i in $(seq 1 20); do
-      ROLE=$(redis-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
+      ROLE=$(valkey-cli info replication | tr -d '\r' | awk -F: '$1=="role" {print $2}')
       if [ "$ROLE" != "master" ]; then exit 0; fi
       sleep 1
     done
@@ -85,17 +116,17 @@ data:
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis-headless
-  namespace: redis
+  name: valkey-headless
+  namespace: valkey
   labels:
-    app: redis
+    app: valkey
 spec:
   clusterIP: None
   publishNotReadyAddresses: true
   selector:
-    app: redis
+    app: valkey
   ports:
-    - name: redis
+    - name: valkey
       port: 6379
     - name: sentinel
       port: 26379
@@ -103,13 +134,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis
-  namespace: redis
+  name: valkey
+  namespace: valkey
   labels:
-    app: redis
+    app: valkey
 spec:
   selector:
-    app: redis
+    app: valkey
   ports:
     - name: sentinel
       port: 26379
@@ -117,22 +148,23 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: redis
-  namespace: redis
+  name: valkey
+  namespace: valkey
   labels:
-    app: redis
+    app: valkey
 spec:
-  serviceName: redis-headless
+  serviceName: valkey-headless
   replicas: 3
   podManagementPolicy: Parallel
   selector:
     matchLabels:
-      app: redis
+      app: valkey
   template:
     metadata:
       labels:
-        app: redis
+        app: valkey
     spec:
+      serviceAccountName: valkey
       priorityClassName: bedrock-workload
       terminationGracePeriodSeconds: 40
       securityContext:
@@ -148,22 +180,17 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: redis
+                  app: valkey
               topologyKey: kubernetes.io/hostname
       initContainers:
         - name: config
-          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
+          image: valkey/valkey:9.1.3-alpine@sha256:bf09d58e96d6b4524a15396b65b242bbe18beebbcc15a04d8ee75ddac62fae0b
           command: ["sh", "/init/init.sh"]
           env:
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: redis-auth
-                  key: password
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -180,13 +207,16 @@ spec:
             - name: init
               mountPath: /init
             - name: conf
-              mountPath: /etc/redis
+              mountPath: /etc/valkey
             - name: data
               mountPath: /data
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
       containers:
-        - name: redis
-          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
-          command: ["redis-server", "/etc/redis/redis.conf"]
+        - name: valkey
+          image: valkey/valkey:9.1.3-alpine@sha256:bf09d58e96d6b4524a15396b65b242bbe18beebbcc15a04d8ee75ddac62fae0b
+          command: ["valkey-server", "/etc/valkey/valkey.conf"]
           lifecycle:
             preStop:
               exec:
@@ -196,28 +226,23 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: REDISCLI_AUTH
-              valueFrom:
-                secretKeyRef:
-                  name: redis-auth
-                  key: password
           ports:
-            - name: redis
+            - name: valkey
               containerPort: 6379
           startupProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "/init/cli.sh", "ping"]
             periodSeconds: 5
             failureThreshold: 60
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "/init/cli.sh", "ping"]
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "/init/cli.sh", "ping"]
             periodSeconds: 10
             timeoutSeconds: 5
           securityContext:
@@ -236,34 +261,31 @@ spec:
             - name: init
               mountPath: /init
             - name: conf
-              mountPath: /etc/redis
+              mountPath: /etc/valkey
             - name: data
               mountPath: /data
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
         - name: sentinel
-          image: redis:8.8.3-alpine@sha256:0b2b77d3ea5078274795e3177cdbdada8b96316684a38911d528534ed679b5ec
-          command: ["redis-sentinel", "/data/sentinel.conf"]
+          image: valkey/valkey:9.1.3-alpine@sha256:bf09d58e96d6b4524a15396b65b242bbe18beebbcc15a04d8ee75ddac62fae0b
+          command: ["valkey-sentinel", "/data/sentinel.conf"]
           lifecycle:
             preStop:
               exec:
                 command: ["sleep", "25"]
-          env:
-            - name: REDISCLI_AUTH
-              valueFrom:
-                secretKeyRef:
-                  name: redis-auth
-                  key: password
           ports:
             - name: sentinel
               containerPort: 26379
           livenessProbe:
             exec:
-              command: ["redis-cli", "-p", "26379", "ping"]
+              command: ["sh", "/init/cli.sh", "-p", "26379", "ping"]
             periodSeconds: 15
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["redis-cli", "-p", "26379", "ping"]
+              command: ["sh", "/init/cli.sh", "-p", "26379", "ping"]
             periodSeconds: 10
             timeoutSeconds: 5
           securityContext:
@@ -279,14 +301,25 @@ spec:
               cpu: 200m
               memory: 128Mi
           volumeMounts:
+            - name: init
+              mountPath: /init
             - name: data
               mountPath: /data
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
       volumes:
         - name: init
           configMap:
-            name: redis-init
+            name: valkey-init
         - name: conf
           emptyDir: {}
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: valkey-auth
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -300,10 +333,10 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: redis
-  namespace: redis
+  name: valkey
+  namespace: valkey
 spec:
   minAvailable: 2
   selector:
     matchLabels:
-      app: redis
+      app: valkey

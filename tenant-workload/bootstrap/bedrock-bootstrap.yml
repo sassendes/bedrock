@@ -242,7 +242,7 @@
     kubeconfig: "{{ lookup('env', 'HOME') }}/.bedrock/kubeconfig"
     repo_root: "{{ playbook_dir }}/.."
     nats_enabled: false
-    redis_enabled: false
+    valkey_enabled: false
     kafka_enabled: false
     failover_enabled: true
     failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
@@ -382,10 +382,6 @@
         state: present
         src: "{{ item }}"
       loop:
-        - "{{ repo_root }}/secrets/user-secret-1.yaml"
-        - "{{ repo_root }}/secrets/garage-secrets.yaml"
-        - "{{repo_root }}/secrets/nats-auth.yaml"
-        - "{{repo_root }}/secrets/redis-auth.yaml"
         - "{{ repo_root }}/secrets/bedrock-observer.yaml"
 
     - name: Download Longhorn v1.13.0 (checksum verified)
@@ -558,41 +554,6 @@
         - "{{ repo_root }}/storage/longhorn/longhorn-local.yaml"
         - "{{ repo_root }}/storage/longhorn/longhorn-encrypted.yaml"
       
-    - name: Apply garage
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/storage/garage/garage.yaml"
-
-    - name: Apply garage init job
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/storage/garage/buckets.yaml"
-
-    - name: Wait for garage init job complete
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        kind: Job
-        namespace: garage
-        name: garage-init
-      register: gjob
-      until: >
-        gjob.resources | default([]) | length > 0 and
-        (gjob.resources[0].status.succeeded | default(0)) >= 1
-      retries: 40
-      delay: 15
-
-    - name: Revoke garage-init's secret access once its job is done
-      ansible.builtin.command: kubectl -n {{ item }} delete rolebinding garage-init --ignore-not-found
-      environment:
-        KUBECONFIG: "{{ kubeconfig }}"
-      loop:
-        - cluster-1
-        - cluster-2
-        - cluster-3
-        - application
-
     - name: Apply OpenBao
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
@@ -739,34 +700,120 @@
         - csi-secrets-store
         - openbao-csi-provider
 
-    - name: Make the Grafana admin password once, kept on the controller only
+    - name: Make the platform passwords once, kept on the controller only
       ansible.builtin.copy:
-        dest: "{{ lookup('env', 'HOME') }}/.bedrock/grafana-admin"
-        content: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/{{ item.name }}"
+        content: "{{ lookup('ansible.builtin.password', '/dev/null', length=item.length, chars=item.chars) }}"
         mode: "0600"
         force: false
+      loop:
+        - { name: grafana-admin, length: 32, chars: ['ascii_letters', 'digits'] }
+        - { name: valkey-password, length: 32, chars: ['ascii_letters', 'digits'] }
+        - { name: nats-route-password, length: 32, chars: ['ascii_letters', 'digits'] }
+        - { name: nats-sys-password, length: 32, chars: ['ascii_letters', 'digits'] }
+        - { name: nats-app-password, length: 32, chars: ['ascii_letters', 'digits'] }
+        - { name: garage-admin-token, length: 48, chars: ['ascii_letters', 'digits'] }
+        - { name: garage-rpc-secret, length: 64, chars: ['digits', 'abcdef'] }
+      loop_control:
+        label: "{{ item.name }}"
       no_log: true
 
-    - name: Configure OpenBao kubernetes auth, the apps kv engine and the Grafana role
+    - name: Configure OpenBao kubernetes auth, the apps kv engine and one role per component
       ansible.builtin.shell: |
         set -eu
-        printf '%s\n%s\n' "$BAO_ROOT" "$GF_PASS" | kubectl -n openbao exec -i openbao-0 -- sh -c "$BAO_SCRIPT"
+        d="$HOME/.bedrock"
+        {
+          printf '%s\n' "$BAO_ROOT"
+          for f in grafana-admin valkey-password nats-route-password nats-sys-password nats-app-password garage-admin-token garage-rpc-secret; do
+            printf '%s\n' "$(cat "$d/$f")"
+          done
+        } | kubectl -n openbao exec -i openbao-0 -- sh -c "$BAO_SCRIPT"
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
         BAO_ROOT: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).root_token }}"
-        GF_PASS: "{{ lookup('file', lookup('env', 'HOME') + '/.bedrock/grafana-admin') }}"
         BAO_SCRIPT: |
           set -eu
           read -r BAO_TOKEN
           read -r gf
+          read -r vk
+          read -r nroute
+          read -r nsys
+          read -r napp
+          read -r gadmin_tok
+          read -r grpc
           export BAO_TOKEN
           bao auth list -format=json | grep -q '"kubernetes/"' || bao auth enable kubernetes
           bao write auth/kubernetes/config kubernetes_host=https://kubernetes.default.svc:443 >/dev/null
           bao secrets list -format=json | grep -q '"apps/"' || bao secrets enable -path=apps kv-v2
-          printf 'path "apps/data/grafana/*" {\n  capabilities = ["read"]\n}\n' | bao policy write grafana - >/dev/null
-          bao write auth/kubernetes/role/grafana bound_service_account_names=grafana bound_service_account_namespaces=application audience=openbao policies=grafana token_ttl=10m token_max_ttl=30m >/dev/null
-          bao kv get -mount=apps grafana/admin >/dev/null 2>&1 || printf '%s' "$gf" | bao kv put -mount=apps grafana/admin username=admin password=- >/dev/null
+          role() {
+            printf "$3" | bao policy write "$1" - >/dev/null
+            bao write "auth/kubernetes/role/$1" bound_service_account_names="$1" bound_service_account_namespaces="$2" audience=openbao policies="$1" token_ttl=10m token_max_ttl=30m >/dev/null
+          }
+          role grafana application 'path "apps/data/grafana/*" {\n  capabilities = ["read"]\n}\n'
+          role valkey valkey 'path "apps/data/valkey/auth" {\n  capabilities = ["read"]\n}\n'
+          role nats nats 'path "apps/data/nats/server" {\n  capabilities = ["read"]\n}\n'
+          role garage garage 'path "apps/data/garage/rpc" {\n  capabilities = ["read"]\n}\npath "apps/data/garage/admin" {\n  capabilities = ["read"]\n}\n'
+          role garage-init garage 'path "apps/data/garage/admin" {\n  capabilities = ["read"]\n}\n'
+          role bedrock-app application 'path "database/static-creds/bedrock-app" {\n  capabilities = ["read"]\n}\n'
+          bao secrets list -format=json | grep -q '"database/"' || bao secrets enable database
+          missing() { ! bao kv get -mount=apps "$1" >/dev/null 2>&1; }
+          if missing grafana/admin; then printf '%s' "$gf" | bao kv put -mount=apps grafana/admin username=admin password=- >/dev/null; fi
+          if missing valkey/auth; then printf '%s' "$vk" | bao kv put -mount=apps valkey/auth password=- >/dev/null; fi
+          if missing nats/app; then printf '%s' "$napp" | bao kv put -mount=apps nats/app user=app password=- >/dev/null; fi
+          if missing nats/server; then
+            routes=""
+            for i in 0 1 2; do
+              routes="${routes}ROUTE_${i}: \"nats://route:${nroute}@nats-${i}.nats-headless.nats.svc.cluster.local:6222\"\n"
+            done
+            printf "ROUTE_PASSWORD: \"%s\"\nSYS_PASSWORD: \"%s\"\nAPP_PASSWORD: \"%s\"\n${routes}" "$nroute" "$nsys" "$napp" | bao kv put -mount=apps nats/server auth.conf=- >/dev/null
+          fi
+          if missing garage/admin; then printf '%s' "$gadmin_tok" | bao kv put -mount=apps garage/admin token=- >/dev/null; fi
+          if missing garage/rpc; then printf '%s' "$grpc" | bao kv put -mount=apps garage/rpc secret=- >/dev/null; fi
       no_log: true
+      changed_when: false
+
+    - name: Apply garage
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/storage/garage/garage.yaml"
+
+    - name: Apply garage init job
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/storage/garage/buckets.yaml"
+
+    - name: Wait for garage init job complete
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Job
+        namespace: garage
+        name: garage-init
+      register: gjob
+      until: >
+        gjob.resources | default([]) | length > 0 and
+        (gjob.resources[0].status.succeeded | default(0)) >= 1
+      retries: 40
+      delay: 15
+
+    - name: Revoke garage-init's secret access once its job is done
+      ansible.builtin.command: kubectl -n {{ item }} delete rolebinding garage-init --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop:
+        - cluster-1
+        - cluster-2
+        - cluster-3
+        - application
+
+    - name: Remove the old garage and NATS Secrets, both read their secrets from OpenBao now
+      ansible.builtin.command: kubectl -n {{ item.ns }} delete secret {{ item.name }} --ignore-not-found
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop:
+        - { ns: garage, name: garage-secrets }
+        - { ns: nats, name: nats-auth }
       changed_when: false
 
     - name: Apply CNPG cluster-1 (primary)
@@ -824,6 +871,95 @@
       delay: 10
       changed_when: false
       no_log: true
+
+    - name: Kyverno copies every database cluster's ca into openbao
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/kyverno/generate/openbao-ca-sync.yaml"
+
+    - name: Wait for cluster-1's ca in the bundle OpenBao checks postgres with
+      ansible.builtin.shell: |
+        set -eu
+        kubectl -n openbao get configmap db-ca-cluster-1 >/dev/null
+        for pod in openbao-0 openbao-1 openbao-2; do
+          kubectl -n openbao exec "$pod" -c openbao -- sh -c 'grep -q "BEGIN CERTIFICATE" /etc/bedrock/db-ca/ca.crt'
+        done
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: db_ca_bundle
+      until: db_ca_bundle.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: The openbao and bedrock_app roles in cluster-1 (CNPG leaves roles it does not manage alone)
+      ansible.builtin.shell: |
+        set -eu
+        primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+        test -n "$primary"
+        kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d postgres <<'SQL'
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'openbao') THEN
+            CREATE ROLE openbao LOGIN CREATEROLE;
+          END IF;
+          IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'bedrock_app') THEN
+            CREATE ROLE bedrock_app LOGIN;
+          END IF;
+        END
+        $$;
+        GRANT appuser TO bedrock_app;
+        GRANT bedrock_app TO openbao WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+        SQL
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: app_roles
+      until: app_roles.rc == 0
+      retries: 10
+      delay: 10
+      changed_when: false
+
+    - name: Hand the openbao role to OpenBao, rotate its password away, and let OpenBao rotate bedrock_app every day
+      ansible.builtin.shell: |
+        set -eu
+        bao() { printf '%s\n' "$BAO_ROOT" | kubectl -n openbao exec -i openbao-0 -c openbao -- sh -c 'read -r BAO_TOKEN; export BAO_TOKEN; bao "$@"' bao "$@"; }
+        if ! bao read -format=json database/config/cluster-1 >/dev/null 2>&1; then
+          hosts=""
+          for ns in $(kubectl get ns -l bedrock.io/database=true -o jsonpath='{.items[*].metadata.name}'); do
+            hosts="${hosts:+$hosts,}${ns}-rw.${ns}.svc:5432"
+          done
+          url="postgresql://${CRED}@${hosts}/postgres?sslmode=verify-full&sslrootcert=/etc/bedrock/db-ca/ca.crt&target_session_attrs=read-write&connect_timeout=5"
+          pw=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)
+          primary=$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')
+          printf "ALTER ROLE openbao PASSWORD '%s';\n" "$pw" | kubectl exec -i -n cluster-1 "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -q -d postgres
+          printf '%s\n%s\n%s\n' "$BAO_ROOT" "$pw" "$url" | kubectl -n openbao exec -i openbao-0 -c openbao -- sh -c "$BAO_SCRIPT"
+        fi
+        bao read -format=json database/static-roles/bedrock-app >/dev/null 2>&1 || bao write database/static-roles/bedrock-app db_name=cluster-1 username=bedrock_app rotation_period=24h >/dev/null
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+        CRED: "{% raw %}{{username}}:{{password}}{% endraw %}"
+        BAO_ROOT: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).root_token }}"
+        BAO_SCRIPT: |
+          set -eu
+          read -r BAO_TOKEN
+          read -r pw
+          read -r url
+          export BAO_TOKEN
+          bao write database/config/cluster-1 plugin_name=postgresql-database-plugin allowed_roles=bedrock-app username=openbao password="$pw" password_authentication=scram-sha-256 connection_url="$url" >/dev/null
+          bao write -force database/rotate-root/cluster-1 >/dev/null
+      register: bao_db
+      until: bao_db.rc == 0
+      retries: 10
+      delay: 10
+      no_log: true
+      changed_when: false
+
+    - name: The bedrock-app service account and its database credentials class
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        src: "{{ repo_root }}/database/app-credentials.yaml"
 
     - name: Take the first cluster-1 base backup (replicas bootstrap from it)
       kubernetes.core.k8s:
@@ -924,23 +1060,23 @@
       retries: 40
       delay: 15
 
-    - name: Apply Redis
-      when: redis_enabled | bool
-      ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/redis.yaml
+    - name: Apply Valkey
+      when: valkey_enabled | bool
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/event-buses/valkey.yaml
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
-    - name: Wait for Redis ready
-      when: redis_enabled | bool
+    - name: Wait for Valkey ready
+      when: valkey_enabled | bool
       kubernetes.core.k8s_info:
         kubeconfig: "{{ kubeconfig }}"
         kind: StatefulSet
-        namespace: redis
-        name: redis
-      register: redis_sts
+        namespace: valkey
+        name: valkey
+      register: valkey_sts
       until: >
-        redis_sts.resources | default([]) | length > 0 and
-        (redis_sts.resources[0].status.readyReplicas | default(0)) >= 3
+        valkey_sts.resources | default([]) | length > 0 and
+        (valkey_sts.resources[0].status.readyReplicas | default(0)) >= 3
       retries: 40
       delay: 15
 

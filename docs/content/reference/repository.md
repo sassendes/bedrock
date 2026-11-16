@@ -15,7 +15,7 @@ description: "Where each part of a tenant lives in the repository."
 | `tenant-workload/database/` | The CloudNativePG clusters, poolers, scheduled backups and the certificate sync |
 | `tenant-workload/database/replica/` | Templates `make add-replica` renders for a new live replica |
 | `tenant-workload/observability/` | Prometheus and exporters, Loki and Alloy, Tempo, Grafana and dashboards, alerting, OpenCost, Falco |
-| `tenant-workload/event-buses/` | NATS, Redis and Kafka |
+| `tenant-workload/event-buses/` | NATS, Valkey and Kafka |
 | `tenant-workload/failover/` | The failover controller's deployment, admission policies, network policy and alerts |
 | `tenant-workload/openbao/` | OpenBao: three pods on raft |
 | `tenant-workload/secrets-store/` | The Secrets Store CSI driver and the OpenBao CSI provider |

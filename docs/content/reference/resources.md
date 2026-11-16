@@ -44,6 +44,7 @@ All run at `bedrock-data`.
 | Workload | Container | Requests | Limits | Priority |
 |---|---|---|---|---|
 | OpenBao | `openbao` | 100m, 256Mi | 1 CPU, 512Mi | `bedrock-default` |
+| OpenBao | `db-ca-bundle` | 5m, 32Mi | 100m, 128Mi | `bedrock-default` |
 | CSI driver | `secrets-store` | 50m, 100Mi | 200m, 200Mi | `bedrock-default` |
 | CSI driver | `node-driver-registrar`, `liveness-probe` | 10m, 20Mi | 100m, 100Mi | `bedrock-default` |
 | OpenBao CSI provider | `provider-openbao` | 50m, 100Mi | 200m, 200Mi | `bedrock-default` |
@@ -78,8 +79,8 @@ These run only when turned on. All run at `bedrock-workload`.
 | Workload | Container | Requests | Limits |
 |---|---|---|---|
 | NATS | `nats` | 500m, 1Gi | 2 CPU, 2Gi |
-| Redis | `redis` | 250m, 512Mi | 1 CPU, 1Gi |
-| Redis | `sentinel` | 50m, 64Mi | 200m, 128Mi |
+| Valkey | `valkey` | 250m, 512Mi | 1 CPU, 1Gi |
+| Valkey | `sentinel` | 50m, 64Mi | 200m, 128Mi |
 | Kafka | broker | 500m, 2Gi | 2 CPU, 3Gi |
 
 ## Changing a value

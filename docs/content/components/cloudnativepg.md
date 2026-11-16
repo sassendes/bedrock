@@ -25,6 +25,7 @@ Each instance requests 256 MiB and 100m of CPU, with limits of 1 GiB and 1 CPU.
 |---|---|
 | `enableSuperuserAccess: false` | The `postgres` user cannot log in over the network. Applications use their own users. |
 | `pg_hba: hostnossl all all all reject` | Placed before CloudNativePG's default rules, it refuses every connection that is not TLS |
+| Applications log in as `bedrock_app` | OpenBao owns that role's password and changes it every 24 hours. The pods read it as files through the Secrets Store CSI driver, from `database/static-creds/bedrock-app` |
 | `log_statement: ddl` | Every schema change, including `DROP`, is written to the log and shipped to Loki |
 | Replicas connect with `sslmode: verify-ca` | The replica checks it is talking to the real cluster-1 |
 | Replicas read backups with a read-only key | A compromised replica cannot change or delete cluster-1's backups |
@@ -75,3 +76,23 @@ Pod anti-affinity is `preferred`, not required. If a node dies, its instance mov
 ## Monitoring
 
 Every cluster has `enablePodMonitor: true`, so Prometheus scrapes each instance on 9187. Alerts cover replication lag, instance health, WAL archiving, backup age and sudden spikes of deleted or updated rows.
+
+## Database users from OpenBao
+
+The bootstrap creates two roles on cluster-1 with `psql` as `postgres`. CloudNativePG leaves roles that are not in a Cluster spec or a DatabaseRole alone, so it never touches them.
+
+| Role | Rights | Password |
+|---|---|---|
+| `openbao` | `LOGIN CREATEROLE`, and admin of `bedrock_app` without inheriting its rights | Set once by the bootstrap, then rotated by OpenBao so nobody else knows it |
+| `bedrock_app` | `LOGIN`, member of `appuser`, so it has the rights of the database owner | Changed by OpenBao every 24 hours, a static role |
+
+Roles live in PostgreSQL's catalog, so they reach cluster-2 and cluster-3 through replication and survive a failover. OpenBao's connection string lists the read-write services of all three clusters with `target_session_attrs=read-write`. It skips the read-only replicas and lands on whichever cluster is the primary, so after a failover it follows on its own.
+
+A static role fits the CSI driver better than dynamic users. The driver reads the secret again every two minutes, and with dynamic users every read would create a new PostgreSQL user. A static role returns the current password every time.
+
+OpenBao connects with `sslmode=verify-full`, so it checks both the certificate and the host name of the server it reaches. Every cluster has its own CA, which CloudNativePG rotates on its own. Kyverno copies each cluster's `ca.crt` into a `db-ca-<cluster>` ConfigMap in `openbao` and keeps it current. A small `db-ca-bundle` sidecar in each OpenBao pod joins them into one file every minute, because the PostgreSQL driver takes a single CA file.
+
+The connection string is built from every namespace labelled `bedrock.io/database`. `make add-replica` waits for the new replica's CA in the bundle, then rewrites the connection string with the new cluster in it. OpenBao keeps the stored password when only the connection string changes.
+
+An application mounts the `bedrock-app-db` SecretProviderClass in `application` with the `bedrock-app` service account, and reads `username` and `password` from the files. It should read the files again each time it opens a connection.
+

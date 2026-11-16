@@ -62,3 +62,16 @@ specs:
     egress:
       - toEntities:
           - kube-apiserver
+  - description: openbao manages the bedrock_app and openbao roles on whichever database cluster is the primary
+    endpointSelector:
+      matchLabels:
+        app: openbao
+    egress:
+      - toEndpoints:
+          - matchLabels:
+              k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+              cnpg.io/podRole: instance
+        toPorts:
+          - ports:
+              - port: "5432"
+                protocol: TCP

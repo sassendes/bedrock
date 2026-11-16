@@ -279,6 +279,35 @@
       retries: 30
       delay: 10
 
+    - name: Wait for the replica's ca in the bundle OpenBao checks postgres with
+      ansible.builtin.shell: |
+        set -eu
+        ca=$(kubectl -n openbao get configmap "db-ca-{{ replica }}" -o jsonpath='{.data.ca\.crt}' | grep -v -- '-----' | tr -d '\n')
+        test -n "$ca"
+        for pod in openbao-0 openbao-1 openbao-2; do
+          kubectl -n openbao exec "$pod" -c openbao -- cat /etc/bedrock/db-ca/ca.crt | tr -d '\n' | grep -qF "$ca"
+        done
+      register: replica_ca
+      until: replica_ca.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Point OpenBao's database connection at every database cluster, the new replica included
+      ansible.builtin.shell: |
+        set -eu
+        hosts=""
+        for ns in $(kubectl get ns -l bedrock.io/database=true -o jsonpath='{.items[*].metadata.name}'); do
+          hosts="${hosts:+$hosts,}${ns}-rw.${ns}.svc:5432"
+        done
+        url="postgresql://${CRED}@${hosts}/postgres?sslmode=verify-full&sslrootcert=/etc/bedrock/db-ca/ca.crt&target_session_attrs=read-write&connect_timeout=5"
+        printf '%s\n%s\n' "$BAO_ROOT" "$url" | kubectl -n openbao exec -i openbao-0 -c openbao -- sh -c 'read -r BAO_TOKEN; export BAO_TOKEN; read -r url; bao write database/config/cluster-1 connection_url="$url" >/dev/null'
+      environment:
+        CRED: "{% raw %}{{username}}:{{password}}{% endraw %}"
+        BAO_ROOT: "{{ (lookup('file', lookup('env', 'HOME') + '/.bedrock/openbao-init.json') | from_json).root_token }}"
+      no_log: true
+      changed_when: true
+
     - name: Done
       ansible.builtin.debug:
         msg: "{{ replica }} is a live replica of {{ source_ns }}/{{ source }}, and {{ followers | map(attribute='name') | join(', ') or 'no other replica' }} can follow it after a failover"

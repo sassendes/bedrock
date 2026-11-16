@@ -110,6 +110,8 @@ A database namespace is any namespace labelled `bedrock.io/database: "true"`. Ev
 | The nodes | OpenBao | 8200 |
 | OpenBao CSI provider | OpenBao | 8200 |
 | OpenBao | Kubernetes API (TokenReview) | any |
+| OpenBao | PostgreSQL instances in cluster-1, cluster-2 and cluster-3 (role management) | 5432 |
+| OpenBao's `db-ca-bundle` sidecar | Kubernetes API (reads the `db-ca-*` ConfigMaps in `openbao`) | any |
 | CSI driver, OpenBao CSI provider | Kubernetes API | any |
 | The nodes | CSI driver, OpenBao CSI provider (probes) | 9808, 8080 |
 

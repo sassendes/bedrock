@@ -22,7 +22,7 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 | `falco` | Falco | privileged | Allowed |
 | `reloader` | Reloader | restricted | None |
 | `nats` | NATS JetStream, when enabled | restricted | Allowed |
-| `redis` | Redis and Sentinel, when enabled | restricted | Allowed |
+| `valkey` | Valkey and Sentinel, when enabled | restricted | Allowed |
 | `kafka` | Strimzi and Kafka, when enabled | restricted | Allowed |
 | `kube-system` | RKE2 components, Cilium, CoreDNS | set by RKE2 | Allowed |
 

@@ -18,7 +18,7 @@ Every budget in bedrock allows one pod down at a time. Each one is written as a 
 | `loki` | `application` | Loki | `tenant-workload/observability/loki/loki-pdb.yaml` |
 | `<cluster>-pooler-rw` | each database namespace | That cluster's PgBouncer pooler | `tenant-workload/database/pooler.yaml` |
 | `nats` | `nats` | NATS | `tenant-workload/event-buses/nats.yaml` |
-| `redis` | `redis` | Redis | `tenant-workload/event-buses/redis.yaml` |
+| `valkey` | `valkey` | Valkey | `tenant-workload/event-buses/valkey.yaml` |
 
 ## Workloads managed by an operator
 

@@ -20,7 +20,7 @@ The failover controller: when cluster-1 is lost, it promotes cluster-2 and point
 
 ## Next, inside the tenant
 
-- **Secrets from OpenBao.** Pods get their secrets through the Secrets Store CSI driver as files in memory, logging in to OpenBao as themselves; Grafana is the first. Next is moving every placeholder secret and the disk encryption key into it.
+- **Secrets from OpenBao.** Pods get their secrets through the Secrets Store CSI driver as files in memory, logging in to OpenBao as themselves; Grafana, NATS, Valkey and Garage read theirs this way, and OpenBao rotates the database application user's password every day. Next are the S3 keys, the failover observer password and the disk encryption key.
 - **InfluxDB.** Network metrics from the tenant's firewall, once the edge sends them.
 
 ## Then, around the tenant

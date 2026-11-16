@@ -25,7 +25,7 @@ bedrock's two classes are defined in `tenant-workload/storage/longhorn/`.
 
 | Class | Used by |
 |---|---|
-| `longhorn-encrypted` | Database clusters, Prometheus, Loki, Tempo, Grafana, NATS, Redis, Kafka |
+| `longhorn-encrypted` | Database clusters, Prometheus, Loki, Tempo, Grafana, NATS, Valkey, Kafka |
 | `longhorn-local` | Garage, OpenBao |
 | `longhorn` | Nothing in bedrock |
 
