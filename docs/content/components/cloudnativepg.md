@@ -90,7 +90,7 @@ Roles live in PostgreSQL's catalog, so they reach cluster-2 and cluster-3 throug
 
 A static role fits the CSI driver better than dynamic users. The driver reads the secret again every two minutes, and with dynamic users every read would create a new PostgreSQL user. A static role returns the current password every time.
 
-OpenBao connects with `sslmode=verify-full`, so it checks both the certificate and the host name of the server it reaches. Every cluster has its own CA, which CloudNativePG rotates on its own. Kyverno copies each cluster's `ca.crt` into a `db-ca-<cluster>` ConfigMap in `openbao` and keeps it current. A small `db-ca-bundle` sidecar in each OpenBao pod joins them into one file every minute, because the PostgreSQL driver takes a single CA file.
+OpenBao connects with `sslmode=verify-full`, so it checks both the certificate and the host name of the server it reaches. Every cluster has its own CA, which CloudNativePG rotates on its own. Kyverno copies each cluster's `ca.crt` into a `db-ca-<cluster>` ConfigMap in `openbao` and keeps it current. A small `db-ca-bundle` sidecar in each OpenBao pod joins them into one file every minute, because the PostgreSQL driver takes a single CA file. A ValidatingAdmissionPolicy lets no workload but Kyverno write a `db-ca-*` ConfigMap in `openbao`, so nobody can slip in a CA of their own.
 
 The connection string is built from every namespace labelled `bedrock.io/database`. `make add-replica` waits for the new replica's CA in the bundle, then rewrites the connection string with the new cluster in it. OpenBao keeps the stored password when only the connection string changes.
 

@@ -86,3 +86,39 @@ spec:
         ]
   generate:
     - expression: generator.Apply("openbao", variables.caMap)
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bedrock-openbao-db-ca-writers
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: openbao
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["configmaps"]
+  variables:
+    - name: name
+      expression: "request.operation == 'DELETE' ? oldObject.metadata.name : object.metadata.name"
+    - name: serviceAccount
+      expression: request.userInfo.username.startsWith("system:serviceaccount:")
+    - name: kyverno
+      expression: request.userInfo.username == "system:serviceaccount:kyverno:kyverno-background-controller"
+  validations:
+    - expression: "!variables.name.startsWith('db-ca-') || variables.kyverno || !variables.serviceAccount"
+      message: no workload but kyverno writes the database cas OpenBao trusts
+    - expression: "!variables.kyverno || variables.name.startsWith('db-ca-')"
+      message: kyverno writes nothing in openbao but the database cas
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bedrock-openbao-db-ca-writers
+spec:
+  policyName: bedrock-openbao-db-ca-writers
+  validationActions: ["Deny"]

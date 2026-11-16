@@ -41,6 +41,8 @@ Files are in `tenant-workload/kyverno/`.
 
 The failover controller adds seven more in `tenant-workload/failover/admission.yaml`. They decide what the observers, the verifier, the checker and the decider may write, and they are described on the [failover controller]({{< relref "/components/failover" >}}) page.
 
+`bedrock-openbao-db-ca-writers` in `tenant-workload/kyverno/generate/openbao-ca-sync.yaml` lets no workload but Kyverno's background controller write a `db-ca-*` ConfigMap in `openbao`. OpenBao trusts those CAs when it connects to PostgreSQL, so a foreign CA there would let a fake server pass as the database.
+
 ## Pod Security Admission
 
 The `restricted` level is enforced on every namespace except `node-agents`, `falco` and `longhorn-system`, which are `privileged`, and the namespaces created by RKE2 and upstream bundles. See [namespaces]({{< relref "namespaces" >}}).
