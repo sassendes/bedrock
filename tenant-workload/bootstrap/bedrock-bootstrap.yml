@@ -972,7 +972,6 @@
       until: bao_db.rc == 0
       retries: 10
       delay: 10
-      no_log: true
       changed_when: false
 
     - name: The bedrock-app service account and its database credentials class
