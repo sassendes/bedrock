@@ -44,7 +44,7 @@ func DefaultConfig() Config {
 		Params:             decide.DefaultParams(),
 		ObserverSelector:   "app.kubernetes.io/name=bedrock-observer",
 		ObserverNamespace:  "bedrock-failover",
-		PauseAnnotation:    "bedrock.io/failover-pause",
+		PauseAnnotation:    "bedrockctl.com/failover-pause",
 		TransitionalPhases: []string{"Failing over", "Switchover in progress", "Upgrading cluster", "Primary instance is being restarted in-place", "Primary instance is being restarted without a switchover", "Promoting to primary cluster"},
 		FenceVerifyTimeout: time.Minute,
 		PromoteTimeout:     5 * time.Minute,

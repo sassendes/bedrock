@@ -1,10 +1,10 @@
 - name: Read every database cluster's declared role, the facts behind it and whether it is fenced
   ansible.builtin.shell: |
     set -euo pipefail
-    kubectl get clusters.postgresql.cnpg.io -A -l 'bedrock.io/db-role,bedrock.io/db-role!=unmanaged' -o json | jq -c '[.items[] | {
+    kubectl get clusters.postgresql.cnpg.io -A -l 'bedrockctl.com/db-role,bedrockctl.com/db-role!=unmanaged' -o json | jq -c '[.items[] | {
       ns: .metadata.namespace,
       name: .metadata.name,
-      label: .metadata.labels["bedrock.io/db-role"],
+      label: .metadata.labels["bedrockctl.com/db-role"],
       fact: ((.spec.replica.minApplyDelay // "") as $d |
              if .spec.replica.enabled != true then "primary"
              elif ($d == "" or (($d | test("^[0.]+[a-z]*$")) and ($d | test("[1-9]") | not))) then "live"
@@ -27,7 +27,7 @@
 - name: Every label agrees with its spec
   ansible.builtin.assert:
     that: liars | length == 0
-    fail_msg: "these clusters' bedrock.io/db-role disagrees with their spec, fix them first: {{ liars }}"
+    fail_msg: "these clusters' bedrockctl.com/db-role disagrees with their spec, fix them first: {{ liars }}"
 
 - name: Pick the primary, the live replicas and the delayed ones
   ansible.builtin.set_fact:

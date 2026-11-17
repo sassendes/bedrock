@@ -4,7 +4,7 @@ metadata:
   name: cluster-3
   namespace: cluster-3
   labels:
-    bedrock.io/db-role: delayed
+    bedrockctl.com/db-role: delayed
 spec:
   postgresql:
     parameters:

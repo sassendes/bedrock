@@ -56,7 +56,7 @@ These labels are named as peers by policies in other namespaces.
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | Reaches the database instances on 5432 and 8000 |
 | `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | Reaches the database instances on 8000 |
 
-The failover controller's pods also carry `bedrock.io/observer-slot` (`a` or `b`) on the observers, which admission reads to tell the two observers on a node apart.
+The failover controller's pods also carry `bedrockctl.com/observer-slot` (`a` or `b`) on the observers, which admission reads to tell the two observers on a node apart.
 
 ## Labels set by operators
 

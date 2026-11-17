@@ -10,7 +10,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: bedrock-observer
-      bedrock.io/observer-slot: "a"
+      bedrockctl.com/observer-slot: "a"
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -20,7 +20,7 @@ spec:
       labels:
         app.kubernetes.io/name: bedrock-observer
         app.kubernetes.io/part-of: bedrock-failover
-        bedrock.io/observer-slot: "a"
+        bedrockctl.com/observer-slot: "a"
     spec:
       serviceAccountName: bedrock-observer
       priorityClassName: bedrock-data
@@ -51,7 +51,7 @@ spec:
             - name: OBSERVER_SLOT
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.labels['bedrock.io/observer-slot']
+                  fieldPath: metadata.labels['bedrockctl.com/observer-slot']
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -126,7 +126,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: bedrock-observer
-      bedrock.io/observer-slot: "b"
+      bedrockctl.com/observer-slot: "b"
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -136,7 +136,7 @@ spec:
       labels:
         app.kubernetes.io/name: bedrock-observer
         app.kubernetes.io/part-of: bedrock-failover
-        bedrock.io/observer-slot: "b"
+        bedrockctl.com/observer-slot: "b"
     spec:
       serviceAccountName: bedrock-observer
       priorityClassName: bedrock-data
@@ -167,7 +167,7 @@ spec:
             - name: OBSERVER_SLOT
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.labels['bedrock.io/observer-slot']
+                  fieldPath: metadata.labels['bedrockctl.com/observer-slot']
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:

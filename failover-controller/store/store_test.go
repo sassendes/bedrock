@@ -43,10 +43,10 @@ func TestVotesRoundTrip(t *testing.T) {
 func TestVoteObjectMustNameItsNode(t *testing.T) {
 	ctx := context.Background()
 	kube := kubefake.NewSimpleClientset(&corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n1-a", Labels: map[string]string{"bedrock.io/failover-role": "vote"}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n1-a", Labels: map[string]string{"bedrockctl.com/failover-role": "vote"}},
 		Data:       map[string]string{"node": "n2", "slot": "a", "votes": "{}"},
 	}, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n3-a", Labels: map[string]string{"bedrock.io/failover-role": "vote"}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "bedrock-failover", Name: "vote-n3-a", Labels: map[string]string{"bedrockctl.com/failover-role": "vote"}},
 		Data:       map[string]string{"node": "n3", "slot": "b", "votes": "{}"},
 	})
 	b, err := New(kube, DefaultConfig()).ListBallots(ctx)

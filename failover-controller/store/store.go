@@ -25,7 +25,7 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{Namespace: "bedrock-failover", VotePrefix: "vote-", ClaimPrefix: "claim-", RoleLabel: "bedrock.io/failover-role"}
+	return Config{Namespace: "bedrock-failover", VotePrefix: "vote-", ClaimPrefix: "claim-", RoleLabel: "bedrockctl.com/failover-role"}
 }
 
 var ErrConflict = errors.New("claim changed under us")

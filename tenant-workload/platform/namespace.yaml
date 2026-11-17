@@ -3,8 +3,8 @@ kind: Namespace
 metadata:
   name: cluster-1
   labels:
-    bedrock.io/database: "true"
-    bedrock.io/failover-scope: "true"
+    bedrockctl.com/database: "true"
+    bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -13,8 +13,8 @@ kind: Namespace
 metadata:
   name: cluster-2
   labels:
-    bedrock.io/database: "true"
-    bedrock.io/failover-scope: "true"
+    bedrockctl.com/database: "true"
+    bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -23,8 +23,8 @@ kind: Namespace
 metadata:
   name: cluster-3
   labels:
-    bedrock.io/database: "true"
-    bedrock.io/failover-scope: "true"
+    bedrockctl.com/database: "true"
+    bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -33,7 +33,7 @@ kind: Namespace
 metadata:
   name: application
   labels:
-    bedrock.io/failover-scope: "true"
+    bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---

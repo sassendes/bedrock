@@ -4,7 +4,7 @@ metadata:
   name: cluster-1
   namespace: cluster-1
   labels:
-    bedrock.io/db-role: primary
+    bedrockctl.com/db-role: primary
 spec:
   postgresql:
     parameters:

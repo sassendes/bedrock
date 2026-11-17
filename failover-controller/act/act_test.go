@@ -133,7 +133,7 @@ func TestFlipOnlyTouchesTheConfiguredNamespaces(t *testing.T) {
 	w := testenv.New()
 	ctx := context.Background()
 	stray := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "someone-else", Name: "postgres-rw", Labels: map[string]string{"bedrock.io/points-at": "cluster-1"}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "someone-else", Name: "postgres-rw", Labels: map[string]string{"bedrockctl.com/points-at": "cluster-1"}},
 		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "elsewhere.example"},
 	}
 	if _, err := w.Kube.CoreV1().Services("someone-else").Create(ctx, stray, metav1.CreateOptions{}); err != nil {
@@ -150,7 +150,7 @@ func TestFlipOnlyTouchesTheConfiguredNamespaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Spec.ExternalName != "elsewhere.example" || got.Labels["bedrock.io/points-at"] != "cluster-1" {
+	if got.Spec.ExternalName != "elsewhere.example" || got.Labels["bedrockctl.com/points-at"] != "cluster-1" {
 		t.Fatalf("a service outside the flip namespaces was rewritten: %+v", got)
 	}
 }
@@ -171,7 +171,7 @@ func TestFenceScalesOnlyItsOwnPoolersToZero(t *testing.T) {
 	if n, _, _ := unstructured.NestedInt64(p.Object, "spec", "instances"); n != 0 {
 		t.Fatalf("pooler left at %d instances", n)
 	}
-	if p.GetAnnotations()["bedrock.io/failover-epoch"] != "4" {
+	if p.GetAnnotations()["bedrockctl.com/failover-epoch"] != "4" {
 		t.Fatalf("pooler write carries no epoch: %v", p.GetAnnotations())
 	}
 	other, err := w.Dyn.Resource(testenv.Poolers).Namespace("cluster-2").Get(ctx, "cluster-2-pooler-rw", metav1.GetOptions{})

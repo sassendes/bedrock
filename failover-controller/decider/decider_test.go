@@ -221,7 +221,7 @@ func TestFullFailoverInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if svc.Spec.ExternalName != "cluster-2-pooler-rw.cluster-2.svc.cluster.local" || svc.Labels["bedrock.io/points-at"] != "cluster-2" {
+	if svc.Spec.ExternalName != "cluster-2-pooler-rw.cluster-2.svc.cluster.local" || svc.Labels["bedrockctl.com/points-at"] != "cluster-2" {
 		t.Fatalf("postgres-rw %s %v", svc.Spec.ExternalName, svc.Labels)
 	}
 
@@ -363,7 +363,7 @@ func TestOperatorFailingOverInsideTheClusterWaits(t *testing.T) {
 func TestPauseHolds(t *testing.T) {
 	l := newLab(t)
 	obj := l.w.Cluster("cluster-1")
-	obj.SetAnnotations(map[string]string{"bedrock.io/failover-pause": "true"})
+	obj.SetAnnotations(map[string]string{"bedrockctl.com/failover-pause": "true"})
 	if _, err := l.w.Dyn.Resource(testenv.Clusters).Namespace("cluster-1").Update(context.Background(), obj, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestEveryWriteCarriesTheEpoch(t *testing.T) {
 	for _, e := range l.journal.events {
 		if strings.HasPrefix(e, "patch ") {
 			n++
-			if !strings.Contains(e, `"bedrock.io/failover-epoch":"1"`) {
+			if !strings.Contains(e, `"bedrockctl.com/failover-epoch":"1"`) {
 				t.Fatalf("write without the epoch: %s", e)
 			}
 		}

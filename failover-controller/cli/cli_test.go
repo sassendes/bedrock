@@ -38,7 +38,7 @@ func selfSigned(t *testing.T, cn string) string {
 func caMap(name, ns, crt string, labelled bool) *corev1.ConfigMap {
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Data: map[string]string{"ca.crt": crt}}
 	if labelled {
-		cm.Labels = map[string]string{"bedrock.io/db-ca": "true"}
+		cm.Labels = map[string]string{"bedrockctl.com/db-ca": "true"}
 	}
 	return cm
 }
@@ -52,7 +52,7 @@ func TestConfigMapCAsFollowNewClusters(t *testing.T) {
 		caMap("db-ca-elsewhere", "other", selfSigned(t, "far"), true),
 	)
 	out := filepath.Join(t.TempDir(), "bundle.crt")
-	b, err := NewCABundle(ctx, ConfigMapCAs(kube, "bedrock-failover", "bedrock.io/db-ca=true", "ca.crt"), out)
+	b, err := NewCABundle(ctx, ConfigMapCAs(kube, "bedrock-failover", "bedrockctl.com/db-ca=true", "ca.crt"), out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestConfigMapCAsFollowNewClusters(t *testing.T) {
 func TestBadOrMissingCAsKeepTheLastGoodBundle(t *testing.T) {
 	ctx := context.Background()
 	kube := kubefake.NewSimpleClientset(caMap("db-ca-cluster-1", "bedrock-failover", selfSigned(t, "one"), true))
-	b, err := NewCABundle(ctx, ConfigMapCAs(kube, "bedrock-failover", "bedrock.io/db-ca=true", "ca.crt"), "")
+	b, err := NewCABundle(ctx, ConfigMapCAs(kube, "bedrock-failover", "bedrockctl.com/db-ca=true", "ca.crt"), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestBadOrMissingCAsKeepTheLastGoodBundle(t *testing.T) {
 	if b.Pool() != good {
 		t.Fatal("a failed refresh must keep the last good pool")
 	}
-	if _, err := NewCABundle(ctx, ConfigMapCAs(kubefake.NewSimpleClientset(), "bedrock-failover", "bedrock.io/db-ca=true", "ca.crt"), ""); err == nil {
+	if _, err := NewCABundle(ctx, ConfigMapCAs(kubefake.NewSimpleClientset(), "bedrock-failover", "bedrockctl.com/db-ca=true", "ca.crt"), ""); err == nil {
 		t.Fatal("no ca at all must refuse to start, not trust nothing silently")
 	}
 }

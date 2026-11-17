@@ -78,7 +78,7 @@ func setup(t *testing.T, nodes ...string) (map[string]*Observer, *reach, *store.
 	for _, n := range nodes {
 		_, key, _ := ed25519.GenerateKey(rand.Reader)
 		o := New(w.Kube, w.Dyn, cfg.Discovery, act.New(w.Dyn, w.Kube, cfg), st, Config{
-			Node: n, Slot: "a", SlotLabel: "bedrock.io/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
+			Node: n, Slot: "a", SlotLabel: "bedrockctl.com/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
 			ExchangePort: 8443, ProbeInterval: time.Second, SuspectInterval: time.Second, AskTimeout: time.Second,
 		}, key, m, noAddrs{}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		o.check = r.check
@@ -197,7 +197,7 @@ func TestTheTwoObserversOfANodeAreSeparatePeers(t *testing.T) {
 	for _, slot := range []string{"a", "b"} {
 		_, key, _ := ed25519.GenerateKey(rand.Reader)
 		o := New(w.Kube, w.Dyn, cfg.Discovery, act.New(w.Dyn, w.Kube, cfg), st, Config{
-			Node: "n3", Slot: slot, SlotLabel: "bedrock.io/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
+			Node: "n3", Slot: slot, SlotLabel: "bedrockctl.com/observer-slot", Namespace: testenv.Namespace, Selector: "app.kubernetes.io/name=bedrock-observer",
 			ExchangePort: 8443, ProbeInterval: time.Second, SuspectInterval: time.Second, AskTimeout: time.Second,
 		}, key, m, noAddrs{}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		o.check = r.check

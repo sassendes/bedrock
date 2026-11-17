@@ -5,7 +5,7 @@ metadata:
   labels:
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
-    bedrock.io/failover-scope: "true"
+    bedrockctl.com/failover-scope: "true"
 ---
 apiVersion: v1
 kind: ServiceAccount

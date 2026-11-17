@@ -263,7 +263,7 @@
     - name: Look for a failover that already happened
       ansible.builtin.shell: |
         set -o pipefail
-        { kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary -o json 2>/dev/null || echo '{"items":[]}'; } \
+        { kubectl get clusters.postgresql.cnpg.io -A -l bedrockctl.com/db-role=primary -o json 2>/dev/null || echo '{"items":[]}'; } \
           | jq -r '[.items[] | select(.metadata.name != "cluster-1" or ((.metadata.annotations["cnpg.io/hibernation"] // "") == "on")) | .metadata.namespace + "/" + .metadata.name] | join(" ")'
       args:
         executable: /bin/bash
@@ -947,7 +947,7 @@
         bao() { printf '%s\n' "$BAO_ROOT" | kubectl -n openbao exec -i openbao-0 -c openbao -- sh -c 'read -r BAO_TOKEN; export BAO_TOKEN; bao "$@"' bao "$@"; }
         if ! bao read -format=json database/config/cluster-1 >/dev/null 2>&1; then
           hosts=""
-          for ns in $(kubectl get ns -l bedrock.io/database=true -o jsonpath='{.items[*].metadata.name}'); do
+          for ns in $(kubectl get ns -l bedrockctl.com/database=true -o jsonpath='{.items[*].metadata.name}'); do
             hosts="${hosts:+$hosts,}${ns}-rw.${ns}.svc:5432"
           done
           url="postgresql://${CRED}@${hosts}/postgres?sslmode=verify-full&sslrootcert=/etc/bedrock/db-ca/ca.crt&target_session_attrs=read-write&connect_timeout=5"

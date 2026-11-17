@@ -17,7 +17,7 @@ func primary(ns, name string, instances int64) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1",
 		"kind":       "Cluster",
-		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrock.io/db-role": "primary"}},
+		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrockctl.com/db-role": "primary"}},
 		"spec":       map[string]any{"instances": instances},
 		"status":     map[string]any{"readyInstances": instances, "currentPrimary": name + "-1", "phase": "Cluster in healthy state"},
 	}}
@@ -35,7 +35,7 @@ func replica(ns, name, host, delay string) *unstructured.Unstructured {
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1",
 		"kind":       "Cluster",
-		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrock.io/db-role": role}},
+		"metadata":   map[string]any{"namespace": ns, "name": name, "uid": ns + "-" + name, "labels": map[string]any{"bedrockctl.com/db-role": role}},
 		"spec": map[string]any{
 			"instances": int64(3),
 			"replica":   rep,
@@ -281,7 +281,7 @@ func TestRoleLabelMustAgreeWithTheSpec(t *testing.T) {
 		if role == "" {
 			u.SetLabels(nil)
 		} else {
-			u.SetLabels(map[string]string{"bedrock.io/db-role": role})
+			u.SetLabels(map[string]string{"bedrockctl.com/db-role": role})
 		}
 		return u
 	}

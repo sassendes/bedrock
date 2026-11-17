@@ -13,7 +13,7 @@ spec:
   matchConstraints:
     namespaceSelector:
       matchLabels:
-        bedrock.io/database: "true"
+        bedrockctl.com/database: "true"
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]
@@ -31,7 +31,7 @@ spec:
             "kind": dyn("ConfigMap"),
             "metadata": dyn({
               "name": dyn("db-ca-" + object.metadata.namespace),
-              "labels": dyn({"bedrock.io/db-ca": "true"})
+              "labels": dyn({"bedrockctl.com/db-ca": "true"})
             }),
             "data": dyn({
               "ca.crt": string(base64.decode(object.data["ca.crt"]))

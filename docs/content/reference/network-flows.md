@@ -72,7 +72,7 @@ Everything not listed here is dropped. Each row is allowed in both the source's 
 
 ## Databases
 
-A database namespace is any namespace labelled `bedrock.io/database: "true"`. Every rule here selects it by that label, so a replica added later gets the same flows without a new policy anywhere else.
+A database namespace is any namespace labelled `bedrockctl.com/database: "true"`. Every rule here selects it by that label, so a replica added later gets the same flows without a new policy anywhere else.
 
 | From | To | Port |
 |---|---|---|

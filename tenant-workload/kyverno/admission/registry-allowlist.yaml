@@ -104,7 +104,7 @@ spec:
   matchConstraints:
     namespaceSelector:
       matchLabels:
-        bedrock.io/database: "true"
+        bedrockctl.com/database: "true"
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]

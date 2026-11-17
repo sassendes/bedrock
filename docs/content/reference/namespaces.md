@@ -33,7 +33,7 @@ Default service accounts in every namespace have `automountServiceAccountToken: 
 | Class | Value | Allowed in |
 |---|---|---|
 | `bedrock-storage` | 90000000 | `garage` |
-| `bedrock-data` | 80000000 | Every namespace labelled `bedrock.io/database: "true"`, `falco` and `bedrock-failover` |
+| `bedrock-data` | 80000000 | Every namespace labelled `bedrockctl.com/database: "true"`, `falco` and `bedrock-failover` |
 | `bedrock-workload` | 50000000 | any |
 | `bedrock-default` | 10000000 | any, the global default |
 | `system-cluster-critical`, `system-node-critical` | Kubernetes defaults | `kube-system`, `kyverno` |

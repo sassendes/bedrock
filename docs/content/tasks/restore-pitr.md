@@ -4,10 +4,10 @@ weight: 7
 description: "Recover the primary's data as it was at a given moment, into a new cluster, from the backups in Garage."
 ---
 
-Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `tenant-workload/database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores the current primary into a separate, new cluster, so the running database is not touched. The primary is cluster-1 until a failover, then whichever cluster carries `bedrock.io/db-role: primary`:
+Every database cluster archives its write-ahead log to Garage continuously and takes base backups on the schedule in `tenant-workload/database/backups/`, kept for the `retentionPolicy` in its `backup` section. Together they let you recover the data as it was at any moment in that window. This guide restores the current primary into a separate, new cluster, so the running database is not touched. The primary is cluster-1 until a failover, then whichever cluster carries `bedrockctl.com/db-role: primary`:
 
 ```sh
-kubectl get clusters.postgresql.cnpg.io -A -l bedrock.io/db-role=primary
+kubectl get clusters.postgresql.cnpg.io -A -l bedrockctl.com/db-role=primary
 ```
 
 Below, `<primary>` is its name, which is also its namespace.
@@ -28,7 +28,7 @@ metadata:
   name: <primary>-restore
   namespace: <primary>
   labels:
-    bedrock.io/db-role: unmanaged
+    bedrockctl.com/db-role: unmanaged
 spec:
   instances: <instances>
   priorityClassName: bedrock-data

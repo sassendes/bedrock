@@ -167,7 +167,7 @@ spec:
             - |
               set -u
               while true; do
-                if kubectl -n openbao get configmap -l bedrock.io/db-ca=true -o jsonpath='{range .items[*]}{.data.ca\.crt}{"\n"}{end}' > /bundle/.ca.crt.new && [ -s /bundle/.ca.crt.new ]; then
+                if kubectl -n openbao get configmap -l bedrockctl.com/db-ca=true -o jsonpath='{range .items[*]}{.data.ca\.crt}{"\n"}{end}' > /bundle/.ca.crt.new && [ -s /bundle/.ca.crt.new ]; then
                   mv /bundle/.ca.crt.new /bundle/ca.crt
                 fi
                 sleep 60

@@ -83,10 +83,10 @@ specs:
               k8s:io.kubernetes.pod.namespace: application
               app: tempo
           - matchLabels:
-              k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+              k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/database: "true"
               cnpg.io/podRole: instance
           - matchLabels:
-              k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+              k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/database: "true"
             matchExpressions:
               - key: cnpg.io/jobRole
                 operator: Exists

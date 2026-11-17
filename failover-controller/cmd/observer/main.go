@@ -29,7 +29,7 @@ func main() {
 	var passwordFile, certFile, keyFile, caFile, serverName string
 	fs.StringVar(&cfg.Node, "node", cli.Env("NODE_NAME", ""), "name of the node this observer runs on")
 	fs.StringVar(&cfg.Slot, "slot", cli.Env("OBSERVER_SLOT", ""), "which of the node's observers this is")
-	fs.StringVar(&cfg.SlotLabel, "slot-label", "bedrock.io/observer-slot", "pod label holding an observer's slot")
+	fs.StringVar(&cfg.SlotLabel, "slot-label", "bedrockctl.com/observer-slot", "pod label holding an observer's slot")
 	fs.StringVar(&cfg.Selector, "observer-selector", "app.kubernetes.io/name=bedrock-observer", "label selector of the observer pods")
 	fs.IntVar(&cfg.ExchangePort, "exchange-port", 8443, "port of the peer exchange")
 	fs.DurationVar(&cfg.ProbeInterval, "probe-interval", 2*time.Second, "time between rounds")

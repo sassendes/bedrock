@@ -51,7 +51,7 @@ func cluster(name string, replica map[string]any, externals ...any) *unstructure
 	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster",
-		"metadata": map[string]any{"namespace": name, "name": name, "uid": name + "-uid", "labels": map[string]any{"bedrock.io/db-role": role}},
+		"metadata": map[string]any{"namespace": name, "name": name, "uid": name + "-uid", "labels": map[string]any{"bedrockctl.com/db-role": role}},
 		"spec":     spec,
 		"status":   map[string]any{"readyInstances": int64(2), "currentPrimary": name + "-1", "phase": "Cluster in healthy state"},
 	}}
@@ -94,7 +94,7 @@ func Observer(node, slot string) *corev1.Pod {
 		ip = "10.2.0."
 	}
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Namespace: Namespace, Name: "bedrock-observer-" + slot + "-" + node, Labels: map[string]string{"app.kubernetes.io/name": "bedrock-observer", "bedrock.io/observer-slot": slot}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: Namespace, Name: "bedrock-observer-" + slot + "-" + node, Labels: map[string]string{"app.kubernetes.io/name": "bedrock-observer", "bedrockctl.com/observer-slot": slot}},
 		Spec:       corev1.PodSpec{NodeName: node},
 		Status:     corev1.PodStatus{Phase: corev1.PodRunning, PodIP: ip + node[len(node)-1:]},
 	}
@@ -129,7 +129,7 @@ func New() *World {
 		Instance("cluster-2", 1, "n3"), Instance("cluster-2", 2, "n4"),
 		Instance("cluster-3", 1, "n4"), Instance("cluster-3", 2, "n5"),
 		&corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "application", Name: "postgres-rw", Labels: map[string]string{"bedrock.io/points-at": "cluster-1"}},
+			ObjectMeta: metav1.ObjectMeta{Namespace: "application", Name: "postgres-rw", Labels: map[string]string{"bedrockctl.com/points-at": "cluster-1"}},
 			Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "cluster-1-pooler-rw.cluster-1.svc.cluster.local"},
 		},
 	)

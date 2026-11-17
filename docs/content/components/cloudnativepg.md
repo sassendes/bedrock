@@ -92,7 +92,7 @@ A static role fits the CSI driver better than dynamic users. The driver reads th
 
 OpenBao connects with `sslmode=verify-full`, so it checks both the certificate and the host name of the server it reaches. Every cluster has its own CA, which CloudNativePG rotates on its own. Kyverno copies each cluster's `ca.crt` into a `db-ca-<cluster>` ConfigMap in `openbao` and keeps it current. A small `db-ca-bundle` sidecar in each OpenBao pod joins them into one file every minute, because the PostgreSQL driver takes a single CA file. A ValidatingAdmissionPolicy lets no workload but Kyverno write a `db-ca-*` ConfigMap in `openbao`, so nobody can slip in a CA of their own.
 
-The connection string is built from every namespace labelled `bedrock.io/database`. `make add-replica` waits for the new replica's CA in the bundle, then rewrites the connection string with the new cluster in it. OpenBao keeps the stored password when only the connection string changes.
+The connection string is built from every namespace labelled `bedrockctl.com/database`. `make add-replica` waits for the new replica's CA in the bundle, then rewrites the connection string with the new cluster in it. OpenBao keeps the stored password when only the connection string changes.
 
 An application mounts the `bedrock-app-db` SecretProviderClass in `application` with the `bedrock-app` service account, and reads `username` and `password` from the files. It should read the files again each time it opens a connection.
 

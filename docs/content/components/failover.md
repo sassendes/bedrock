@@ -107,7 +107,7 @@ If two different instances sign as primary in two consecutive rounds, the verifi
 
 ## Deciding to act
 
-Every database cluster declares its role with the label `bedrock.io/db-role`: `primary`, `live` or `delayed`. A cluster labelled `unmanaged`, such as a point in time restore, is skipped entirely: it is never watched and never reported as a problem. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
+Every database cluster declares its role with the label `bedrockctl.com/db-role`: `primary`, `live` or `delayed`. A cluster labelled `unmanaged`, such as a point in time restore, is skipped entirely: it is never watched and never reported as a problem. The controller works the role out from the spec as well (`spec.replica.enabled` false is a primary, a replica with `minApplyDelay` is delayed, any other replica is live) and the two must agree. A cluster with no label, or one whose label contradicts its spec, is refused and paged, and a refused primary takes its whole family out of every decision. A relabel by hand can therefore never get a delayed replica promoted. A promotion sets the label to `primary` in the same write that ends replica mode.
 
 The leading decider ticks every second. A primary becomes suspect when a majority of eligible nodes vote down and no node votes up. It is declared dead after it stays suspect for:
 
@@ -122,7 +122,7 @@ Even when a primary is dead, the decider holds and pages instead of acting when:
 
 | Hold | Reason |
 |---|---|
-| The cluster has the annotation `bedrock.io/failover-pause: "true"` | A person paused it |
+| The cluster has the annotation `bedrockctl.com/failover-pause: "true"` | A person paused it |
 | `dataDurability: required` | A dead standby looks like a dead primary when commits wait for it |
 | More than one observer node abstains or is silent | The vote is too thin |
 | With more than two primaries watched, two or more are suspect at once | Something wider is wrong, such as the network |
@@ -146,7 +146,7 @@ The decider opens a run by writing `claim-<namespace>.<name>`. Writing it is a c
 | Fenced | Checks the fence again, then sets `spec.replica.enabled: false` on cluster-2 | The fence still holds and the patch is applied |
 | Promoting | Waits for cluster-2 | cluster-2 is healthy, or after 5 minutes with a page, since cluster-1 is fenced |
 | Promoted | Points every follower's `spec.replica.source` at cluster-2 | Done for every follower, each one that cannot be moved is paged |
-| Repointed | Points every `ExternalName` Service labelled `bedrock.io/points-at` at cluster-2's pooler | Done. A retry after a crash counts the Services this run already moved, recognised by the new label, the approved host and this epoch |
+| Repointed | Points every `ExternalName` Service labelled `bedrockctl.com/points-at` at cluster-2's pooler | Done. A retry after a crash counts the Services this run already moved, recognised by the new label, the approved host and this epoch |
 | Flipped | Closes the claim | |
 
 The poolers go to 0 so nothing can reach cluster-1 if someone removes the fence by hand later. A client that connects to `cluster-1-pooler-rw` directly instead of `postgres-rw` finds no pgbouncer. They are scaled and never deleted, so a rejoin only scales them back.
@@ -189,11 +189,11 @@ The decider has the permissions to fence and promote. Admission decides when it 
 | `bedrock-vote-owner` | An observer writes only `vote-<its node>-<its slot>`, with matching `node` and `slot` inside, and never deletes |
 | `bedrock-court-writers` | Only the verifier writes `bedrock-round` and `bedrock-approvals`, only the checker writes `bedrock-checker`, only an observer writes `vote-*`, only the decider writes `claim-*`, only Kyverno's background controller writes `db-ca-*`, and none of them writes anything else here |
 | `bedrock-decider-holds-lease` | A decider write comes from the pod that holds the Lease, and its only ConfigMaps are claims |
-| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica.enabled` and `spec.replica.source` and nothing else, and never turns a cluster into a replica. Only the cluster an approval names in `.candidate` is promoted. Only the approved target whose current primary is the approved instance is fenced. Only a follower is repointed. The only label a decider changes is `bedrock.io/db-role`, only to `primary`, and only in the write that promotes; a promotion that does not set it is refused. `postgres-rw` may only point at the approval's `.host`, which must end in `.svc.cluster.local`. A missing key denies. A pod delete targets an instance pod of a cluster with a valid approval. A pooler write only scales a pooler of the approved dead primary to 0 and changes nothing else in it |
+| `bedrock-decider-approved` | A cluster or Service write carries an epoch with a valid approval. A cluster write changes `spec.replica.enabled` and `spec.replica.source` and nothing else, and never turns a cluster into a replica. Only the cluster an approval names in `.candidate` is promoted. Only the approved target whose current primary is the approved instance is fenced. Only a follower is repointed. The only label a decider changes is `bedrockctl.com/db-role`, only to `primary`, and only in the write that promotes; a promotion that does not set it is refused. `postgres-rw` may only point at the approval's `.host`, which must end in `.svc.cluster.local`. A missing key denies. A pod delete targets an instance pod of a cluster with a valid approval. A pooler write only scales a pooler of the approved dead primary to 0 and changes nothing else in it |
 | `bedrock-failover-pods` | A pod in `bedrock-failover` runs only the `bedrock-failover` image pinned by digest, with cpu and memory limits. This lives in the API server and not in Kyverno, so the controller's pods can always be recreated even while Kyverno is down |
 | `bedrock-checker-halt` | While the checker holds any primary, every decider write to clusters, pods and Services is refused |
 
-The policies that read an object deny everything they match when the object is missing. That is why `admission.yaml` creates those objects first, why their deletion is refused, and why the policies only match namespaces labelled `bedrock.io/failover-scope: "true"`: `cluster-1`, `cluster-2`, `cluster-3`, `application` and `bedrock-failover`. To remove the controller, delete the policies and their bindings before the namespace.
+The policies that read an object deny everything they match when the object is missing. That is why `admission.yaml` creates those objects first, why their deletion is refused, and why the policies only match namespaces labelled `bedrockctl.com/failover-scope: "true"`: `cluster-1`, `cluster-2`, `cluster-3`, `application` and `bedrock-failover`. To remove the controller, delete the policies and their bindings before the namespace.
 
 ## The checker
 
@@ -227,7 +227,7 @@ A primary that answers but cannot commit is not proven dead: the replicas, the i
 | `bedrock-approvals` | ConfigMap | Verifier | One slot per primary: state, epoch, round and the approved instance |
 | `bedrock-checker` | ConfigMap | Checker | One halt flag per primary |
 | `claim-<namespace>.<name>` | ConfigMap | Leading decider | One run: epoch, step, instance, candidate, followers, nodes, timings, notes |
-| `db-ca-<cluster>` | ConfigMap | Kyverno | The `ca.crt` of every database cluster, copied out of each namespace labelled `bedrock.io/database: "true"`. Observers, the verifier and the checker list them by the label `bedrock.io/db-ca` every 30 seconds, so a cluster added later is trusted without editing any volume. The CA keys are never copied |
+| `db-ca-<cluster>` | ConfigMap | Kyverno | The `ca.crt` of every database cluster, copied out of each namespace labelled `bedrockctl.com/database: "true"`. Observers, the verifier and the checker list them by the label `bedrockctl.com/db-ca` every 30 seconds, so a cluster added later is trusted without editing any volume. The CA keys are never copied |
 | `bedrock-decider` | Lease | Deciders | Which decider leads |
 
 ## Secrets
@@ -287,13 +287,13 @@ Every value is a flag on the binary. The defaults are the values in use.
 Set the annotation on the primary cluster:
 
 ```sh
-kubectl -n cluster-1 annotate cluster cluster-1 bedrock.io/failover-pause=true
+kubectl -n cluster-1 annotate cluster cluster-1 bedrockctl.com/failover-pause=true
 ```
 
 The controller keeps watching and paging but never acts on that cluster. Remove the annotation to resume:
 
 ```sh
-kubectl -n cluster-1 annotate cluster cluster-1 bedrock.io/failover-pause-
+kubectl -n cluster-1 annotate cluster cluster-1 bedrockctl.com/failover-pause-
 ```
 
 ## Monitoring

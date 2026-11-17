@@ -21,7 +21,7 @@ The playbook is `tenant-workload/bootstrap/rotate-proof-key.yml`. It runs these 
 | Step | Effect |
 |---|---|
 | 1 | Generates a new 32-byte key in `~/.bedrock/failover/proof-keys/` |
-| 2 | Inserts it into `bedrock.bedrock_proof_key` on the primary, inactive. The primary is found from the `bedrock.io/db-role` labels, so this works after a failover too |
+| 2 | Inserts it into `bedrock.bedrock_proof_key` on the primary, inactive. The primary is found from the `bedrockctl.com/db-role` labels, so this works after a failover too |
 | 3 | Rebuilds `bedrock-proof-keys` with the old and the new key and restarts the verifier |
 | 4 | Makes the new key the only active key, so postgres signs with it from the next round |
 | 5 | Waits 60 seconds, so every round signed with the old key has closed |

@@ -16,7 +16,7 @@ spec:
           - garage
           - openbao
           - bedrock-failover
-      - key: k8s:io.cilium.k8s.namespace.labels.bedrock.io/database
+      - key: k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/database
         operator: NotIn
         values:
           - "true"

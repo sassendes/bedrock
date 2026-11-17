@@ -279,7 +279,7 @@ type CAFlags struct {
 func RegisterCA(fs *flag.FlagSet) *CAFlags {
 	f := &CAFlags{}
 	fs.StringVar(&f.Dir, "ca-dir", "", "directory of database ca certificates; empty reads the labelled configmaps instead")
-	fs.StringVar(&f.Selector, "ca-selector", "bedrock.io/db-ca=true", "label selector of the database ca configmaps")
+	fs.StringVar(&f.Selector, "ca-selector", "bedrockctl.com/db-ca=true", "label selector of the database ca configmaps")
 	fs.StringVar(&f.Key, "ca-key", "ca.crt", "key holding the certificate in each ca configmap")
 	return f
 }

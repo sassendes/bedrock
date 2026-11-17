@@ -20,7 +20,7 @@ The bootstrap waits for the rollout to finish before it applies the policies.
 
 ## Scoped by namespace
 
-Each policy names the namespaces it covers in `matchConstraints.namespaceSelector`, by name or by a label such as `bedrock.io/database: "true"`. Kyverno registers its webhook with that selector, so the API server never sends it a request for a namespace outside the list. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno. Only the failover syncs also use a CEL `matchConditions` expression.
+Each policy names the namespaces it covers in `matchConstraints.namespaceSelector`, by name or by a label such as `bedrockctl.com/database: "true"`. Kyverno registers its webhook with that selector, so the API server never sends it a request for a namespace outside the list. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno. Only the failover syncs also use a CEL `matchConditions` expression.
 
 ## Policies
 

@@ -257,7 +257,7 @@ func cluster(name string, replica map[string]any) *unstructured.Unstructured {
 	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "postgresql.cnpg.io/v1", "kind": "Cluster",
-		"metadata": map[string]any{"name": name, "namespace": name, "labels": map[string]any{"bedrock.io/db-role": role}},
+		"metadata": map[string]any{"name": name, "namespace": name, "labels": map[string]any{"bedrockctl.com/db-role": role}},
 		"spec":     spec,
 	}}
 }
@@ -271,7 +271,7 @@ func setup(t *testing.T) *world {
 		mustApply(t, ctx, dyn, obj)
 	}
 	for _, ns := range []string{"bedrock-failover", "cluster-1", "cluster-2", "cluster-3", "application"} {
-		mustApply(t, ctx, dyn, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns, "labels": map[string]any{"bedrock.io/failover-scope": "true"}}}})
+		mustApply(t, ctx, dyn, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns, "labels": map[string]any{"bedrockctl.com/failover-scope": "true"}}}})
 	}
 	deadline := time.Now().Add(30 * time.Second)
 	for {
@@ -319,7 +319,7 @@ func setup(t *testing.T) *world {
 		}
 	}
 	svc := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "application", Name: "postgres-rw", Labels: map[string]string{"bedrock.io/points-at": "cluster-1"}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "application", Name: "postgres-rw", Labels: map[string]string{"bedrockctl.com/points-at": "cluster-1"}},
 		Spec:       corev1.ServiceSpec{Type: corev1.ServiceTypeExternalName, ExternalName: "cluster-1-pooler-rw.cluster-1.svc.cluster.local"},
 	}
 	if _, err := kube.CoreV1().Services("application").Create(ctx, svc, metav1.CreateOptions{}); err != nil {
@@ -362,7 +362,7 @@ func setup(t *testing.T) *world {
 	deadline = time.Now().Add(30 * time.Second)
 	for {
 		_, err := w.dDyn.Resource(clustersGVR).Namespace("cluster-3").Patch(ctx, "cluster-3", types.MergePatchType,
-			[]byte(`{"metadata":{"annotations":{"bedrock.io/failover-epoch":"9"}},"spec":{"replica":{"enabled":false}}}`),
+			[]byte(`{"metadata":{"annotations":{"bedrockctl.com/failover-epoch":"9"}},"spec":{"replica":{"enabled":false}}}`),
 			metav1.PatchOptions{DryRun: []string{metav1.DryRunAll}})
 		if err != nil && strings.Contains(err.Error(), "denied") {
 			break
@@ -407,7 +407,7 @@ func (w *world) patchCluster(name string, epoch int64, body map[string]any) erro
 		an = map[string]any{}
 		meta["annotations"] = an
 	}
-	an["bedrock.io/failover-epoch"] = fmt.Sprint(epoch)
+	an["bedrockctl.com/failover-epoch"] = fmt.Sprint(epoch)
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -418,7 +418,7 @@ func (w *world) patchCluster(name string, epoch int64, body map[string]any) erro
 
 func (w *world) patchPooler(ns string, epoch int64, spec map[string]any) error {
 	b, err := json.Marshal(map[string]any{
-		"metadata": map[string]any{"annotations": map[string]any{"bedrock.io/failover-epoch": fmt.Sprint(epoch)}},
+		"metadata": map[string]any{"annotations": map[string]any{"bedrockctl.com/failover-epoch": fmt.Sprint(epoch)}},
 		"spec":     spec,
 	})
 	if err != nil {
@@ -431,8 +431,8 @@ func (w *world) patchPooler(ns string, epoch int64, spec map[string]any) error {
 func (w *world) flip(host string, epoch int64) error {
 	b, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{
-			"labels":      map[string]any{"bedrock.io/points-at": "cluster-2"},
-			"annotations": map[string]any{"bedrock.io/failover-epoch": fmt.Sprint(epoch)},
+			"labels":      map[string]any{"bedrockctl.com/points-at": "cluster-2"},
+			"annotations": map[string]any{"bedrockctl.com/failover-epoch": fmt.Sprint(epoch)},
 		},
 		"spec": map[string]any{"externalName": host},
 	})
@@ -504,9 +504,9 @@ func TestAdmissionAgainstARealAPIServer(t *testing.T) {
 
 	t.Run("the role label moves only with the promotion", func(t *testing.T) {
 		w.approve(good(1))
-		denied(t, "relabelling the delayed replica live", w.patchCluster("cluster-3", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrock.io/db-role": "live"}}}), "only changes to primary")
-		denied(t, "crowning the candidate without promoting it", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrock.io/db-role": "primary"}}}), "only changes to primary")
-		denied(t, "promoting without the label", w.patchCluster("cluster-2", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}}), "sets bedrock.io/db-role to primary")
+		denied(t, "relabelling the delayed replica live", w.patchCluster("cluster-3", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrockctl.com/db-role": "live"}}}), "only changes to primary")
+		denied(t, "crowning the candidate without promoting it", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"bedrockctl.com/db-role": "primary"}}}), "only changes to primary")
+		denied(t, "promoting without the label", w.patchCluster("cluster-2", 1, map[string]any{"spec": map[string]any{"replica": map[string]any{"enabled": false}}}), "sets bedrockctl.com/db-role to primary")
 		denied(t, "touching another label", w.patchCluster("cluster-2", 1, map[string]any{"metadata": map[string]any{"labels": map[string]any{"team": "x"}}}), "changes no label but")
 	})
 

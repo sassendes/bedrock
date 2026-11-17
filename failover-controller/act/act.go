@@ -47,11 +47,11 @@ func DefaultConfig() Config {
 		HibernationAnnotation:  "cnpg.io/hibernation",
 		HibernationOn:          "on",
 		PrimaryServiceSelector: "cnpg.io/instanceRole=primary",
-		FlipLabel:              "bedrock.io/points-at",
+		FlipLabel:              "bedrockctl.com/points-at",
 		FlipNamespaces:         []string{"application"},
 		ClusterDomain:          "cluster.local",
 		HealthyPhase:           "Cluster in healthy state",
-		EpochAnnotation:        "bedrock.io/failover-epoch",
+		EpochAnnotation:        "bedrockctl.com/failover-epoch",
 	}
 }
 

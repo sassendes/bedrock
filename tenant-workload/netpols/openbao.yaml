@@ -69,7 +69,7 @@ specs:
     egress:
       - toEndpoints:
           - matchLabels:
-              k8s:io.cilium.k8s.namespace.labels.bedrock.io/database: "true"
+              k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/database: "true"
               cnpg.io/podRole: instance
         toPorts:
           - ports:

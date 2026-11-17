@@ -14,8 +14,8 @@ Names are never reused: a name whose namespace or Garage bucket already exists i
 
 ## What it does
 
-1. Reads every database cluster's `bedrock.io/db-role` label and checks it against its spec. It stops if any label disagrees, or if there is not exactly one healthy, unfenced primary.
-2. Creates the namespace, labelled `bedrock.io/database: "true"`, so the priority class policies, the registry allowlist and the database CA sync cover it without any name list.
+1. Reads every database cluster's `bedrockctl.com/db-role` label and checks it against its spec. It stops if any label disagrees, or if there is not exactly one healthy, unfenced primary.
+2. Creates the namespace, labelled `bedrockctl.com/database: "true"`, so the priority class policies, the registry allowlist and the database CA sync cover it without any name list.
 3. Applies the replica's own network policy. Garage, the operator, monitoring, the failover controller and the other database clusters already select database namespaces by label, so nothing outside the replica's namespace changes.
 4. Runs a Garage job: a bucket and a read-write key for the replica, and one read-only key per pair below, each with its own name so no other replica's key is ever deleted.
 5. Pairs the replica with every cluster that can become primary (the primary and every live replica), and every existing replica with the new one: Kyverno copies the peer's `ca.crt` and replication certificate across. The stream on 5432 is already allowed by the database label rule.

@@ -22,7 +22,7 @@ Copy the `Digest:` line and write the image as `quay.io/example/tool:v1.2.3@sha2
 
 ## Add the publisher
 
-Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains three policies with the same pattern: one for application namespaces, one for data namespaces and one for every namespace labelled `bedrock.io/database: "true"`. The pattern has two groups:
+Open `tenant-workload/kyverno/admission/registry-allowlist.yaml`. It contains three policies with the same pattern: one for application namespaces, one for data namespaces and one for every namespace labelled `bedrockctl.com/database: "true"`. The pattern has two groups:
 
 - single repositories, such as `quay\\.io/kiwigrid/k8s-sidecar`, for when you trust one image
 - whole organisations, such as `quay\\.io/(prometheus|prometheus-operator|strimzi)/`, for when you trust everything a publisher ships

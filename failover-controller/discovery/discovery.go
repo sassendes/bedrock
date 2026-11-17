@@ -33,7 +33,7 @@ func DefaultConfig() Config {
 		ClusterLabel:     "cnpg.io/cluster",
 		InstanceSelector: "cnpg.io/podRole=instance",
 		ZoneLabel:        "topology.kubernetes.io/zone",
-		RoleLabel:        "bedrock.io/db-role",
+		RoleLabel:        "bedrockctl.com/db-role",
 	}
 }
 

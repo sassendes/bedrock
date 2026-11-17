@@ -4,7 +4,7 @@ metadata:
   name: cluster-2
   namespace: cluster-2
   labels:
-    bedrock.io/db-role: live
+    bedrockctl.com/db-role: live
 spec:
   postgresql:
     parameters:

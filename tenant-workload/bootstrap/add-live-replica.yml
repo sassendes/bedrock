@@ -297,7 +297,7 @@
       ansible.builtin.shell: |
         set -eu
         hosts=""
-        for ns in $(kubectl get ns -l bedrock.io/database=true -o jsonpath='{.items[*].metadata.name}'); do
+        for ns in $(kubectl get ns -l bedrockctl.com/database=true -o jsonpath='{.items[*].metadata.name}'); do
           hosts="${hosts:+$hosts,}${ns}-rw.${ns}.svc:5432"
         done
         url="postgresql://${CRED}@${hosts}/postgres?sslmode=verify-full&sslrootcert=/etc/bedrock/db-ca/ca.crt&target_session_attrs=read-write&connect_timeout=5"
