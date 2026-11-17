@@ -7,7 +7,7 @@
 <p align="center">
   Production-grade Kubernetes platform for managed service providers.<br>
   One hardened cluster per tenant, nothing shared.<br><br>
-  <a href="https://bedrock.sassendes.xyz"><b>Documentation</b></a>
+  <a href="https://bedrockctl.com"><b>Documentation</b></a>
 </p>
 
 ## Why
@@ -104,10 +104,10 @@ make deploy
 
 Dashboards are ClusterIP only. Reach them with `kubectl port-forward`.
 
-The full walkthrough is in the [documentation](https://bedrock.sassendes.xyz/tutorials/first-tenant/).
+The full walkthrough is in the [documentation](https://bedrockctl.com/tutorials/first-tenant/).
 
 ## Status
 
-The tenant layer runs end to end on a lab cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 73.6 s with 0 bytes lost. Next: the OpenBao gateways, then the network edge (OPNsense, WireGuard, nginx), disaster recovery, and the provisioner and fleet tiers. The full order is on the [roadmap](https://bedrock.sassendes.xyz/roadmap/).
+The tenant layer runs end to end on a lab cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 73.6 s with 0 bytes lost. Next: the OpenBao gateways, then the network edge (OPNsense, WireGuard, nginx), disaster recovery, and the provisioner and fleet tiers. The full order is on the [roadmap](https://bedrockctl.com/roadmap/).
 
 The secrets in `tenant-workload/secrets/` are placeholders for a public repository and must never be used as they are.
