@@ -1,0 +1,47 @@
+---
+aliases: ["/components/kyverno/"]
+title: "Kyverno"
+weight: 2
+description: "The policy engine: image, tag and resource checks on pods, plus the replication certificate sync."
+---
+
+Kyverno v1.19.1 is installed from the release's `install.yaml`, checked against its sha256 checksum. It is the first component after the namespaces, so every pod created later passes through it.
+
+## What the bootstrap changes
+
+| Change | Upstream default | Why |
+|---|---|---|
+| Admission controller replicas | 1 | One per server node, so losing a node never loses admission |
+| Admission controller spread | none | Required anti-affinity, at most one replica per node |
+| Admission controller priority | default | `system-cluster-critical`, so it is never evicted to make room |
+| Background controller priority | default | `system-cluster-critical`, because it keeps the replication certificates in sync |
+| Disruption budget | none | `minAvailable: 2` in `tenant-workload/kyverno/admission/admission-pdb.yaml` |
+
+The bootstrap waits for the rollout to finish before it applies the policies.
+
+## Scoped by namespace
+
+Each policy names the namespaces it covers in `matchConstraints.namespaceSelector`, by name or by a label such as `bedrockctl.com/database: "true"`. Kyverno registers its webhook with that selector, so the API server never sends it a request for a namespace outside the list. This is what lets a policy fail closed for applications without putting storage and databases behind Kyverno. Only the failover syncs also use a CEL `matchConditions` expression.
+
+## Policies
+
+| Policy | Purpose |
+|---|---|
+| `disallow-latest-tag` | Explicit tags, never `latest` |
+| `require-resource-limits` | CPU and memory limits on every container |
+| `harden-run-as-nonroot` | Fills in non-root and seccomp defaults |
+| `registry-allowlist-strict`, `registry-allowlist-data` and `registry-allowlist-database` | Images only from allowed publishers |
+| `restrict-priority-classes` | Reserved priority classes only where allowed |
+| `bedrock-replica-secret-sync` and `bedrock-replica-ca-sync` | Copy cluster-1's replication certificate and CA into the replica namespaces |
+| `bedrock-peer-cluster-2-to-cluster-3` | Copies cluster-2's replication certificate and CA into cluster-3, so cluster-3 can follow cluster-2 after a failover |
+| `bedrock-failover-ca-sync` | Copies each database cluster's `ca.crt` into `bedrock-failover` |
+
+Where each one applies and how it fails are in the [policies reference]({{< relref "/docs/reference/policies" >}}).
+
+## The certificate sync
+
+cluster-2 and cluster-3 stream from cluster-1 over TLS and need cluster-1's CA and replication client certificate. `bedrock-replica-secret-sync` clones `cluster-1-replication` into both replica namespaces with `synchronize` on. The CA goes through its own policy, `bedrock-replica-ca-sync`: it fires on `cluster-1-ca` itself and writes only `ca.crt` into `cluster-1-ca-crt` in cluster-2 and cluster-3, so the CA private key never leaves cluster-1. Because the source secret is the trigger, every CloudNativePG rotation updates the copies. The policy fails open, so a dead Kyverno never blocks CloudNativePG from writing its own secrets. `make add-replica` adds a policy of the same kind for each new replica. To do this, the background controller has write access to Secrets, which is listed as an accepted exception in the [security model]({{< relref "/docs/concepts/security-model#accepted-exceptions" >}}).
+
+## Alerts
+
+`KyvernoAdmissionDegraded` fires when fewer than a majority of admission replicas are ready and `KyvernoAdmissionDown` when none are. Both are critical, because the application policies fail closed.

@@ -2,6 +2,20 @@
 <article class="prose">
   {{ with .Params.lead }}<p class="lead">{{ . | markdownify }}</p>{{ end }}
   {{ .Content }}
+  {{ with .Params.cards }}
+  <div class="cards">
+    {{ range . }}
+    <section class="card">
+      <h2>{{ .title }}</h2>
+      <p>{{ .text }}</p>
+      <ul>
+        {{ range .links }}<li><a href="{{ .url | relURL }}">{{ .name }}</a></li>{{ end }}
+      </ul>
+      <a class="button" href="{{ .button.url | relURL }}">{{ .button.name }}</a>
+    </section>
+    {{ end }}
+  </div>
+  {{ else }}
   <div class="section-list">
     {{ range .Pages.ByWeight }}
       <a class="section-item" href="{{ .RelPermalink }}">
@@ -10,5 +24,6 @@
       </a>
     {{ end }}
   </div>
+  {{ end }}
 </article>
 {{ end }}

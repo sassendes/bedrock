@@ -1,0 +1,65 @@
+---
+aliases: ["/concepts/networking/"]
+title: "Networking"
+weight: 4
+description: "How traffic moves inside a tenant cluster and how network policy decides what is allowed."
+---
+
+Inside a tenant, Cilium handles every packet between pods. It does three jobs: it routes pod traffic, it load balances Kubernetes services in place of kube-proxy, and it enforces network policy.
+
+## Default deny
+
+A cluster-wide policy selects every pod in every namespace. Once a pod is selected by any policy, Cilium drops all traffic to and from it that no policy allows. The cluster-wide policy allows only two things: anything from the node itself and DNS lookups to the cluster DNS server.
+
+Cilium adds rules together, so that node allow would cancel any namespace that limits the node to a few ports. Those namespaces are left out of the cluster-wide policy and carry the same deny by default in their own: `application`, `falco`, `node-agents`, `reloader`, `garage`, `openbao`, `bedrock-failover`, and every namespace labelled `bedrockctl.com/database: "true"`, which includes a replica added later.
+
+Each namespace then has its own `CiliumNetworkPolicy` that adds the flows its components need. Policies only add allows, so a namespace without its own policy is closed, not open. The bootstrap checks this at the end of every deploy and fails if any namespace running pods has no policy.
+
+{{< diagram "netpol-model" "Two layers of policy. The cluster-wide policy closes everything; namespace policies open named flows." >}}
+
+## Flows are pinned on both sides
+
+A flow between two components is allowed in two places: the sender's egress rule names the receiver, and the receiver's ingress rule names the sender. Both sides use labels on the exact pods, not whole namespaces. For example, Loki writes chunks to Garage on port 3900:
+
+- the Loki policy in `application` allows egress to pods in `garage` on 3900
+- the Garage policy allows ingress on 3900 only from the Loki and Tempo pods and the database clusters
+
+A mistake on one side is not enough to open a path. Both sides have to agree.
+
+## Layer 7 rules
+
+On every plain HTTP flow, the policy also names the requests the sender may make, by method and path. Each rule was written from the source code of the client at its pinned version, so it allows only the requests that client really sends. Anything else is answered with HTTP 403.
+
+| Service | What its clients may do |
+|---|---|
+| Alertmanager | Prometheus may only `POST /api/v2/alerts` and read `/metrics`, Loki's ruler may only `POST /api/v2/alerts`. The silences API is unreachable from every pod. |
+| Loki | Alloy may only push. Grafana may only read. Nobody can delete logs or write rules over the network. |
+| Prometheus | Grafana and OpenCost may only query and read. `/api/v1/admin/*` and the lifecycle endpoints are unreachable. |
+| Tempo | Grafana may only search and read traces. Alloy may only call the OTLP trace `Export` method. `/flush` and `/shutdown` are unreachable. |
+| Everything scraped or probed | Prometheus may only `GET /metrics`, and the blackbox exporter only the health path it probes. |
+
+Flows that are not plain HTTP stay at layer 4: PostgreSQL, the event buses, DNS, TLS connections such as webhooks and the kubelet, traffic between pods of the same component, and Garage's S3 API, where per-bucket keys already limit what a client can do.
+
+An upgrade that changes the paths a client calls shows up as 403 responses in Hubble.
+
+{{< diagram "flows" "The main flows inside a tenant. Every arrow is allowed by name on both ends; anything without an arrow is dropped." >}}
+
+## Per component inside `application`
+
+The `application` namespace holds the whole monitoring stack. Allowing all traffic inside it would let any one of those pods reach the others, so each component has its own rules instead. Only Prometheus, Loki's ruler and the blackbox exporter can reach Alertmanager, which means no other pod can create a silence and hide an alert. Only Alloy, Grafana, Prometheus and the blackbox exporter can reach Loki.
+
+Some namespaces do allow traffic between their own pods: `kube-system`, `longhorn-system` and the database clusters. Their internal ports are chosen by their operators and change between versions, and only those operators create pods there.
+
+## Encryption between nodes
+
+Pod traffic that crosses from one node to another goes through a WireGuard tunnel that Cilium manages. Traffic between two pods on the same node never leaves the machine and is not encrypted.
+
+## DNS stays inside
+
+CoreDNS answers names inside the cluster. The `kube-system` policy gives it no egress to the outside world, so even though CoreDNS would forward unknown names upstream, those queries are dropped before they leave. A pod cannot use DNS to send data out or receive commands, because no query reaches a resolver outside the cluster.
+
+## No exposed ports
+
+Dashboards and APIs are `ClusterIP` services. Nothing listens on a NodePort or a LoadBalancer. Operators reach dashboards with `kubectl port-forward`, as described in [reach the dashboards]({{< relref "/docs/tasks/dashboards" >}}).
+
+The full list of allowed connections is in the [network flows reference]({{< relref "/docs/reference/network-flows" >}}).

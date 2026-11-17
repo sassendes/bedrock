@@ -1,6 +1,6 @@
 baseURL = "https://bedrockctl.com/"
 title = "bedrock"
-languageCode = "en"
+locale = "en"
 enableRobotsTXT = true
 disableKinds = ["taxonomy", "term"]
 
@@ -19,16 +19,17 @@ noClasses = false
 
 [params]
 repo = "https://github.com/sassendes/bedrock"
-description = "Production-grade Kubernetes platform for managed service providers. One hardened cluster per tenant, nothing shared."
+tagline = "A Kubernetes distribution for production workloads"
+description = "A Kubernetes distribution for production workloads. One command turns bare machines into a production cluster with databases that fail over on proof and secrets that never touch disk."
 
 [[menu.main]]
-name = "Documentation"
-url = "/"
+name = "Docs"
+url = "/docs/"
 weight = 1
 
 [[menu.main]]
-name = "Roadmap"
-url = "/roadmap/"
+name = "Architecture"
+url = "/architecture/"
 weight = 2
 
 [[menu.main]]

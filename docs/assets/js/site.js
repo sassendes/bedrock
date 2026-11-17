@@ -135,3 +135,27 @@
     }
   });
 })();
+(function(){
+  var gauge=document.querySelector(".gauge");
+  if(!gauge) return;
+  var links=[].slice.call(gauge.querySelectorAll("a[data-gauge]"));
+  var secs=links.map(function(a){return document.getElementById(a.dataset.gauge);}).filter(Boolean);
+  var rail=gauge.querySelector(".gauge-rail");
+  var ticking=false;
+  function update(){
+    ticking=false;
+    var cur=secs[0];
+    secs.forEach(function(s){if(s.getBoundingClientRect().top<=window.innerHeight*0.4) cur=s;});
+    if(window.innerHeight+window.scrollY>=document.documentElement.scrollHeight-4) cur=secs[secs.length-1];
+    var on=null;
+    links.forEach(function(a){var hit=a.dataset.gauge===cur.id;a.classList.toggle("on",hit);if(hit) on=a;});
+    if(on){
+      var rr=rail.getBoundingClientRect(), lr=on.getBoundingClientRect();
+      rail.style.setProperty("--gy",(lr.top-rr.top)+"px");
+      rail.style.setProperty("--gh",lr.height+"px");
+    }
+  }
+  window.addEventListener("scroll",function(){if(!ticking){ticking=true;requestAnimationFrame(update);}},{passive:true});
+  window.addEventListener("resize",update);
+  update();
+})();

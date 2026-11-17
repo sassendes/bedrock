@@ -6,9 +6,10 @@
   </div>
   <nav class="tree" aria-label="Documentation">
     {{ $cur := . }}
-    <a class="tree-root{{ if .IsHome }} current{{ end }}" href="{{ "/" | relURL }}">Documentation</a>
+    {{ $root := site.GetPage "/docs" }}
+    <a class="tree-root{{ if eq $cur $root }} current{{ end }}" href="{{ $root.RelPermalink }}">Documentation</a>
     <ul>
-      {{ range site.Home.Sections.ByWeight }}
+      {{ range $root.Sections.ByWeight }}
         {{ $open := or (eq $cur .) ($cur.IsDescendant .) }}
         <li class="branch{{ if $open }} open{{ end }}">
           <button class="caret" type="button" aria-label="Expand {{ .Title }}" aria-expanded="{{ if $open }}true{{ else }}false{{ end }}"></button>

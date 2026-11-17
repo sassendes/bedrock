@@ -1,0 +1,31 @@
+{{ define "main" }}
+<section class="a-head">
+  <div class="l-wrap">
+    <h1>Architecture</h1>
+    <p>A bedrock tenant is built in layers. Each one sits on the one below and assumes the one above can be broken into. Open a layer to see what runs in it and why it was picked.</p>
+  </div>
+</section>
+<section class="a-body">
+  <div class="l-wrap a-grid">
+    <ol class="a-stack" role="list">
+      {{ range $i, $l := .Params.layers }}
+      <li style="--i:{{ $i }}">
+        <details{{ if eq $i 3 }} open{{ end }}>
+          <summary><span class="a-name">{{ .name }}</span><span class="a-parts">{{ range $j, $p := .parts }}{{ if $j }}<i></i>{{ end }}{{ $p.name }}{{ end }}</span></summary>
+          <div class="a-detail">
+            {{ range .parts }}
+            <article>
+              <h3>{{ .name }}</h3>
+              <p>{{ .does }}</p>
+              <p class="a-why"><b>Why</b> {{ .why }}</p>
+              {{ with .fails }}<p class="a-fails"><b>When it fails</b> {{ . }}</p>{{ end }}
+            </article>
+            {{ end }}
+          </div>
+        </details>
+      </li>
+      {{ end }}
+    </ol>
+  </div>
+</section>
+{{ end }}

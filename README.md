@@ -1,12 +1,11 @@
 <p align="center">
-  <img src="docs/static/images/logo.png" alt="bedrock" width="96">
+  <img src="docs/static/images/logo.svg" alt="bedrock" width="96">
 </p>
 
 <h1 align="center">bedrock</h1>
 
 <p align="center">
-  Production-grade Kubernetes platform for managed service providers.<br>
-  One hardened cluster per tenant, nothing shared.<br><br>
+  A Kubernetes distribution for production workloads.<br><br>
   <a href="https://bedrockctl.com"><b>Documentation</b></a>
 </p>
 
@@ -50,9 +49,9 @@ flowchart TB
 | Block storage | Longhorn, every volume encrypted with LUKS |
 | Object storage | Garage, encrypted at rest |
 | Databases | CloudNativePG: a primary with synchronous replication, a live replica and a delayed replica, poolers, WAL and base backups to Garage |
-| Secrets | OpenBao: three pods on raft, initialized and unsealed by the bootstrap |
+| Secrets | OpenBao: three pods on raft, initialized and unsealed by the bootstrap. Pods get their secrets as files in memory through the Secrets Store CSI driver and the app database password rotates daily |
 | Observability | Prometheus, Alertmanager, Loki, Tempo, Alloy, Grafana, OpenCost, blackbox |
-| Failover | bedrock's own controller: two observers per node, a database that proves it is alive with a signature, a separate verifier, every action gated by admission. Model checked with TLA+, tested live: 73.6 s, 0 bytes lost |
+| Failover | bedrock's own controller: two observers per node, a database that proves it is alive with a signature, a separate verifier, every action gated by admission. Model checked with TLA+, tested live: 66 s, 0 bytes lost |
 | Runtime | Falco, Reloader |
 | Event buses (optional) | NATS JetStream, Valkey with Sentinel, Kafka on Strimzi |
 
@@ -74,14 +73,14 @@ flowchart TB
 tenant-workload/bootstrap/       ansible playbooks, RKE2 and Cilium config, audit policy, proof key rotation
 tenant-workload/platform/        reloader, namespaces, priority classes
 tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
-tenant-workload/kyverno/         admission policies and secret syncs
+tenant-workload/kyverno/         admission policies and the database CA syncs
 tenant-workload/database/        CloudNativePG clusters, poolers, backups, the add-replica templates
 tenant-workload/failover/        the failover controller: deployment, admission, network policy, alerts
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
 tenant-workload/event-buses/     NATS, Valkey, Kafka
 tenant-workload/openbao/         OpenBao, three pods on raft
-tenant-workload/secrets/         placeholder secrets
+tenant-workload/secrets/         the placeholder Longhorn encryption key
 failover-controller/             the failover controller: Go code, Dockerfile, TLA+ models
 .github/workflows/               builds the failover controller image
 docs/                            the documentation site
@@ -104,10 +103,10 @@ make deploy
 
 Dashboards are ClusterIP only. Reach them with `kubectl port-forward`.
 
-The full walkthrough is in the [documentation](https://bedrockctl.com/tutorials/first-tenant/).
+The full walkthrough is in the [documentation](https://bedrockctl.com/docs/tutorials/first-tenant/).
 
 ## Status
 
-The tenant layer runs end to end on a lab cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 73.6 s with 0 bytes lost. Next: the OpenBao gateways, then the network edge (OPNsense, WireGuard, nginx), disaster recovery, and the provisioner and fleet tiers. The full order is on the [roadmap](https://bedrockctl.com/roadmap/).
+The tenant layer runs end to end on a lab cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 66 s with 0 bytes lost.
 
-The secrets in `tenant-workload/secrets/` are placeholders for a public repository and must never be used as they are.
+The Longhorn encryption key in `tenant-workload/secrets/` is a placeholder for a public repository. Change it before the first deploy since it cannot be rotated on a running tenant.

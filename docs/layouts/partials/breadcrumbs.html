@@ -1,7 +1,8 @@
-{{ if not .IsHome }}
+{{ $root := site.GetPage "/docs" }}
+{{ if ne . $root }}
 <nav class="crumbs" aria-label="Breadcrumb">
-  <a href="{{ "/" | relURL }}">Documentation</a>
-  {{ range .Ancestors.Reverse }}{{ if not .IsHome }}<span>/</span><a href="{{ .RelPermalink }}">{{ .LinkTitle }}</a>{{ end }}{{ end }}
+  <a href="{{ $root.RelPermalink }}">Documentation</a>
+  {{ range .Ancestors.Reverse }}{{ if and (not .IsHome) (ne . $root) }}<span>/</span><a href="{{ .RelPermalink }}">{{ .LinkTitle }}</a>{{ end }}{{ end }}
   <span>/</span><span class="here">{{ .LinkTitle }}</span>
 </nav>
 {{ end }}
