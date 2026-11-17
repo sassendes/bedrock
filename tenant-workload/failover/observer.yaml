@@ -41,7 +41,7 @@ spec:
           operator: Exists
       containers:
         - name: observer
-          image: ghcr.io/sassendes/bedrock-failover:0.3.5@sha256:aa51fa9527e1f96f34454550a59d6925f2f545a74aecec577a6f22962f7e99a8
+          image: ghcr.io/sassendes/bedrock-failover:0.3.6@sha256:a106b45cb5b07512980487cca648fdcc8357c2a53fddc63bcc54f1227acce8e2
           command: ["/observer"]
           env:
             - name: NODE_NAME
