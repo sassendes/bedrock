@@ -1,0 +1,5 @@
+{{ $lang := .Type | default "text" }}
+{{ $names := dict "sh" "shell" "bash" "shell" "console" "shell" "yaml" "yaml" "yml" "yaml" "go" "go" "json" "json" "ini" "ini" "toml" "toml" "sql" "sql" "text" "text" "makefile" "makefile" "tla" "tla+" }}
+<div class="code"><div class="code-bar" data-pagefind-ignore><span>{{ index $names $lang | default $lang }}</span><button class="copy" type="button">Copy</button></div>
+{{ transform.Highlight .Inner .Type .Options }}
+</div>

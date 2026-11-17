@@ -18,12 +18,14 @@ try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.th
 <body class="{{ if $docs }}page docs{{ else if .IsHome }}landing{{ else }}standalone{{ end }}">
 {{ partial "header.html" . }}
 {{ if $docs }}
-{{ partial "hero.html" . }}
 <div class="shell">
   {{ partial "sidebar.html" . }}
   <main class="content" id="content">
     {{ partial "breadcrumbs.html" . }}
-    {{ block "main" . }}{{ end }}
+    <div data-pagefind-body{{ with .Parent }}{{ if ne .Section "" }} data-pagefind-meta="section:{{ .Title }}"{{ end }}{{ end }}>
+      <header class="doc-head"><h1>{{ .Title }}</h1></header>
+      {{ block "main" . }}{{ end }}
+    </div>
     {{ partial "pager.html" . }}
   </main>
   {{ partial "toc.html" . }}
@@ -35,6 +37,7 @@ try{var t=localStorage.getItem("theme");if(t)document.documentElement.dataset.th
 {{ end }}
 {{ partial "footer.html" . }}
 {{ $js := resources.Get "js/site.js" | minify | fingerprint }}
-<script src="{{ $js.RelPermalink }}" data-index="{{ "index.json" | relURL }}" defer></script>
+{{ partial "search.html" . }}
+<script src="{{ $js.RelPermalink }}" data-pagefind="{{ "pagefind/pagefind.js" | relURL }}" defer></script>
 </body>
 </html>

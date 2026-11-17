@@ -4,9 +4,6 @@ locale = "en"
 enableRobotsTXT = true
 disableKinds = ["taxonomy", "term"]
 
-[outputs]
-home = ["HTML", "JSON"]
-
 [markup.goldmark.renderer]
 unsafe = true
 

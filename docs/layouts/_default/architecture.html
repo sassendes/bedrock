@@ -1,11 +1,11 @@
 {{ define "main" }}
-<section class="a-head">
+<section class="a-head dark-band" data-pagefind-body data-pagefind-meta="section:Overview">
   <div class="l-wrap">
     <h1>Architecture</h1>
     <p>A bedrock tenant is built in layers. Each one sits on the one below and assumes the one above can be broken into. Open a layer to see what runs in it and why it was picked.</p>
   </div>
 </section>
-<section class="a-body">
+<section class="a-body" data-pagefind-body>
   <div class="l-wrap a-grid">
     <ol class="a-stack" role="list">
       {{ range $i, $l := .Params.layers }}

@@ -1,37 +1,25 @@
 {{ define "main" }}
-<nav class="gauge" aria-label="Page sections">
-  <div class="gauge-rail"><span class="gauge-mark"></span></div>
-  <ol>
-    <li><a href="#surface" data-gauge="surface">Surface</a></li>
-    <li><a href="#proof" data-gauge="proof">Measured</a></li>
-    <li><a href="#layers" data-gauge="layers">Layers</a></li>
-    <li><a href="#failover" data-gauge="failover">Failover</a></li>
-    <li><a href="#run" data-gauge="run">Run it</a></li>
-  </ol>
-</nav>
-
-<section class="l-hero" id="surface">
-  <div class="l-hero-stone" aria-hidden="true"></div>
-  <div class="l-hero-inner">
-    <img class="l-hero-mark" src="{{ "images/logo.svg" | relURL }}" width="88" height="88" alt="">
-    <h1>{{ site.Params.tagline }}</h1>
-    <p class="l-hero-sub">One command turns bare machines into a production cluster. Databases fail over between clusters only on proof. Secrets live in memory and never touch disk. Every pod reaches only what it needs.</p>
-    <div class="l-actions">
-      <a class="btn btn-solid" href="{{ "docs/" | relURL }}">Read the docs</a>
-      <a class="btn btn-line" href="{{ site.Params.repo }}">View the source</a>
+<section class="l-hero dark-band">
+  <div class="l-left">
+    <div class="word" aria-hidden="true">bedrock</div>
+    <div>
+      <h1>{{ site.Params.tagline }}</h1>
+      <p class="l-sub">Point it at bare machines and one command builds the whole cluster with its storage and databases and secrets and policy and observability.</p>
+      <div class="l-actions">
+        <a class="btn btn-solid" href="{{ "docs/" | relURL }}">Read the docs</a>
+        <a class="btn btn-line" href="{{ site.Params.repo }}">View the source</a>
+      </div>
     </div>
   </div>
-</section>
-
-<section class="l-proof" id="proof" aria-label="Measured on a live cluster">
-  <div class="l-wrap">
-    <dl class="proof">
-      <div><dt>66 s</dt><dd>to fail over a lost database cluster</dd></div>
-      <div><dt>0 bytes</dt><dd>lost in that failover</dd></div>
-      <div><dt>1 second</dt><dd>restore precision for any moment in 30 days</dd></div>
-      <div><dt>85</dt><dd>CIS benchmark checks passed</dd></div>
-    </dl>
-    <p class="proof-note">Measured on a live three node cluster. The steps to repeat each one are in the <a href="{{ "docs/" | relURL }}">docs</a>.</p>
+  <div class="l-right">
+    <p class="l-cap">Counted from the repository</p>
+    <ul class="sts">
+      {{ range hugo.Data.stats }}
+      {{ $kind := cond (strings.HasSuffix .path ".yaml") "blob" "tree" }}
+      <li><a href="{{ site.Params.repo }}/{{ $kind }}/main/{{ .path }}"><span class="n" data-v="{{ .value }}">{{ .value }}</span><span class="t">{{ .label }}</span></a></li>
+      {{ end }}
+    </ul>
+    <p class="l-note">Each number links to the files it was counted from. They are recounted on every deploy.</p>
   </div>
 </section>
 
@@ -55,35 +43,20 @@
   </div>
 </section>
 
-<section class="l-failover" id="failover">
-  <div class="l-wrap l-split">
-    <div class="l-head">
-      <h2>Failover that waits for proof</h2>
-      <p>Most setups promote a replica when a timeout runs out. bedrock promotes only when the evidence says the primary is gone.</p>
-    </div>
-    <ol class="steps">
-      <li><b>Postgres signs its own heartbeat.</b> Two observers on every node write to the primary and have it sign a fresh challenge.</li>
-      <li><b>No observer votes alone.</b> One that cannot reach the primary asks its peers first. A login refused counts as alive.</li>
-      <li><b>A verifier checks the witnesses.</b> Three of four must agree the primary is dead and the candidate must be a live replica in sync.</li>
-      <li><b>Admission opens the door.</b> Only the decider that holds the lease can touch a database and only after the verifier signs off.</li>
-    </ol>
-  </div>
-</section>
-
-<section class="l-run" id="run">
+<section class="l-run dark-band" id="run">
   <div class="l-wrap l-split">
     <div class="l-head">
       <h2>Run it</h2>
       <p>Three Debian 12 machines with 4 vCPU and 12 GB of RAM each. SSH key access and Ansible on the machine you deploy from.</p>
       <a class="btn btn-solid" href="{{ "docs/tutorials/first-tenant/" | relURL }}">Deploy your first tenant</a>
     </div>
-    <div class="prose l-code">
+    <div class="prose l-code"><div class="code"><div class="code-bar" data-pagefind-ignore><span>sh</span><button class="copy" type="button">Copy</button></div>
 {{ highlight `git clone https://github.com/sassendes/bedrock.git
 cd bedrock
 sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
 cp tenant-workload/bootstrap/hosts.example.ini tenant-workload/bootstrap/hosts.ini
 make deploy` "sh" "" }}
-    </div>
+    </div></div>
   </div>
 </section>
 {{ end }}

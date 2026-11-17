@@ -1,0 +1,11 @@
+[
+  {"value": "70", "label": "alert rules", "path": "tenant-workload/observability/alerting"},
+  {"value": "21", "label": "network policies on a cluster wide default deny", "path": "tenant-workload/netpols"},
+  {"value": "13", "label": "Kyverno policies", "path": "tenant-workload/kyverno"},
+  {"value": "9", "label": "validating admission policies", "path": "tenant-workload"},
+  {"value": "24/24", "label": "images pinned by digest", "path": "tenant-workload"},
+  {"value": "14", "label": "namespaces", "path": "tenant-workload/platform/namespace.yaml"},
+  {"value": "5558", "label": "lines of Go in the failover controller", "path": "failover-controller"},
+  {"value": "5331", "label": "lines of tests for it", "path": "failover-controller"},
+  {"value": "13", "label": "TLA+ specs checked in 67 model configurations", "path": "failover-controller/model"}
+]
