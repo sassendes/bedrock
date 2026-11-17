@@ -48,13 +48,6 @@ spec:
     initdb:
       database: app
       owner: appuser
-  managed:
-    roles:
-      - name: bedrock_observer
-        login: true
-        ensure: present
-        passwordSecret:
-          name: bedrock-observer
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname

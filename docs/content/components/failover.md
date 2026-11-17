@@ -47,11 +47,12 @@ A signature is valid only if it covers this round's challenge, names the observe
 | Standby | Refused, read only | No | Not primary |
 | Primary, commit stuck (lock, synchronous standby gone, disk full) | Times out | No | Down, marked stuck |
 | Primary with `default_transaction_read_only` | Refused while not in recovery | No | Down, marked stuck |
+| Login refused (wrong password or a `pg_hba` reject) | Refused with SQLSTATE class 28 | No | Abstain. Postgres answered, so it is alive. The observer never asks the others |
 | Not reachable | No connection | No | Asks the other observers first |
 
 The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`, in their own `bedrock` schema owned by the superuser. They are not in `public` on purpose: the application user owns its database, and with it the `public` schema, so it could drop anything there and blind the controller. The bootstrap loads them into the cluster-1 primary on every deploy and moves any older copy out of `public`. The replica clusters receive them through replication.
 
-The observers and the verifier read the observer password from its mounted file again on every connection, so a rotated password is picked up without a restart. See [rotate a secret]({{< relref "/tasks/rotate-secret" >}}).
+The observers and the verifier read the observer password from OpenBao through the Secrets Store CSI driver and read the file again on every connection, so a changed password is picked up without a restart. See [rotate a secret]({{< relref "/tasks/rotate-secret" >}}).
 
 ## Votes
 
@@ -61,6 +62,7 @@ An observer that cannot reach the primary does not vote down on its own. It asks
 |---|---|
 | Down as well | Down |
 | Up | Abstain, its own path is broken |
+| Login refused | Abstain, postgres is answering them |
 | No answers | Abstain, it is isolated |
 
 Each observer writes its votes to its own ConfigMap, `vote-<node>-<slot>`, on every probe. The decider measures freshness from that write, so it has to happen even when the vote did not change: about three writes a second into etcd for three nodes, which etcd handles easily. Admission reads the node and the pod name from the observer's service account token, so an observer can write only its own object.
@@ -232,7 +234,7 @@ A primary that answers but cannot commit is not proven dead: the replicas, the i
 
 | Secret | Used by | Source |
 |---|---|---|
-| `bedrock-observer` | Observers, verifier | Copied from `cluster-1` by Kyverno (`tenant-workload/kyverno/generate/failover-secret-sync.yaml`) |
+| `apps/failover/observer` in OpenBao | Observers, verifier | Mounted through the SecretProviderClasses `bedrock-observer-pg` and `bedrock-verifier-pg` (`tenant-workload/failover/openbao-secrets.yaml`) |
 | `bedrock-proof-keys` | Verifier | Created by the bootstrap from `~/.bedrock/failover/proof-keys` on the controller machine |
 | `bedrock-observer-exchange` | Observers | Created by the bootstrap from a CA and certificate generated once in `~/.bedrock/failover/exchange` |
 

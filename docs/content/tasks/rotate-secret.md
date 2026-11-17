@@ -19,7 +19,7 @@ The bootstrap makes every OpenBao value once and keeps a copy on the controller 
 | `database/static-creds/bedrock-app` | OpenBao, rotated every 24 hours | Applications, as the `bedrock_app` role | Yes, in PostgreSQL, set by OpenBao |
 | `cluster-1-app` | `cluster-1`, made by CloudNativePG | CloudNativePG, for the `appuser` role that owns the database | Yes, in PostgreSQL |
 | `longhorn-crypto` | `longhorn-system` | Longhorn volume encryption | Yes, in every encrypted volume |
-| `bedrock-observer` | `cluster-1`, copied into `bedrock-failover` by Kyverno | CloudNativePG for the `bedrock_observer` role, the failover observers and verifier | Yes, in PostgreSQL |
+| `apps/failover/observer` | OpenBao | The failover observers and verifier, as the `bedrock_observer` role | Yes, in PostgreSQL |
 
 ## Write to OpenBao by hand
 
@@ -111,18 +111,21 @@ bao write -force database/rotate-root/cluster-1
 
 ## Failover observer password
 
-CloudNativePG sets the `bedrock_observer` role's password from this Secret, and Kyverno copies the Secret into `bedrock-failover`. The observers and the verifier read the mounted file again on every connection, so no restart is needed: Kubernetes refreshes a mounted Secret within about a minute.
+The password lives in OpenBao at `apps/failover/observer` and never changes on its own. The bootstrap sets the `bedrock_observer` role from it on every run. CloudNativePG does not manage this role. To change it, change OpenBao first and postgres right after.
 
-1. Change `password` in `tenant-workload/secrets/bedrock-observer.yaml` and apply it.
-2. Wait until the copy in `bedrock-failover` has the new value:
+1. In the OpenBao shell:
 
    ```sh
-   kubectl -n bedrock-failover get secret bedrock-observer -o jsonpath='{.data.password}' | base64 -d
+   bao kv put -mount=apps failover/observer password='<new password>'
    ```
 
-3. Watch `bedrock_observer_ballot` in Grafana. For the minute between CloudNativePG changing the role and the mounted file refreshing, observers can vote down. The verifier needs three witnesses as well as the votes, so this never fails over a live database, but `BedrockFailoverBlind` can fire briefly.
+2. On the current primary:
 
-The role is managed by cluster-1's spec. After a failover, add the same `managed.roles` entry to the new primary's cluster before rotating.
+   ```sh
+   kubectl exec -it -n cluster-1 "$(kubectl get cluster cluster-1 -n cluster-1 -o jsonpath='{.status.currentPrimary}')" -c postgres -- psql -d postgres -c "ALTER ROLE bedrock_observer PASSWORD '<new password>'"
+   ```
+
+The observers and the verifier read the file again on every connection and the Secrets Store driver refreshes it within two minutes. Until then postgres refuses their login. A refused login proves postgres answered, so an observer abstains and never votes down. The delayed replica keeps the old password until it replays the change.
 
 ## Longhorn encryption key
 

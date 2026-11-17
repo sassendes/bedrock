@@ -33,7 +33,7 @@ Each policy names the namespaces it covers in `matchConstraints.namespaceSelecto
 | `restrict-priority-classes` | Reserved priority classes only where allowed |
 | `bedrock-replica-secret-sync` and `bedrock-replica-ca-sync` | Copy cluster-1's replication certificate and CA into the replica namespaces |
 | `bedrock-peer-cluster-2-to-cluster-3` | Copies cluster-2's replication certificate and CA into cluster-3, so cluster-3 can follow cluster-2 after a failover |
-| `bedrock-failover-ca-sync` and `bedrock-failover-password-sync` | Copy each database cluster's `ca.crt` and the `bedrock_observer` password into `bedrock-failover` |
+| `bedrock-failover-ca-sync` | Copies each database cluster's `ca.crt` into `bedrock-failover` |
 
 Where each one applies and how it fails are in the [policies reference]({{< relref "/reference/policies" >}}).
 

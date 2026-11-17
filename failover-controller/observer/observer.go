@@ -204,6 +204,9 @@ func (o *Observer) vote(ctx context.Context, key, challenge string) observe.Vote
 		}
 		return v
 	}
+	if own.Result == observe.ResultRefused {
+		return observe.Cast(key, expected, own, nil)
+	}
 	answers, err := o.exch.Ask(ctx, key, o.cfg.AskTimeout)
 	if err != nil {
 		return observe.Vote{Target: key, Ballot: observe.BallotAbstain, Reason: "exchange: " + err.Error(), Proof: own}

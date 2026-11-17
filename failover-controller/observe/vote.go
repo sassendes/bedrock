@@ -57,6 +57,10 @@ func Cast(target, expectedSystemID string, own Proof, j *Judgement) Vote {
 		v.Ballot, v.Reason = BallotAbstain, fmt.Sprintf("up without valid proof (system %q)", own.SystemID)
 		return v
 	}
+	if own.Result == ResultRefused {
+		v.Ballot, v.Reason = BallotAbstain, own.Reason
+		return v
+	}
 	if j == nil {
 		v.Ballot, v.Reason = BallotAbstain, "own check failed and no exchange was run: "+own.Reason
 		return v

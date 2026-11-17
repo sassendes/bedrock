@@ -351,10 +351,14 @@ type Judgement struct {
 // Judge only ever sees answers that were signed by their responder and echo this request's nonce.
 func Judge(expectedSystemID string, answers []VerifiedAnswer) Judgement {
 	var j Judgement
+	refused := 0
 	for _, a := range answers {
-		if p := a.Proof; Valid(p, expectedSystemID) {
+		switch p := a.Proof; {
+		case Valid(p, expectedSystemID):
 			j.Ups++
-		} else {
+		case p.Result == ResultRefused:
+			refused++
+		default:
 			j.Downs++
 		}
 	}
@@ -362,6 +366,9 @@ func Judge(expectedSystemID string, answers []VerifiedAnswer) Judgement {
 	case j.Ups > 0:
 		j.Verdict = VerdictOwnPathBroken
 		j.Reason = fmt.Sprintf("%d peer(s) reached the target and echoed my nonce", j.Ups)
+	case refused > 0:
+		j.Verdict = VerdictOwnPathBroken
+		j.Reason = fmt.Sprintf("%d peer(s) got a login refusal, so postgres is answering", refused)
 	case j.Downs > 0:
 		j.Verdict = VerdictConfirmedDown
 		j.Reason = fmt.Sprintf("%d peer(s) also fail to reach the target, none sees it up", j.Downs)

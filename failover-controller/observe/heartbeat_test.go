@@ -408,11 +408,11 @@ func TestHeartbeatAgainstRealPostgres(t *testing.T) {
 		}
 	})
 
-	t.Run("wrong password votes down", func(t *testing.T) {
+	t.Run("wrong password is a refusal and never a down", func(t *testing.T) {
 		cfg := primary.observerConfig(time.Second)
 		cfg.Password = "nope"
-		if p := strongCheck(ctx, cfg, "node-1", "db/primary"); p.Result != ResultDown {
-			t.Fatalf("want down, got %+v", p)
+		if p := strongCheck(ctx, cfg, "node-1", "db/primary"); p.Result != ResultRefused || p.Signed != nil || !strings.Contains(p.Reason, "28P01") {
+			t.Fatalf("want refused with 28P01, got %+v", p)
 		}
 	})
 

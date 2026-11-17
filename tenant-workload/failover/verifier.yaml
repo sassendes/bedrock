@@ -86,11 +86,11 @@ spec:
             secretName: bedrock-proof-keys
             defaultMode: 0400
         - name: pg-password
-          secret:
-            secretName: bedrock-observer
-            items:
-              - key: password
-                path: password
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bedrock-verifier-pg
         - name: run
           emptyDir:
             medium: Memory

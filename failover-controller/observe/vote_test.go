@@ -54,3 +54,12 @@ func TestCastNeverTurnsDoubtIntoDown(t *testing.T) {
 		t.Fatalf("up without echo cast %s", v.Ballot)
 	}
 }
+
+func TestRefusedLoginAlwaysAbstains(t *testing.T) {
+	refused := Proof{Result: ResultRefused, Reason: "refused: postgres answered and rejected the login (28P01)"}
+	for _, j := range []*Judgement{nil, {Verdict: VerdictConfirmedDown}, {Verdict: VerdictIsolated}} {
+		if v := Cast("t", "42", refused, j); v.Ballot != BallotAbstain {
+			t.Fatalf("judgement %+v cast %s for a refused login", j, v.Ballot)
+		}
+	}
+}

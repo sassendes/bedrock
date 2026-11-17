@@ -101,11 +101,11 @@ spec:
               mountPath: /run/bedrock
       volumes:
         - name: pg-password
-          secret:
-            secretName: bedrock-observer
-            items:
-              - key: password
-                path: password
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bedrock-observer-pg
         - name: exchange-tls
           secret:
             secretName: bedrock-observer-exchange
@@ -217,11 +217,11 @@ spec:
               mountPath: /run/bedrock
       volumes:
         - name: pg-password
-          secret:
-            secretName: bedrock-observer
-            items:
-              - key: password
-                path: password
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: bedrock-observer-pg
         - name: exchange-tls
           secret:
             secretName: bedrock-observer-exchange

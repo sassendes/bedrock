@@ -23,6 +23,7 @@ const (
 	ResultUp         Result = "up"
 	ResultDown       Result = "down"
 	ResultNotPrimary Result = "not-primary"
+	ResultRefused    Result = "refused"
 )
 
 // Proof is the evidence behind a Result. Every field is checked by dumb code, never interpreted.
@@ -76,6 +77,7 @@ const proveSQL = `SELECT key_id, instance, system_id, timeline, lsn, in_recovery
 
 const sqlStateReadOnly = "25006"
 const sqlStateQueryCanceled = "57014"
+const sqlStateClassAuth = "28"
 
 func strongCheck(ctx context.Context, cfg CheckConfig, observer, target string) Proof {
 	nonce, err := newNonce()
@@ -97,6 +99,12 @@ func StrongCheckWithNonce(ctx context.Context, cfg CheckConfig, observer, target
 	conn, err := connect(ctx, cfg)
 	if err != nil {
 		p.Latency = time.Since(start)
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && strings.HasPrefix(pgErr.Code, sqlStateClassAuth) {
+			p.Result = ResultRefused
+			p.Reason = "refused: postgres answered and rejected the login (" + pgErr.Code + ")"
+			return p
+		}
 		p.Reason = "connect: " + err.Error()
 		return p
 	}

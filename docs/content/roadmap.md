@@ -18,9 +18,10 @@ OpenBao, one per tenant: three pods on raft, initialized and unsealed by the boo
 
 The failover controller: when cluster-1 is lost, it promotes cluster-2 and points `postgres-rw` at it, only on proof. Postgres signs its own proof of life, two observers per node vote, a separate verifier needs three kinds of witness to call it dead, CloudNativePG gets the first minute to fix it inside the cluster, and every action the controller takes is gated by admission. Its logic is checked with TLA+ before it is coded. It was tested live on a real cluster: cluster-1 was killed and cluster-2 took over in 73.6 seconds with no signed write lost. After a failover, `make add-replica` puts a new live replica behind the new primary.
 
+Secrets from OpenBao: pods get their secrets through the Secrets Store CSI driver as files in memory and log in to OpenBao as themselves. Grafana, NATS, Valkey, Garage and the failover observers read theirs this way. OpenBao rotates the database application user's password every day and checks every database's certificate. The S3 keys stay Kubernetes Secrets readable only in their own namespace, and the disk encryption key stays the one static secret Longhorn reads.
+
 ## Next, inside the tenant
 
-- **Secrets from OpenBao.** Pods get their secrets through the Secrets Store CSI driver as files in memory, logging in to OpenBao as themselves; Grafana, NATS, Valkey and Garage read theirs this way, and OpenBao rotates the database application user's password every day. Next are the S3 keys, the failover observer password and the disk encryption key.
 - **InfluxDB.** Network metrics from the tenant's firewall, once the edge sends them.
 
 ## Then, around the tenant

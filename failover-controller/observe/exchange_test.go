@@ -161,6 +161,13 @@ func TestAllPeersDownConfirmsDown(t *testing.T) {
 	}
 }
 
+func TestPeersRefusedLoginNeverConfirmsDown(t *testing.T) {
+	c := newCluster(t, five(ResultRefused, ResultRefused, ResultRefused, ResultDown, ResultDown), 2)
+	if j := Judge(sysID, c.ask(t, "a")); j.Verdict != VerdictOwnPathBroken || j.Downs != 2 {
+		t.Fatalf("got %+v", j)
+	}
+}
+
 func TestRelayReachesAPeerTheOriginCannot(t *testing.T) {
 	c := newCluster(t, five(ResultDown, ResultDown, ResultUp, ResultDown, ResultDown), 2)
 	c.mesh.cut("a", "c")
