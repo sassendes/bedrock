@@ -18,10 +18,6 @@ Cilium ships with RKE2 and is configured through a `HelmChartConfig` that the bo
 
 RKE2 itself runs with `disable-kube-proxy: true` and `cni: cilium`.
 
-## Why kube-proxy is replaced
-
-With kube-proxy and Cilium both handling services, traffic arriving through a node port was rewritten by kube-proxy before Cilium saw it. Cilium then classified it as coming from outside the cluster, so rules that allowed the node never matched. With Cilium alone on the path, a packet keeps its real identity from the first hop.
-
 The `localhost` API address works because every node runs the API server. A cluster with worker-only nodes would need a different address there.
 
 ## Network policy

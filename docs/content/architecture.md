@@ -7,7 +7,7 @@ layers:
     parts:
       - name: "Falco"
         does: "Watches every node for runtime events such as a shell spawned in a container or a sensitive file read."
-        why: "Events go to stdout and Alloy ships them to Loki. Dropping falcosidekick left one less component to run."
+        why: "Events go to stdout and Alloy ships them to Loki with nothing in between."
       - name: "Reloader"
         does: "Restarts a component when the ConfigMap it reads changes."
         why: "Scoped to ConfigMaps only. Secrets come from OpenBao and are read again from memory without restarts."
@@ -26,11 +26,11 @@ layers:
     parts:
       - name: "OpenBao"
         does: "Three pods on raft hold every component's secrets. Each pod logs in as its own service account and reads only its own path."
-        why: "An audit trail and rotating credentials without a paywall. External Secrets was rejected because it copies secrets into etcd."
+        why: "An audit trail and rotating credentials. Secrets reach pods as files in memory and never land in etcd."
         fails: "Running pods keep their secrets in memory and keep working. A new pod waits until OpenBao is back."
       - name: "Secrets Store CSI driver"
         does: "Mounts each pod's secrets as files in memory and refreshes them every two minutes."
-        why: "Built from reviewed upstream parts in days instead of a custom security product in months."
+        why: "Reviewed upstream parts. Each pod reads only its own secrets with its own identity."
   - name: "Data"
     parts:
       - name: "CloudNativePG"
@@ -48,10 +48,10 @@ layers:
     parts:
       - name: "Longhorn"
         does: "Replicated block storage with every volume encrypted with LUKS."
-        why: "Ceph was rejected. Longhorn already does block and shared volumes for far less to operate."
+        why: "Block and shared volumes on any node with little to operate."
       - name: "Garage"
         does: "S3 object storage for the backups and the logs. Three pods with three copies of every object."
-        why: "MinIO's community edition is unmaintained and its successor is paid. Ceph's gateway is heavy for an S3 only job."
+        why: "One small binary that only does S3. Garage copies every object to three nodes itself."
         fails: "No single pod holds the only copy so losing one loses nothing."
   - name: "Admission"
     parts:
@@ -76,8 +76,8 @@ layers:
     parts:
       - name: "RKE2"
         does: "Three control plane nodes with the CIS profile and audit logging and secrets encrypted in etcd."
-        why: "k3s was rejected. Audit and Pod Security and the CIS profile come built in."
+        why: "Audit and Pod Security and the CIS profile come built in."
       - name: "The bootstrap"
         does: "One Ansible run from empty machines to a verified tenant."
-        why: "No GitOps controller in the cluster. Write access to a repo it watches would equal cluster admin."
+        why: "Every change after the bootstrap is a reviewed diff applied by a person and recorded in the audit log."
 ---

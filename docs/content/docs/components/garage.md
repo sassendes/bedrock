@@ -5,7 +5,7 @@ weight: 4
 description: "S3 object storage inside the tenant: layout, buckets, keys and access."
 ---
 
-Garage v2.4.1 is a single binary that provides an S3 API. It replaces MinIO and Ceph RGW in bedrock.
+Garage v2.4.1 is a single binary that provides an S3 API.
 
 ## Shape
 

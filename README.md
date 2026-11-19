@@ -11,20 +11,7 @@
 
 ## Why
 
-Most platforms put many customers on one cluster and draw the lines with namespaces. Bedrock doesn't. A tenant is a full cluster with its own nodes, storage, databases, observability, policy and network edge, so one tenant's problem can never become another's. It targets regulated organisations that need to prove isolation, not promise it.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    G[genesis] --> F[fleet] --> P[provisioners] --> T[tenants]
-    style T stroke-width:3px
-```
-
-- **Tenant:** the workload cluster. This repository builds it today.
-- **Provisioner:** stamps tenants, owns their network edge, rolls upgrades across them. Planned.
-- **Fleet:** the control plane above the provisioners. Places them on providers and sites, holds the failure quorum. Planned.
-- **Genesis:** the sealed starting point the rest is rebuilt from. Planned.
+Most platforms put many customers on one cluster and draw the lines with namespaces. Bedrock doesn't. A tenant is a full cluster with its own nodes, storage, databases, observability and policy, so one tenant's problem can never become another's. It targets regulated organisations that need to prove isolation, not promise it.
 
 ## The tenant cluster
 

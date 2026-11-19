@@ -329,12 +329,12 @@ Each rule was written as a TLA+ model and checked with TLC before it was coded. 
 | `Instances` | Two instances signing as primary in two consecutive rounds page a split brain, a switchover does not |
 | `Pairs` | Two observers per node: two liars anywhere cannot vote a live database down |
 | `Halt` | A stalled verifier with a recovered database never leads to a fence |
-| `Promotion` | Sign after commit, the CloudNativePG minute, the instance pin, the stuck write page. No run ever waits for a person. It still models catch-up as a fixed window; the rule in the code, waiting while replay moves, is checked in `Candidate` |
+| `Promotion` | Sign after commit, the CloudNativePG minute, the instance pin, the stuck write page. No run ever waits for a person. Catch-up is modelled here as a fixed window; the rule in the code, waiting while replay moves, is checked in `Candidate` |
 | `Candidate` | Only a ready live replica with no apply delay is promoted, and only what the verifier checked. Fence, promote and flip are bound to the approval. A candidate is never promoted while its replay could still move |
 | `HalfFence` | The run is saved as fencing before the fence starts, so a half done fence is never orphaned |
 | `Signer` | A signature counts for the cluster it names, never a sibling sharing the system identifier |
 | `Decider` | The claim steps, and a force deleted pod on a node that comes back never leaves two primaries |
-| `Exchange`, `Fallback` | The observer exchange, and the earlier fallback design, which the checker replaced |
+| `Exchange`, `Fallback` | The observer exchange, and how observers hand over when quorum is lost |
 
 ## What it does not do
 

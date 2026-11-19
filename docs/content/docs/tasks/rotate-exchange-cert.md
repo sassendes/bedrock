@@ -38,4 +38,4 @@ bedrock_observer_exchange_cert_expiry_timestamp_seconds
 
 ## When the authority itself expires
 
-The playbook refuses to sign a leaf that would outlive the authority. Replacing the authority means every observer has to trust the new one before any presents a leaf from it. Until a playbook does that, run the bootstrap's two exchange tasks by hand on a fresh `~/.bedrock/failover/exchange` and restart both observer DaemonSets.
+The playbook refuses to sign a leaf that would outlive the authority. Replacing the authority means every observer has to trust the new one before any presents a leaf from it. To do it, run the bootstrap's two exchange tasks by hand on a fresh `~/.bedrock/failover/exchange` and restart both observer DaemonSets.

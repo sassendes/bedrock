@@ -5,7 +5,7 @@ weight: 7
 description: "Runtime threat detection on every node, and where its events go."
 ---
 
-Falco 0.44.1 watches system calls on every node and matches them against rules: a shell opening inside a container, a write to a sensitive path, an unexpected binary, an attempt to reach the host. It is hand written in `tenant-workload/observability/falco/falco.yaml`, without Helm and without falcosidekick.
+Falco 0.44.1 watches system calls on every node and matches them against rules: a shell opening inside a container, a write to a sensitive path, an unexpected binary, an attempt to reach the host. It is hand written in `tenant-workload/observability/falco/falco.yaml`.
 
 ## How it runs
 
@@ -36,4 +36,4 @@ To read the events themselves, see [check Falco events]({{< relref "/docs/tasks/
 
 ## What it does not do
 
-Falco watches system calls, not packets. Network flows are Hubble's job. Falco also only reports today: it does not stop a process or isolate a pod.
+Falco watches system calls, not packets. Network flows are Hubble's job. Falco only reports: it does not stop a process or isolate a pod.

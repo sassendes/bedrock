@@ -30,6 +30,6 @@ description: "Where each part of a tenant lives in the repository."
 
 ## Conventions
 
-- Every manifest is plain YAML applied by the bootstrap. There is no Helm. The only templates are Ansible's: `tenant-workload/database/replica/*.j2`, rendered by `make add-replica`, and `tenant-workload/bootstrap/rke2-config.yaml.j2`, the RKE2 configuration for every server.
+- Every manifest is plain YAML applied by the bootstrap. The only templates are Ansible's: `tenant-workload/database/replica/*.j2`, rendered by `make add-replica`, and `tenant-workload/bootstrap/rke2-config.yaml.j2`, the RKE2 configuration for every server.
 - YAML files carry no comments and Go code only a few. Explanations live in these docs.
 - `tenant-workload/bootstrap/hosts.example.ini` holds placeholders only. The real `hosts.ini` is listed in `.gitignore`, so it stays out of the repository.

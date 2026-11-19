@@ -5,7 +5,7 @@ weight: 11
 description: "Change a password or token that a platform component reads, and get the component to use it."
 ---
 
-Grafana, NATS, Valkey, Garage and the database application user get their secrets from OpenBao. The rest still live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Both kinds are read when a process starts, so changing one does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
+Grafana, NATS, Valkey, Garage and the database application user get their secrets from OpenBao. The rest live in `tenant-workload/secrets/` as plain Kubernetes Secrets. Both kinds are read when a process starts, so changing one does nothing until the pods that use it restart, and Reloader deliberately does not watch Secrets. The steps differ per component, because some also keep the old value in their own data.
 
 The bootstrap makes every OpenBao value once and keeps a copy on the controller in `~/.bedrock/`. Change the copy too, so a fresh install uses the new value.
 

@@ -3,7 +3,7 @@ aliases: ["/concepts/overview/"]
 title: "What bedrock is"
 linkTitle: "What bedrock is"
 weight: 1
-description: "The problem bedrock solves, who it is for and what it does today."
+description: "The problem bedrock solves, who it is for and what it does."
 ---
 
 bedrock is a production-grade Kubernetes platform for managed service providers (MSPs). An MSP runs IT for other organisations: clinics, law firms, small banks, local government. bedrock gives each of those organisations, called a **tenant**, a complete Kubernetes cluster of its own, already hardened, monitored and backed up.
@@ -38,6 +38,6 @@ The operator chooses **what** a tenant needs, such as which event buses it runs.
 
 bedrock is written for the people who operate it: the engineers at an MSP. A tenant's own developers see a normal Kubernetes cluster and deploy their applications into their own namespaces. They do not need to know how the platform underneath is wired.
 
-## What exists today
+## Scope
 
-The **tenant layer**, the cluster each tenant receives, is built, deploys from empty machines with one command and passes the CIS Kubernetes benchmark. These docs describe the tenant layer.
+These docs describe the **tenant layer**: the cluster each tenant receives. It deploys from empty machines with one command and passes the CIS Kubernetes benchmark.
