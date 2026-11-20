@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/sassendes/bedrock/actions/workflows/failover-image.yml"><img src="https://github.com/sassendes/bedrock/actions/workflows/failover-image.yml/badge.svg" alt="ci"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/sassendes/bedrock" alt="license"></a>
-  <a href="https://scorecard.dev/viewer/?uri=github.com/sassendes/bedrock"><img src="https://api.scorecard.dev/projects/github.com/sassendes/bedrock/badge" alt="openssf scorecard"></a>
+  <a href="https://bedrockctl.com/docs/"><img src="https://img.shields.io/badge/runs_on-RKE2-326ce5?logo=kubernetes&logoColor=white" alt="rke2"></a>
   <a href="reports/cis-1.9.pdf"><img src="https://img.shields.io/badge/CIS_1.9-passing-brightgreen" alt="cis 1.9"></a>
 </p>
 
