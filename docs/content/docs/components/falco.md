@@ -18,7 +18,7 @@ Falco 0.44.1 watches system calls on every node and matches them against rules: 
 | Priority class | `bedrock-data` |
 | Tolerations | All, so it runs on every node |
 
-The modern eBPF driver needs a kernel with BTF, which Debian 12's 6.1 kernel has, so nothing is compiled on the nodes.
+The modern eBPF driver needs a kernel with BTF, which most current distribution kernels ship, so nothing is compiled on the nodes.
 
 Falco runs at the data priority class because its events are evidence. On a full node, a lower class would be among the first pods evicted, leaving that node without detection exactly when it matters.
 

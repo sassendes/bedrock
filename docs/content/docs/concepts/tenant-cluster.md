@@ -11,7 +11,7 @@ A tenant cluster is a set of nodes running a fixed stack. Each layer builds on t
 
 ## Nodes and Kubernetes
 
-The nodes are plain Linux machines (Debian 12 in the reference setup). bedrock does not assume a hypervisor or a cloud. It needs SSH access with keys and passwordless sudo, nothing more.
+The nodes are plain Linux machines and bedrock needs 3 virtual machines minimum. bedrock does not assume a hypervisor or a cloud. It needs SSH access with keys and passwordless sudo, nothing more.
 
 Kubernetes is RKE2 with its CIS profile turned on, secrets encrypted at rest and an audit policy that records who did what at the API. Every node is a server, so etcd keeps a majority as long as most of the nodes are up.
 

@@ -77,7 +77,7 @@ Makefile                         deploy, teardown, add-replica, rotate-proof-key
 
 ## Running it
 
-Requirements: three Debian 12 nodes (4 vCPU, 12 GB RAM, 200 GB disk absolute minimum, more RAM with event buses), SSH key access, and a controller with Ansible.
+Requirements: 3 virtual machines minimum (4 vCPU, 12 GB RAM and 200 GB disk each, more RAM with event buses), SSH key access, and a controller with Ansible.
 
 ```sh
 sudo ./tenant-workload/bootstrap/dependencies/ansible_deps.sh
