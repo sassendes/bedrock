@@ -2,10 +2,10 @@
 aliases: ["/reference/resources/"]
 title: "Resources and priorities"
 weight: 10
-description: "CPU and memory requests and limits for every platform workload, and the priority class each runs at."
+description: "CPU and memory requests and limits for every bedrock workload, and the priority class each runs at."
 ---
 
-Every platform container has requests and limits. Requests are what the scheduler reserves; limits are the most the container can use before it is throttled, or killed for memory. Replica counts are left out, because they follow the number of nodes.
+Every bedrock container has requests and limits. Requests are what the scheduler reserves; limits are the most the container can use before it is throttled, or killed for memory. Replica counts are left out, because they follow the number of nodes.
 
 ## Priority classes
 
@@ -67,7 +67,7 @@ All run at `bedrock-data`.
 | Alloy | `alloy` | 50m, 128Mi | 500m, 256Mi |
 | node-exporter | `node-exporter` | 50m, 32Mi | 200m, 128Mi |
 
-## Platform
+## Reloader
 
 | Workload | Container | Requests | Limits |
 |---|---|---|---|

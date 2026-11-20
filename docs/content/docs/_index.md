@@ -33,4 +33,4 @@ cards:
     button: { name: "View reference", url: "/docs/reference/" }
 ---
 
-bedrock is a Kubernetes distribution for production workloads. One command turns bare machines into a cluster with its own storage and databases and observability and policy and network. These docs describe that cluster: what runs in it and why and how to operate it.
+bedrock is a Kubernetes cluster engine for production workloads. One command turns bare machines into a cluster with its own storage and databases and observability and policy and network. These docs describe that cluster: what runs in it and why and how to operate it.

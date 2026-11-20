@@ -46,7 +46,7 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as 
 | `CNPGStackedInstances` | warning | 15m | More than one instance of any database cluster runs on the same node |
 | `CNPGBackupTooOld` | critical | 10m | The last base backup is more than 8 hours old |
 
-## Platform
+## Cluster services
 
 | Alert | Severity | For | Fires when |
 |---|---|---|---|

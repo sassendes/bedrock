@@ -7,7 +7,7 @@ description: "The layers of a tenant cluster, from the nodes to the services, an
 
 A tenant cluster is a set of nodes running a fixed stack. Each layer builds on the one below it, and the order matters both when the cluster is installed and when something fails.
 
-{{< diagram "tenant-layers" "A tenant cluster from the machine upwards. Applications run in their own namespaces on top of the platform services." >}}
+{{< diagram "tenant-layers" "A tenant cluster from the machine upwards. Applications run in their own namespaces on top of bedrock's services." >}}
 
 ## Nodes and Kubernetes
 
@@ -17,7 +17,7 @@ Kubernetes is RKE2 with its CIS profile turned on, secrets encrypted at rest and
 
 ## Network
 
-Cilium is the network plugin. It replaces kube-proxy, so one component handles all service traffic, and it encrypts pod traffic between nodes with WireGuard. Every pod in every namespace starts with all traffic denied, and each flow the platform needs is allowed by name. Hubble records flows so that a blocked connection is visible. See [networking]({{< relref "networking" >}}).
+Cilium is the network plugin. It replaces kube-proxy, so one component handles all service traffic, and it encrypts pod traffic between nodes with WireGuard. Every pod in every namespace starts with all traffic denied, and each flow bedrock needs is allowed by name. Hubble records flows so that a blocked connection is visible. See [networking]({{< relref "networking" >}}).
 
 ## Admission
 

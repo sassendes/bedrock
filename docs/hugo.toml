@@ -16,8 +16,8 @@ noClasses = false
 
 [params]
 repo = "https://github.com/sassendes/bedrock"
-tagline = "A Kubernetes distribution for production workloads"
-description = "A Kubernetes distribution for production workloads. One command turns bare machines into a production cluster with databases that fail over on proof and secrets that never touch disk."
+tagline = "A Kubernetes cluster engine for production workloads"
+description = "A Kubernetes cluster engine for production workloads. One command turns bare machines into a production cluster with databases that fail over on proof and secrets that never touch disk."
 
 [[menu.main]]
 name = "Docs"

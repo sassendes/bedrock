@@ -55,7 +55,7 @@ The bootstrap refuses to run once a failover has happened, because it would turn
 | 6 | Kyverno, scaled to one admission replica per node, then its policies |
 | 7 | Longhorn, with its RBAC rewritten without wildcards |
 | 8 | CloudNativePG operator and prometheus-operator |
-| 9 | Longhorn encryption key and storage classes, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed. Then the Secrets Store CSI driver and the OpenBao CSI provider, the platform passwords made once on the controller, and OpenBao's kubernetes auth, the `apps` key value engine and one role per component. Then Garage and the bucket job, which read their secrets from OpenBao |
+| 9 | Longhorn encryption key and storage classes, then OpenBao: three pods on raft, initialized with 5 key shares and a threshold of 3, and unsealed. Then the Secrets Store CSI driver and the OpenBao CSI provider, the bedrock passwords made once on the controller, and OpenBao's kubernetes auth, the `apps` key value engine and one role per component. Then Garage and the bucket job, which read their secrets from OpenBao |
 | 10 | cluster-1, the failover functions and the proof key loaded into it, the observer password set from OpenBao, the `openbao` and `bedrock_app` roles handed to OpenBao's database engine, its first backup, the certificate sync, then cluster-2 and cluster-3 |
 | 11 | Poolers, scheduled backups and disruption budgets |
 | 12 | Event buses, if enabled |

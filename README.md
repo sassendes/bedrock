@@ -5,13 +5,13 @@
 <h1 align="center">bedrock</h1>
 
 <p align="center">
-  A Kubernetes distribution for production workloads.<br><br>
+  A Kubernetes cluster engine for production workloads.<br><br>
   <a href="https://bedrockctl.com"><b>Documentation</b></a>
 </p>
 
 ## Why
 
-Most platforms put many customers on one cluster and draw the lines with namespaces. Bedrock doesn't. A tenant is a full cluster with its own nodes, storage, databases, observability and policy, so one tenant's problem can never become another's. It targets regulated organisations that need to prove isolation, not promise it.
+Most hosting setups put many customers on one cluster and draw the lines with namespaces. Bedrock doesn't. A tenant is a full cluster with its own nodes, storage, databases, observability and policy, so one tenant's problem can never become another's. It targets regulated organisations that need to prove isolation, not promise it.
 
 ## The tenant cluster
 
@@ -47,7 +47,7 @@ flowchart TB
 - Default deny on every pod in every namespace. Each flow is allowed explicitly and pinned to the exact pods on both sides.
 - Layer 7 rules on every plain HTTP flow, written from each client's source code. No pod can silence an alert, delete logs or reach an admin API.
 - Nothing reaches the internet. No NodePorts, no LoadBalancers, and cluster DNS has no path outside the cluster.
-- Platform services run under the `restricted` Pod Security level. Only the node agents that need the host run privileged, in their own namespace.
+- Bedrock's own services run under the `restricted` Pod Security level. Only the node agents that need the host run privileged, in their own namespace.
 - Least-privilege RBAC: no wildcards, no component reading secrets it does not own, replicas read the primary's backups with a read-only key.
 - Postgres superuser login is off and every client connection must use TLS.
 - Every Longhorn volume is encrypted with LUKS and Kubernetes Secrets are encrypted in etcd.

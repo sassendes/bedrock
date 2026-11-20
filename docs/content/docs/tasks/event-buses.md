@@ -53,7 +53,7 @@ One pod per node, all `Running`. For Valkey use the `valkey` namespace and for K
 
 ## Let an application use it
 
-No platform component talks to the buses, so their network policies only admit traffic from their own namespace. When an application needs a bus, add an ingress rule to the bus's policy in `tenant-workload/netpols/event-buses.yaml` that names the application's pods, and an egress rule in the application's own policy that names the bus. Both sides have to allow the flow.
+No bedrock component talks to the buses, so their network policies only admit traffic from their own namespace. When an application needs a bus, add an ingress rule to the bus's policy in `tenant-workload/netpols/event-buses.yaml` that names the application's pods, and an egress rule in the application's own policy that names the bus. Both sides have to allow the flow.
 
 The bootstrap makes the NATS and Valkey passwords once and stores them in OpenBao. The pods read them as files through the Secrets Store CSI driver. An application reads the Valkey password at `apps/valkey/auth` and the NATS `app` user's password at `apps/nats/app`, through an OpenBao role of its own. Kafka's users are made by Strimzi.
 

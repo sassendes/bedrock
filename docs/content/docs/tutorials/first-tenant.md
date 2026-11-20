@@ -57,7 +57,7 @@ Each node should answer with `pong`.
 make deploy
 ```
 
-The bootstrap prepares the nodes, installs RKE2, then installs the platform layer by layer. Here is what each stage does:
+The bootstrap prepares the nodes, installs RKE2, then installs everything else layer by layer. Here is what each stage does:
 
 {{< diagram "bootstrap" "The order of the bootstrap. Each stage waits for the previous one to be ready." >}}
 

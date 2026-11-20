@@ -2,7 +2,7 @@
 aliases: ["/tasks/upgrade-component/"]
 title: "Upgrade a component"
 weight: 12
-description: "Move a platform component to a new version, keeping its image pinned by digest."
+description: "Move a bedrock component to a new version, keeping its image pinned by digest."
 ---
 
 Every image in the repository is pinned by tag and digest, and every bundle the bootstrap downloads is checked against a sha256 checksum. An upgrade changes both the version and its pin, so the cluster only ever runs exactly what was reviewed.
@@ -10,7 +10,7 @@ Every image in the repository is pinned by tag and digest, and every bundle the 
 ## Before you begin
 
 - Read the component's release notes for the versions between yours and the target. Some components, Longhorn among them, only support upgrading one minor version at a time.
-- Make sure the platform is healthy. Follow [verify a tenant]({{< relref "verify" >}}) first.
+- Make sure the tenant is healthy. Follow [verify a tenant]({{< relref "verify" >}}) first.
 
 ## Upgrade an image
 

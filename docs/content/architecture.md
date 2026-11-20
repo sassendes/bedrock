@@ -14,7 +14,7 @@ layers:
   - name: "Observability"
     parts:
       - name: "Prometheus and Alertmanager"
-        does: "Scrape every component and fire the alert rules that ship with the platform."
+        does: "Scrape every component and fire the alert rules that ship with bedrock."
         why: "Two Prometheus replicas spread across nodes. Alertmanager has no login of its own so only the network policy decides who reaches it."
       - name: "Loki and Tempo and Alloy"
         does: "Logs and traces. Alloy runs on every node and ships them in."
@@ -59,7 +59,7 @@ layers:
         does: "Admission policies written in CEL. Resource limits and the registry allowlist and the copies of each database's CA."
         why: "Policies are code in the repo and every image must be pinned by digest from an allowed registry."
       - name: "Pod Security"
-        does: "Platform services run at the restricted level. Only the node agents that need the host run privileged in their own namespace."
+        does: "bedrock's own services run at the restricted level. Only the node agents that need the host run privileged in their own namespace."
         why: "Built into Kubernetes with nothing extra to run."
       - name: "ValidatingAdmissionPolicy"
         does: "Gates every action of the failover controller inside the API server itself."
