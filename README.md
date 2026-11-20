@@ -9,6 +9,13 @@
   <a href="https://bedrockctl.com"><b>Documentation</b></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/sassendes/bedrock/actions/workflows/failover-image.yml"><img src="https://github.com/sassendes/bedrock/actions/workflows/failover-image.yml/badge.svg" alt="ci"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sassendes/bedrock" alt="license"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/sassendes/bedrock"><img src="https://api.scorecard.dev/projects/github.com/sassendes/bedrock/badge" alt="openssf scorecard"></a>
+  <a href="reports/cis-1.9.pdf"><img src="https://img.shields.io/badge/CIS_1.9-passing-brightgreen" alt="cis 1.9"></a>
+</p>
+
 ## Why
 
 Most hosting setups put many customers on one cluster and draw the lines with namespaces. Bedrock doesn't. A tenant is a full cluster with its own nodes, storage, databases, observability and policy, so one tenant's problem can never become another's. It targets regulated organisations that need to prove isolation, not promise it.
