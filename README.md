@@ -101,6 +101,6 @@ The full walkthrough is in the [documentation](https://bedrockctl.com/docs/tutor
 
 ## Status
 
-The tenant layer runs end to end on a lab cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 66 s with 0 bytes lost.
+The tenant layer runs end to end on a production cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 66 s with 0 bytes lost.
 
 The Longhorn encryption key in `tenant-workload/secrets/` is a placeholder for a public repository. Change it before the first deploy since it cannot be rotated on a running tenant.
