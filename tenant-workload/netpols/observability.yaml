@@ -1,10 +1,10 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: application
-  namespace: application
+  name: observability
+  namespace: observability
 specs:
-- description: every pod in application, deny by default
+- description: every pod in observability, deny by default
   endpointSelector: {}
   ingress:
   - fromEntities:
@@ -125,7 +125,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: falco
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: falco
         app: falco
     toPorts:
     - ports:
@@ -181,14 +181,14 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: bedrock-failover
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: bedrock-failover
     toPorts:
     - ports:
       - port: '9090'
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: longhorn-system
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: longhorn-system
         app: longhorn-manager
     toPorts:
     - ports:
@@ -196,7 +196,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: garage
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: garage
         app: garage
     toPorts:
     - ports:
@@ -212,7 +212,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: node-agents
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: node-agents
         app: alloy
     toPorts:
     - ports:
@@ -347,7 +347,7 @@ specs:
           path: '/api/prom/rules(/[^?]*)?(\?.*)?'
   - fromEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: node-agents
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: node-agents
         app: alloy
     toPorts:
     - ports:
@@ -402,7 +402,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: garage
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: garage
     toPorts:
     - ports:
       - port: '3900'
@@ -455,7 +455,7 @@ specs:
           path: '/metrics'
   - fromEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: node-agents
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: node-agents
         app: alloy
     toPorts:
     - ports:
@@ -468,7 +468,7 @@ specs:
   egress:
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: garage
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: garage
     toPorts:
     - ports:
       - port: '3900'
@@ -570,7 +570,7 @@ specs:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: garage
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: garage
     toPorts:
     - ports:
       - port: '3903'

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dash-k8s-namespaces
-  namespace: application
+  namespace: observability
   labels:
     grafana_dashboard: '1'
   annotations:

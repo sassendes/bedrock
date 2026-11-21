@@ -7,7 +7,8 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 
 | Namespace | Holds | Pod Security | Same-namespace traffic |
 |---|---|---|---|
-| `application` | Prometheus, Alertmanager, Grafana, Loki, Tempo, OpenCost, kube-state-metrics, blackbox exporter | restricted | Per component only |
+| `observability` | Prometheus, Alertmanager, Grafana, Loki, Tempo, OpenCost, kube-state-metrics, blackbox exporter | restricted | Per component only |
+| `application` | Created with the first tenant app. Holds the apps, the `postgres-rw` service and the `bedrock-app` service account | restricted | None |
 | `node-agents` | Alloy, node-exporter | privileged | None |
 | `cluster-1` | Primary PostgreSQL cluster and its pooler | restricted | Allowed |
 | `cluster-2` | Live replica cluster and its pooler | restricted | Allowed |
@@ -27,7 +28,13 @@ description: "Every namespace in a tenant, what it holds and its Pod Security le
 | `kafka` | Strimzi and Kafka, when enabled | restricted | Allowed |
 | `kube-system` | RKE2 components, Cilium, CoreDNS | set by RKE2 | Allowed |
 
-Default service accounts in every namespace have `automountServiceAccountToken: false`. Tenant applications get their own `restricted` namespaces and never run in `application`.
+Default service accounts in every namespace have `automountServiceAccountToken: false`. Tenant apps run in `application` and never next to the monitoring stack.
+
+## Namespace labels
+
+Every namespace bedrock creates carries `bedrockctl.com/role` set to its own name. Network policies name a peer in another namespace by this label and the pod's own labels. Moving a component to a new namespace means moving the role label with it.
+
+A namespace whose own policy limits the node to named ports carries `bedrockctl.com/host-limited: "true"`. The cluster-wide default deny leaves those namespaces out.
 
 ## Priority classes
 

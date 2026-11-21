@@ -86,4 +86,4 @@ These run only when turned on. All run at `bedrock-workload`.
 
 ## Changing a value
 
-Edit the `resources` block in the component's file and apply it. In `application` and `node-agents`, the `require-resource-limits` policy rejects any container without CPU and memory limits, so a limit can be changed but never removed.
+Edit the `resources` block in the component's file and apply it. In `observability`, `application` and `node-agents`, the `require-resource-limits` policy rejects any container without CPU and memory limits, so a limit can be changed but never removed.

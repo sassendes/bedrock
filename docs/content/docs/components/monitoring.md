@@ -5,7 +5,7 @@ weight: 6
 description: "Prometheus, Alertmanager, Loki, Alloy, Tempo, Grafana and OpenCost, and how each is configured."
 ---
 
-All monitoring components except the node agents run in the `application` namespace under the `restricted` Pod Security level.
+All monitoring components except the node agents run in the `observability` namespace under the `restricted` Pod Security level.
 
 ## Prometheus
 
@@ -65,7 +65,7 @@ Tempo 3.1.0, a single instance, storing traces in the `tempo-data` Garage bucket
 
 ## Grafana
 
-Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki and Tempo are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `application` only. The admin user is `admin` and its password comes from OpenBao through the Secrets Store CSI driver, as a file in memory that never becomes a Kubernetes Secret. Update checks, plugin checks and the news feed are turned off.
+Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki and Tempo are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `observability` only. The admin user is `admin` and its password comes from OpenBao through the Secrets Store CSI driver, as a file in memory that never becomes a Kubernetes Secret. Update checks, plugin checks and the news feed are turned off.
 
 ## OpenCost
 
@@ -76,5 +76,5 @@ OpenCost 1.121.3 estimates cost from resource use with fixed prices per core hou
 | Exporter | Version | Runs in |
 |---|---|---|
 | node-exporter | v1.12.1 | `node-agents`, as nobody with a read-only filesystem |
-| kube-state-metrics | v2.20.0 | `application`, with no access to Secrets |
-| blackbox exporter | v0.29.0 | `application` |
+| kube-state-metrics | v2.20.0 | `observability`, with no access to Secrets |
+| blackbox exporter | v0.29.0 | `observability` |

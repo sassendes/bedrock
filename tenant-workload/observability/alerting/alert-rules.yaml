@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: bedrock-alerts
-  namespace: application
+  namespace: observability
   labels:
     release: prometheus
 spec:
@@ -250,7 +250,7 @@ spec:
             severity: critical
           annotations:
             summary: "kyverno admission controller is down"
-            description: "no ready replicas: pods in application and node-agents, and pods using reserved priority classes, cannot be admitted until it returns."
+            description: "no ready replicas: pods in observability, application and node-agents, and pods using reserved priority classes, cannot be admitted until it returns."
     - name: meta.rules
       rules:
         - alert: Watchdog

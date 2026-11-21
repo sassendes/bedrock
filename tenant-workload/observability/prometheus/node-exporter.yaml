@@ -85,7 +85,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: node-exporter
-  namespace: application
+  namespace: observability
   labels:
     app: node-exporter
 spec:

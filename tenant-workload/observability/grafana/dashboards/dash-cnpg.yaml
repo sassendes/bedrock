@@ -7,4 +7,4 @@ metadata:
   labels:
     grafana_dashboard: "1"
   name: grafana-dash-cnpg
-  namespace: application
+  namespace: observability

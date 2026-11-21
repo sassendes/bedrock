@@ -2,7 +2,7 @@ apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: loki
-  namespace: application
+  namespace: observability
 spec:
   minAvailable: 2
   selector:

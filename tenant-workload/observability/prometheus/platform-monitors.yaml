@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: kyverno
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -19,7 +19,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: longhorn
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -36,11 +36,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: loki
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
-      - application
+      - observability
   selector:
     matchLabels:
       app: loki
@@ -53,11 +53,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: tempo
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
-      - application
+      - observability
   selector:
     matchLabels:
       app: tempo
@@ -70,7 +70,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: garage
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -87,7 +87,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: cnpg-operator
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -121,7 +121,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: etcd
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -138,7 +138,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: alloy
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -158,11 +158,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: prometheus
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
-      - application
+      - observability
   selector:
     matchLabels:
       operated-prometheus: "true"
@@ -175,11 +175,11 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: alertmanager
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
-      - application
+      - observability
   selector:
     matchLabels:
       operated-alertmanager: "true"
@@ -192,7 +192,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: apiserver
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:

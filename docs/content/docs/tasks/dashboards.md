@@ -21,10 +21,10 @@ Run the command for the dashboard you want and open the address in a browser. St
 
 | Dashboard | Command | Address |
 |---|---|---|
-| Grafana | `kubectl -n application port-forward svc/grafana 3000:3000` | `http://localhost:3000` |
-| Prometheus | `kubectl -n application port-forward svc/prometheus-operated 9090:9090` | `http://localhost:9090` |
-| Alertmanager | `kubectl -n application port-forward svc/alertmanager-operated 9093:9093` | `http://localhost:9093` |
-| OpenCost | `kubectl -n application port-forward svc/opencost-ui 9091:9090` | `http://localhost:9091` |
+| Grafana | `kubectl -n observability port-forward svc/grafana 3000:3000` | `http://localhost:3000` |
+| Prometheus | `kubectl -n observability port-forward svc/prometheus-operated 9090:9090` | `http://localhost:9090` |
+| Alertmanager | `kubectl -n observability port-forward svc/alertmanager-operated 9093:9093` | `http://localhost:9093` |
+| OpenCost | `kubectl -n observability port-forward svc/opencost-ui 9091:9090` | `http://localhost:9091` |
 | Hubble | `kubectl -n kube-system port-forward svc/hubble-ui 12000:80` | `http://localhost:12000` |
 | Longhorn | `kubectl -n longhorn-system port-forward svc/longhorn-frontend 8080:80` | `http://localhost:8080` |
 
@@ -43,8 +43,8 @@ The Longhorn and Hubble interfaces have no login of their own, and the Longhorn 
 Each forward holds the terminal. To run them in the background and stop them together:
 
 ```sh
-kubectl -n application port-forward svc/grafana 3000:3000 &
-kubectl -n application port-forward svc/prometheus-operated 9090:9090 &
+kubectl -n observability port-forward svc/grafana 3000:3000 &
+kubectl -n observability port-forward svc/prometheus-operated 9090:9090 &
 wait
 ```
 

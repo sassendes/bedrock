@@ -13,8 +13,8 @@ All buckets are created by the `garage-init` Job in `tenant-workload/storage/gar
 |---|---|---|---|
 | `<cluster>-backups` | WAL archive and base backups of each database cluster | Read and write | `<cluster>-backups` in the cluster's namespace |
 | The primary's `<cluster>-backups` | Restoring the replica clusters from the primary's archive | Read only | `<primary>-backups-ro` in each replica's namespace |
-| `loki-data` | Loki chunks and index | Read and write | `loki-data` in `application` |
-| `tempo-data` | Tempo trace blocks | Read and write | `tempo-data` in `application` |
+| `loki-data` | Loki chunks and index | Read and write | `loki-data` in `observability` |
+| `tempo-data` | Tempo trace blocks | Read and write | `tempo-data` in `observability` |
 
 With the clusters in the repository, that means one `-backups` bucket per database cluster, plus `cluster-1-backups-ro` handed to each replica cluster.
 

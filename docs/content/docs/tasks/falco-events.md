@@ -12,7 +12,7 @@ Falco writes each event as one line of JSON. They end up in Loki with the rest o
 Forward Grafana, open **Explore** and pick **Loki**:
 
 ```sh
-kubectl -n application port-forward svc/grafana 3000:3000
+kubectl -n observability port-forward svc/grafana 3000:3000
 ```
 
 All Falco events:

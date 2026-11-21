@@ -15,7 +15,7 @@ specs:
                 protocol: TCP
       - fromEndpoints:
           - matchLabels:
-              k8s:io.kubernetes.pod.namespace: application
+              k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: observability
               app.kubernetes.io/name: prometheus
         toPorts:
           - ports:

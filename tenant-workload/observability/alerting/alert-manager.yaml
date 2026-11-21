@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: Alertmanager
 metadata:
   name: alertmanager
-  namespace: application
+  namespace: observability
 spec:
   version: v0.33.1
   image: quay.io/prometheus/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
@@ -27,7 +27,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: alertmanager-config
-  namespace: application
+  namespace: observability
 type: Opaque
 stringData:
   alertmanager.yaml: |

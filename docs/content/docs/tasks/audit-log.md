@@ -10,7 +10,7 @@ The API server writes an audit event for every request it handles, at metadata l
 ## Open Loki in Grafana
 
 ```sh
-kubectl -n application port-forward svc/grafana 3000:3000
+kubectl -n observability port-forward svc/grafana 3000:3000
 ```
 
 Open `http://localhost:3000`, go to **Explore** and choose the **Loki** datasource.

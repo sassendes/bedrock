@@ -8,7 +8,7 @@ spec:
   ingress:
   - fromEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: observability
         app.kubernetes.io/name: prometheus
     toPorts:
     - ports:
@@ -31,7 +31,7 @@ spec:
         protocol: ANY
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: observability
         app: loki
     toPorts:
     - ports:
@@ -39,7 +39,7 @@ spec:
         protocol: TCP
   - toEndpoints:
     - matchLabels:
-        k8s:io.kubernetes.pod.namespace: application
+        k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: observability
         app: tempo
     toPorts:
     - ports:

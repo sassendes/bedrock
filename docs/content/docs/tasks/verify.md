@@ -79,7 +79,7 @@ Expect 85 checks passed and 1 failed (5.1.6). Any other failure is a regression.
 Forward Prometheus and open its alerts page:
 
 ```sh
-kubectl -n application port-forward svc/prometheus-operated 9090:9090
+kubectl -n observability port-forward svc/prometheus-operated 9090:9090
 ```
 
 At `http://localhost:9090/alerts`, only `Watchdog` should be firing.

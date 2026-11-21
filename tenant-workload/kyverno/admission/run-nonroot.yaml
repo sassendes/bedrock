@@ -16,6 +16,7 @@ spec:
           operator: In
           values:
             - application
+            - observability
     resourceRules:
       - apiGroups: [""]
         apiVersions: [v1]

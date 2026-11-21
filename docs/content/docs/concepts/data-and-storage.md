@@ -35,7 +35,7 @@ cluster-2 and cluster-3 are separate clusters, not extra instances. A problem th
 
 ## How applications connect
 
-Applications never connect to a database pod directly. They use `postgres-rw.application.svc:5432`, which points at cluster-1's PgBouncer pooler. If cluster-2 is promoted, that name is pointed at cluster-2's pooler and applications reconnect without a configuration change.
+Applications never connect to a database pod directly. They use `postgres-rw.application.svc:5432`, which arrives with the first tenant app and points at cluster-1's PgBouncer pooler. If cluster-2 is promoted, that name is pointed at cluster-2's pooler and applications reconnect without a configuration change.
 
 ## Backups
 

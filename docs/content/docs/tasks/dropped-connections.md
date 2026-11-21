@@ -18,7 +18,7 @@ kubectl -n kube-system exec ds/cilium -- hubble observe --verdict DROPPED --foll
 Each line shows the source pod, the destination, the port and the reason, for example:
 
 ```text
-application/grafana-57ff584b78-26hpw:41234 -> garage/garage-0:3900 policy-verdict:none INGRESS DENIED (TCP Flags: SYN)
+observability/grafana-57ff584b78-26hpw:41234 -> garage/garage-0:3900 policy-verdict:none INGRESS DENIED (TCP Flags: SYN)
 ```
 
 `INGRESS DENIED` means the receiver's policy does not allow the sender. `EGRESS DENIED` means the sender's own policy does not allow the destination.
@@ -29,7 +29,7 @@ Filter by namespace or pod to cut the noise:
 
 ```sh
 kubectl -n kube-system exec ds/cilium -- hubble observe --verdict DROPPED --namespace garage --last 50
-kubectl -n kube-system exec ds/cilium -- hubble observe --verdict DROPPED --pod application/loki-0 --last 50
+kubectl -n kube-system exec ds/cilium -- hubble observe --verdict DROPPED --pod observability/loki-0 --last 50
 ```
 
 ## Use the interface

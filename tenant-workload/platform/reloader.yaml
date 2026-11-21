@@ -32,7 +32,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: reloader
-  namespace: application
+  namespace: observability
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
@@ -48,7 +48,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: reloader
-  namespace: application
+  namespace: observability
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -116,7 +116,7 @@ spec:
         image: ghcr.io/stakater/reloader:v1.4.22@sha256:def2480040adc164b3a57340e77674eadfd88fb7f0593df25e93297f29c7fd7c
         imagePullPolicy: IfNotPresent
         args:
-        - --namespaces=application,node-agents
+        - --namespaces=observability,node-agents
         - --resources-to-ignore=secrets
         - --ignored-workload-types=jobs,cronjobs
         env:

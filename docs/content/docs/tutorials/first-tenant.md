@@ -111,7 +111,7 @@ Every check in the summary should pass except one, check 5.1.6, which is expecte
 Dashboards are not exposed outside the cluster. Forward Grafana's port to the controller:
 
 ```sh
-kubectl -n application port-forward svc/grafana 3000:3000
+kubectl -n observability port-forward svc/grafana 3000:3000
 ```
 
 Open `http://localhost:3000` and log in as `admin` with the password in `~/.bedrock/grafana-admin` on the controller. The node and database dashboards are already loaded.

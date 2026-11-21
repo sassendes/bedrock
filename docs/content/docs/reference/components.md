@@ -45,15 +45,15 @@ All images are pinned by digest in the repository. Upstream bundles are checked 
 | Component | Version | Namespace |
 |---|---|---|
 | prometheus-operator | v0.93.1 | `prometheus-operator` |
-| Prometheus | v3.13.1 | `application` |
-| Alertmanager | v0.33.1 | `application` |
-| Grafana | 13.2.4 | `application` |
-| k8s-sidecar | 2.14.1 | `application` |
-| Loki | 3.7.8 | `application` |
-| Tempo | 3.1.0 | `application` |
-| OpenCost | 1.121.3 | `application` |
-| kube-state-metrics | v2.20.0 | `application` |
-| blackbox exporter | v0.29.0 | `application` |
+| Prometheus | v3.13.1 | `observability` |
+| Alertmanager | v0.33.1 | `observability` |
+| Grafana | 13.2.4 | `observability` |
+| k8s-sidecar | 2.14.1 | `observability` |
+| Loki | 3.7.8 | `observability` |
+| Tempo | 3.1.0 | `observability` |
+| OpenCost | 1.121.3 | `observability` |
+| kube-state-metrics | v2.20.0 | `observability` |
+| blackbox exporter | v0.29.0 | `observability` |
 | Alloy | v1.20.1 | `node-agents` |
 | node-exporter | v1.12.1 | `node-agents` |
 

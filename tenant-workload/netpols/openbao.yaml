@@ -53,7 +53,7 @@ specs:
     ingress:
       - fromEndpoints:
           - matchLabels:
-              k8s:io.kubernetes.pod.namespace: secrets-store
+              k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: secrets-store
               app.kubernetes.io/name: openbao-csi-provider
         toPorts:
           - ports:

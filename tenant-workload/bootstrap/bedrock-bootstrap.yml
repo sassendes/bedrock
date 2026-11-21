@@ -743,7 +743,7 @@
             printf "$3" | bao policy write "$1" - >/dev/null
             bao write "auth/kubernetes/role/$1" bound_service_account_names="$1" bound_service_account_namespaces="$2" audience=openbao policies="$1" token_ttl=10m token_max_ttl=30m >/dev/null
           }
-          role grafana application 'path "apps/data/grafana/*" {\n  capabilities = ["read"]\n}\n'
+          role grafana observability 'path "apps/data/grafana/*" {\n  capabilities = ["read"]\n}\n'
           role valkey valkey 'path "apps/data/valkey/auth" {\n  capabilities = ["read"]\n}\n'
           role nats nats 'path "apps/data/nats/server" {\n  capabilities = ["read"]\n}\n'
           role garage garage 'path "apps/data/garage/rpc" {\n  capabilities = ["read"]\n}\npath "apps/data/garage/admin" {\n  capabilities = ["read"]\n}\n'
@@ -802,7 +802,7 @@
         - cluster-1
         - cluster-2
         - cluster-3
-        - application
+        - observability
 
     - name: Remove the old garage and NATS Secrets, both read their secrets from OpenBao now
       ansible.builtin.command: kubectl -n {{ item.ns }} delete secret {{ item.name }} --ignore-not-found
@@ -974,12 +974,6 @@
       retries: 10
       delay: 10
       changed_when: false
-
-    - name: The bedrock-app service account and its database credentials class
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig }}"
-        state: present
-        src: "{{ repo_root }}/database/app-credentials.yaml"
 
     - name: Take the first cluster-1 base backup (replicas bootstrap from it)
       kubernetes.core.k8s:
@@ -1202,7 +1196,7 @@
         src: "{{ repo_root }}/observability/grafana/grafana.yaml"
 
     - name: Remove the old grafana-admin Secret, Grafana reads its password from OpenBao now
-      ansible.builtin.command: kubectl -n application delete secret grafana-admin --ignore-not-found
+      ansible.builtin.command: kubectl -n observability delete secret grafana-admin --ignore-not-found
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
       changed_when: false

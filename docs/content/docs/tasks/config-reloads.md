@@ -9,7 +9,7 @@ Many programs read their configuration file once at startup. Updating the Config
 
 ## Before you begin
 
-Reloader watches the `application` and `node-agents` namespaces, and only ConfigMaps. It ignores Secrets on purpose.
+Reloader watches the `observability`, `application` and `node-agents` namespaces, and only ConfigMaps. It ignores Secrets on purpose.
 
 ## Add the annotation
 
@@ -20,7 +20,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: blackbox-exporter
-  namespace: application
+  namespace: observability
   annotations:
     configmap.reloader.stakater.com/reload: "blackbox-exporter"
 ```
@@ -38,8 +38,8 @@ kubectl apply -f tenant-workload/observability/prometheus/blackbox-exporter.yaml
 Change a value in the ConfigMap, then watch the pods:
 
 ```sh
-kubectl -n application edit configmap blackbox-exporter
-kubectl -n application get pods -l app=blackbox-exporter -w
+kubectl -n observability edit configmap blackbox-exporter
+kubectl -n observability get pods -l app=blackbox-exporter -w
 ```
 
 A new pod starts within a few seconds and the old one is removed. Changing only the ConfigMap's metadata, such as a label, does not trigger a restart, because Reloader compares the data.
@@ -53,8 +53,8 @@ Reloader only has permissions in the namespaces it watches. To add one, add the 
 | Workload | Namespace | ConfigMap |
 |---|---|---|
 | Alloy | `node-agents` | `alloy-config` |
-| Loki | `application` | `loki-config` |
-| Tempo | `application` | `tempo-config` |
-| Blackbox exporter | `application` | `blackbox-exporter` |
+| Loki | `observability` | `loki-config` |
+| Tempo | `observability` | `tempo-config` |
+| Blackbox exporter | `observability` | `blackbox-exporter` |
 
 Prometheus and Alertmanager are not annotated, because their operator already reloads them.

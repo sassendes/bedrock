@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: tempo-config
-  namespace: application
+  namespace: observability
 data:
   tempo.yaml: |
     stream_over_http_enabled: true
@@ -53,7 +53,7 @@ metadata:
   name: tempo
   annotations:
     configmap.reloader.stakater.com/reload: "tempo-config"
-  namespace: application
+  namespace: observability
   labels:
     app: tempo
 spec:
@@ -154,7 +154,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: tempo
-  namespace: application
+  namespace: observability
   labels:
     app: tempo
 spec:

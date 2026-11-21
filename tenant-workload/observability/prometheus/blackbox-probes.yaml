@@ -2,51 +2,34 @@ apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
   name: bedrock-http
-  namespace: application
+  namespace: observability
 spec:
   interval: 30s
   module: http_2xx
   prober:
-    url: blackbox-exporter.application.svc:9115
+    url: blackbox-exporter.observability.svc:9115
   targets:
     staticConfig:
       labels:
         probe_group: http
       static:
-        - http://grafana.application.svc:3000/api/health
-        - http://loki.application.svc:3100/ready
-        - http://alertmanager-operated.application.svc:9093/-/healthy
-        - http://prometheus-operated.application.svc:9090/-/healthy
+        - http://grafana.observability.svc:3000/api/health
+        - http://loki.observability.svc:3100/ready
+        - http://alertmanager-operated.observability.svc:9093/-/healthy
+        - http://prometheus-operated.observability.svc:9090/-/healthy
         - http://garage.garage.svc:3903/health
-        - http://tempo.application.svc:3200/ready
----
-apiVersion: monitoring.coreos.com/v1
-kind: Probe
-metadata:
-  name: bedrock-postgres
-  namespace: application
-spec:
-  interval: 30s
-  module: tcp_connect
-  prober:
-    url: blackbox-exporter.application.svc:9115
-  targets:
-    staticConfig:
-      labels:
-        probe_group: postgres
-      static:
-        - postgres-rw.application.svc:5432
+        - http://tempo.observability.svc:3200/ready
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe
 metadata:
   name: bedrock-tls
-  namespace: application
+  namespace: observability
 spec:
   interval: 5m
   module: tls_connect
   prober:
-    url: blackbox-exporter.application.svc:9115
+    url: blackbox-exporter.observability.svc:9115
   targets:
     staticConfig:
       labels:

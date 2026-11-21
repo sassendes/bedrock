@@ -51,7 +51,8 @@ Components are grouped by what they need, not by product. The rule is that a nam
 
 | Namespace | Holds | Pod Security |
 |---|---|---|
-| `application` | Prometheus, Alertmanager, Grafana, Loki, Tempo, OpenCost, exporters | restricted |
+| `observability` | Prometheus, Alertmanager, Grafana, Loki, Tempo, OpenCost, exporters | restricted |
+| `application` | Tenant apps and `postgres-rw`, created with the first tenant app | restricted |
 | `node-agents` | Alloy and node-exporter, which read from the host | privileged |
 | `cluster-1`, `cluster-2`, `cluster-3` | The PostgreSQL clusters and their poolers | restricted |
 | `bedrock-failover` | The failover controller | restricted |

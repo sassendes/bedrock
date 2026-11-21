@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   name: cluster-1
   labels:
+    bedrockctl.com/role: cluster-1
     bedrockctl.com/database: "true"
     bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
@@ -13,6 +14,7 @@ kind: Namespace
 metadata:
   name: cluster-2
   labels:
+    bedrockctl.com/role: cluster-2
     bedrockctl.com/database: "true"
     bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
@@ -23,6 +25,7 @@ kind: Namespace
 metadata:
   name: cluster-3
   labels:
+    bedrockctl.com/role: cluster-3
     bedrockctl.com/database: "true"
     bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted
@@ -31,9 +34,10 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: application
+  name: observability
   labels:
-    bedrockctl.com/failover-scope: "true"
+    bedrockctl.com/role: observability
+    bedrockctl.com/host-limited: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -42,6 +46,8 @@ kind: Namespace
 metadata:
   name: node-agents
   labels:
+    bedrockctl.com/role: node-agents
+    bedrockctl.com/host-limited: "true"
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -50,6 +56,7 @@ kind: Namespace
 metadata:
   name: longhorn-system
   labels:
+    bedrockctl.com/role: longhorn-system
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -58,6 +65,8 @@ kind: Namespace
 metadata:
   name: garage
   labels:
+    bedrockctl.com/role: garage
+    bedrockctl.com/host-limited: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -66,6 +75,8 @@ kind: Namespace
 metadata:
   name: openbao
   labels:
+    bedrockctl.com/role: openbao
+    bedrockctl.com/host-limited: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -74,6 +85,7 @@ kind: Namespace
 metadata:
   name: secrets-store
   labels:
+    bedrockctl.com/role: secrets-store
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -82,6 +94,7 @@ kind: Namespace
 metadata:
   name: nats
   labels:
+    bedrockctl.com/role: nats
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -90,6 +103,7 @@ kind: Namespace
 metadata:
   name: valkey
   labels:
+    bedrockctl.com/role: valkey
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -98,6 +112,7 @@ kind: Namespace
 metadata:
   name: kafka
   labels:
+    bedrockctl.com/role: kafka
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -106,6 +121,7 @@ kind: Namespace
 metadata:
   name: prometheus-operator
   labels:
+    bedrockctl.com/role: prometheus-operator
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -114,6 +130,8 @@ kind: Namespace
 metadata:
   name: reloader
   labels:
+    bedrockctl.com/role: reloader
+    bedrockctl.com/host-limited: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/warn: restricted
 ---
@@ -142,7 +160,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: default
-  namespace: application
+  namespace: observability
 automountServiceAccountToken: false
 ---
 apiVersion: v1

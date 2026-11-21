@@ -167,30 +167,6 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: bedrock-decider-flip
-  namespace: application
-rules:
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: bedrock-decider-flip
-  namespace: application
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: bedrock-decider-flip
-subjects:
-  - kind: ServiceAccount
-    name: bedrock-decider
-    namespace: bedrock-failover
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
   name: bedrock-checker
   namespace: bedrock-failover
 rules:

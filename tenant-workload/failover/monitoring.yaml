@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: bedrock-failover
-  namespace: application
+  namespace: observability
 spec:
   namespaceSelector:
     matchNames:
@@ -19,7 +19,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: bedrock-failover
-  namespace: application
+  namespace: observability
   labels:
     release: prometheus
 spec:

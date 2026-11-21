@@ -28,13 +28,13 @@ Every image in the repository is pinned by tag and digest, and every bundle the 
    image: grafana/loki:<new tag>@sha256:<digest>
    ```
 
-3. Check that the registry is allowed. Images in `application`, `node-agents` and `reloader` must come from a publisher in the [registry allowlist]({{< relref "image-publishers" >}}). A new version from the same publisher is already allowed.
+3. Check that the registry is allowed. Images in `observability`, `application`, `node-agents` and `reloader` must come from a publisher in the [registry allowlist]({{< relref "image-publishers" >}}). A new version from the same publisher is already allowed.
 
 4. Apply the file and wait for the rollout:
 
    ```sh
    kubectl apply -f tenant-workload/observability/loki/loki.yaml
-   kubectl -n application rollout status statefulset/loki
+   kubectl -n observability rollout status statefulset/loki
    ```
 
 The same steps work for the PostgreSQL image, `imageName` in the database cluster files. CloudNativePG restarts the replicas first and then switches over the primary, because `primaryUpdateStrategy` is `unsupervised`. A minor PostgreSQL version can be changed this way; a major version needs a new cluster.

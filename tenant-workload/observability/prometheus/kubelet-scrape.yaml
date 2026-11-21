@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: kubelet
-  namespace: application
+  namespace: observability
   labels:
     app: kubelet
 spec:

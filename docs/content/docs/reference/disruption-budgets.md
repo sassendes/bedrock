@@ -15,8 +15,8 @@ Every budget in bedrock allows one pod down at a time. Each one is written as a 
 | `garage` | `garage` | Garage, `minAvailable: 2` | `tenant-workload/storage/garage/garage.yaml` |
 | `openbao` | `openbao` | OpenBao, `minAvailable: 2` | `tenant-workload/openbao/openbao.yaml` |
 | `bedrock-decider` | `bedrock-failover` | The two deciders, `minAvailable: 1` | `tenant-workload/failover/decider.yaml` |
-| `prometheus` | `application` | Prometheus | `tenant-workload/observability/prometheus/prometheus.yaml` |
-| `loki` | `application` | Loki | `tenant-workload/observability/loki/loki-pdb.yaml` |
+| `prometheus` | `observability` | Prometheus | `tenant-workload/observability/prometheus/prometheus.yaml` |
+| `loki` | `observability` | Loki | `tenant-workload/observability/loki/loki-pdb.yaml` |
 | `<cluster>-pooler-rw` | each database namespace | That cluster's PgBouncer pooler | `tenant-workload/database/pooler.yaml` |
 | `nats` | `nats` | NATS | `tenant-workload/event-buses/nats.yaml` |
 | `valkey` | `valkey` | Valkey | `tenant-workload/event-buses/valkey.yaml` |

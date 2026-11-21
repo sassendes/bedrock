@@ -88,7 +88,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: garage-init
-  namespace: application
+  namespace: observability
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -134,7 +134,7 @@ data:
       V=$(api "$A/GetClusterLayout" | jq -r '.version')
       api -X POST "$A/ApplyClusterLayout" -d "{\"version\":$((V+1))}" >/dev/null
     fi
-    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:application tempo-data:application; do
+    for pair in cluster-1-backups:cluster-1 cluster-2-backups:cluster-2 cluster-3-backups:cluster-3 loki-data:observability tempo-data:observability; do
       B=${pair%%:*}
       NS=${pair##*:}
       if kubectl -n "$NS" get secret "$B" >/dev/null 2>&1; then continue; fi

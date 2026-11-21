@@ -54,7 +54,7 @@ The replicas need cluster-1's CA and replication certificate in their own namesp
 
 Each cluster has a PgBouncer `Pooler` with more than one instance in transaction mode, `max_client_conn` 1000 and `default_pool_size` 25, and a disruption budget that keeps one running. Each pooler pod requests 50m and 64 MiB, with limits of 500m and 256 MiB, so it is never a best effort pod in the write path. The poolers on cluster-2 and cluster-3 stay ready but only accept writes once their cluster is promoted.
 
-`postgres-rw.application.svc` is an `ExternalName` service pointing at the active pooler. Promotion changes only where it points.
+`postgres-rw.application.svc` is an `ExternalName` service pointing at the active pooler. Promotion changes only where it points. It arrives with the first tenant app.
 
 ## Backups
 
@@ -95,5 +95,5 @@ OpenBao connects with `sslmode=verify-full`, so it checks both the certificate a
 
 The connection string is built from every namespace labelled `bedrockctl.com/database`. `make add-replica` waits for the new replica's CA in the bundle, then rewrites the connection string with the new cluster in it. OpenBao keeps the stored password when only the connection string changes.
 
-An application mounts the `bedrock-app-db` SecretProviderClass in `application` with the `bedrock-app` service account, and reads `username` and `password` from the files. It should read the files again each time it opens a connection.
+An application mounts the `bedrock-app-db` SecretProviderClass in `application` with the `bedrock-app` service account. Both arrive with the first tenant app. The app reads `username` and `password` from the files. It should read the files again each time it opens a connection.
 

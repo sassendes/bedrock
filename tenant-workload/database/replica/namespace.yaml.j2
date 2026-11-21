@@ -3,6 +3,7 @@ kind: Namespace
 metadata:
   name: {{ replica }}
   labels:
+    bedrockctl.com/role: {{ replica }}
     bedrockctl.com/database: "true"
     bedrockctl.com/failover-scope: "true"
     pod-security.kubernetes.io/enforce: restricted

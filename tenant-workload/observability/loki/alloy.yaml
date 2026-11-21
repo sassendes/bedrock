@@ -84,7 +84,7 @@ data:
 
     loki.write "default" {
       endpoint {
-        url = "http://loki.application.svc:3100/loki/api/v1/push"
+        url = "http://loki.observability.svc:3100/loki/api/v1/push"
       }
     }
 
@@ -108,7 +108,7 @@ data:
 
     otelcol.exporter.otlp "tempo" {
       client {
-        endpoint = "tempo.application.svc:4317"
+        endpoint = "tempo.observability.svc:4317"
         tls {
           insecure = true
         }
