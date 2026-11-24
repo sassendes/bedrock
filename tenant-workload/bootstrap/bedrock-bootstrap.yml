@@ -246,8 +246,8 @@
     kafka_enabled: false
     failover_enabled: true
     failover_dir: "{{ lookup('env', 'HOME') }}/.bedrock/failover"
-    failover_deploy: "{{ repo_root }}/failover"
-    failover_sql: "{{ playbook_dir }}/../../failover-controller/observe/heartbeat.sql"
+    failover_deploy: "{{ repo_root }}/failover/failover-basic"
+    failover_sql: "{{ playbook_dir }}/../../failover/failover-basic/observe/heartbeat.sql"
   tasks:
     - name: Wait for Kubernetes API to answer
       tags: [always]

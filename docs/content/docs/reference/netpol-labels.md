@@ -29,9 +29,9 @@ These labels pick which pods a rule applies to.
 | `secrets-store` | `app: csi-secrets-store` | The CSI driver | `secrets-store.yaml` |
 | `secrets-store` | `app.kubernetes.io/name: openbao-csi-provider` | The OpenBao CSI provider | `secrets-store.yaml` |
 | `kube-system` | `k8s-app: kube-dns` | CoreDNS | `kube-system.yaml` |
-| `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Both observer DaemonSets | `tenant-workload/failover/netpol.yaml` |
-| `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | The verifier | `tenant-workload/failover/netpol.yaml` |
-| `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | The checker | `tenant-workload/failover/netpol.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-observer` | Both observer DaemonSets | `tenant-workload/failover/failover-basic/netpol.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-verifier` | The verifier | `tenant-workload/failover/failover-basic/netpol.yaml` |
+| `bedrock-failover` | `app.kubernetes.io/name: bedrock-checker` | The checker | `tenant-workload/failover/failover-basic/netpol.yaml` |
 
 The other namespaces apply one policy to every pod in them, so their pods need no particular label.
 

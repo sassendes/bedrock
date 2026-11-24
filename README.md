@@ -69,13 +69,14 @@ tenant-workload/platform/        reloader, namespaces, priority classes
 tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
 tenant-workload/kyverno/         admission policies and the database CA syncs
 tenant-workload/database/        CloudNativePG clusters, poolers, backups, the add-replica templates
-tenant-workload/failover/        the failover controller: deployment, admission, network policy, alerts
+tenant-workload/failover/        the failover controllers: deployment, admission, network policy, alerts
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
 tenant-workload/event-buses/     NATS, Valkey, Kafka
 tenant-workload/openbao/         OpenBao, three pods on raft
 tenant-workload/secrets/         the placeholder Longhorn encryption key
-failover-controller/             the failover controller: Go code, Dockerfile, TLA+ models
+failover/failover-basic/         the failover controller: Go code, Dockerfile, TLA+ models
+failover/failover-full/          failoverd: TLA+ models
 .github/workflows/               builds the failover controller image
 docs/                            the documentation site
 reports/                         the CIS benchmark report

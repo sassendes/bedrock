@@ -40,7 +40,7 @@ Files are in `tenant-workload/kyverno/`.
 - `bedrock-data` is used outside `falco`, `bedrock-failover` and namespaces labelled `bedrockctl.com/database: "true"`
 - `system-cluster-critical` or `system-node-critical` is used outside `kube-system` and `kyverno`
 
-The failover controller adds seven more in `tenant-workload/failover/admission.yaml`. They decide what the observers, the verifier, the checker and the decider may write, and they are described on the [failover controller]({{< relref "/docs/components/failover" >}}) page.
+The failover controller adds seven more in `tenant-workload/failover/failover-basic/admission.yaml`. They decide what the observers, the verifier, the checker and the decider may write, and they are described on the [failover controller]({{< relref "/docs/components/failover" >}}) page.
 
 `bedrock-openbao-db-ca-writers` in `tenant-workload/kyverno/generate/openbao-ca-sync.yaml` lets no workload but Kyverno's background controller write a `db-ca-*` ConfigMap in `openbao`. OpenBao trusts those CAs when it connects to PostgreSQL, so a foreign CA there would let a fake server pass as the database.
 

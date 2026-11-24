@@ -13,8 +13,8 @@ It does this only on proof. Postgres proves it is alive by signing a challenge. 
 |---|---|
 | Namespace | `bedrock-failover` |
 | Image | `ghcr.io/sassendes/bedrock-failover`, one image with four binaries, pinned by digest |
-| Code | `failover-controller/`, Go, with TLA+ models in `failover-controller/model/` |
-| Manifests | `tenant-workload/failover/` |
+| Code | `failover/failover-basic/`, Go, with TLA+ models in `failover/failover-basic/model/` |
+| Manifests | `tenant-workload/failover/failover-basic/` |
 | Deployed by | The bootstrap, when `failover_enabled` is true (the default) |
 | Priority class | `bedrock-data` |
 
@@ -51,7 +51,7 @@ A signature is valid only if it covers this round's challenge, names the observe
 | Login refused (wrong password or a `pg_hba` reject) | Refused with SQLSTATE class 28 | No | Abstain. Postgres answered, so it is alive. The observer never asks the others |
 | Not reachable | No connection | No | Asks the other observers first |
 
-The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover-controller/observe/heartbeat.sql`, in their own `bedrock` schema owned by the superuser. They are not in `public` on purpose: the application user owns its database, and with it the `public` schema, so it could drop anything there and blind the controller. The bootstrap loads them into the cluster-1 primary on every deploy and moves any older copy out of `public`. The replica clusters receive them through replication.
+The heartbeat table, the key table, `bedrock_prove` and `bedrock_receiver` are in `failover/failover-basic/observe/heartbeat.sql`, in their own `bedrock` schema owned by the superuser. They are not in `public` on purpose: the application user owns its database, and with it the `public` schema, so it could drop anything there and blind the controller. The bootstrap loads them into the cluster-1 primary on every deploy and moves any older copy out of `public`. The replica clusters receive them through replication.
 
 The observers and the verifier read the observer password from OpenBao through the Secrets Store CSI driver and read the file again on every connection, so a changed password is picked up without a restart. See [rotate a secret]({{< relref "/docs/tasks/rotate-secret" >}}).
 
@@ -182,7 +182,7 @@ Writes made in the last seconds before cluster-1 died, after the last signature,
 
 ## Admission
 
-The decider has the permissions to fence and promote. Admission decides when it may use them. The policies are ValidatingAdmissionPolicies in `tenant-workload/failover/admission.yaml` and run inside the API server.
+The decider has the permissions to fence and promote. Admission decides when it may use them. The policies are ValidatingAdmissionPolicies in `tenant-workload/failover/failover-basic/admission.yaml` and run inside the API server.
 
 | Policy | Rule |
 |---|---|
@@ -235,7 +235,7 @@ A primary that answers but cannot commit is not proven dead: the replicas, the i
 
 | Secret | Used by | Source |
 |---|---|---|
-| `apps/failover/observer` in OpenBao | Observers, verifier | Mounted through the SecretProviderClasses `bedrock-observer-pg` and `bedrock-verifier-pg` (`tenant-workload/failover/openbao-secrets.yaml`) |
+| `apps/failover/observer` in OpenBao | Observers, verifier | Mounted through the SecretProviderClasses `bedrock-observer-pg` and `bedrock-verifier-pg` (`tenant-workload/failover/failover-basic/openbao-secrets.yaml`) |
 | `bedrock-proof-keys` | Verifier | Created by the bootstrap from `~/.bedrock/failover/proof-keys` on the controller machine |
 | `bedrock-observer-exchange` | Observers | Created by the bootstrap from a CA and certificate generated once in `~/.bedrock/failover/exchange` |
 
@@ -243,7 +243,7 @@ The proof key is generated once on the controller machine and never leaves it ex
 
 ## Network
 
-`tenant-workload/failover/netpol.yaml` covers the namespace. The database namespaces allow the matching ingress.
+`tenant-workload/failover/failover-basic/netpol.yaml` covers the namespace. The database namespaces allow the matching ingress.
 
 | From | To | Port |
 |---|---|---|
@@ -299,7 +299,7 @@ kubectl -n cluster-1 annotate cluster cluster-1 bedrockctl.com/failover-pause-
 
 ## Monitoring
 
-All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns 503 when the last good round is older than about three intervals, so a part that hangs is restarted. A PodMonitor in `tenant-workload/failover/monitoring.yaml` scrapes them, and the same file holds the alerts, listed in [alert rules]({{< relref "/docs/reference/alerts" >}}).
+All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns 503 when the last good round is older than about three intervals, so a part that hangs is restarted. A PodMonitor in `tenant-workload/failover/failover-basic/monitoring.yaml` scrapes them, and the same file holds the alerts, listed in [alert rules]({{< relref "/docs/reference/alerts" >}}).
 
 | Metric | Meaning |
 |---|---|
@@ -319,7 +319,7 @@ All four parts serve `/metrics` and `/healthz` on port 9090. `/healthz` returns 
 
 ## Model checking
 
-Each rule was written as a TLA+ model and checked with TLC before it was coded. The models are in `failover-controller/model/`. Every rule has a variant with the rule removed that TLC must break, and canaries that prove the good paths are reached.
+Each rule was written as a TLA+ model and checked with TLC before it was coded. The models are in `failover/failover-basic/model/`. Every rule has a variant with the rule removed that TLC must break, and canaries that prove the good paths are reached.
 
 | Model | Checks |
 |---|---|

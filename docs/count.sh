@@ -2,7 +2,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 tw=tenant-workload
-fc=failover-controller
+fc=failover/failover-basic
 alerts=$(grep -rhE '^\s*- alert:' $tw | wc -l)
 netpols=$(grep -rhE '^kind: Cilium(Clusterwide)?NetworkPolicy' $tw | wc -l)
 kyverno=$(grep -rhE '^kind: (Validating|Mutating|Generating)Policy' $tw | wc -l)

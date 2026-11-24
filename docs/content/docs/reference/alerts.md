@@ -87,7 +87,7 @@ Most rules live in `tenant-workload/observability/alerting/alert-rules.yaml` as 
 
 ## Failover
 
-These live in `tenant-workload/failover/monitoring.yaml`.
+These live in `tenant-workload/failover/failover-basic/monitoring.yaml`.
 
 | Alert | Severity | For | Fires when |
 |---|---|---|---|

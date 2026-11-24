@@ -4,13 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - failover-controller/**
+      - failover/failover-basic/**
       - Makefile
       - .github/workflows/failover-image.yml
       - tenant-workload/kyverno/admission/registry-allowlist.yaml
   pull_request:
     paths:
-      - failover-controller/**
+      - failover/failover-basic/**
       - .github/workflows/failover-image.yml
       - tenant-workload/kyverno/admission/registry-allowlist.yaml
   workflow_dispatch:
@@ -27,15 +27,15 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
-          go-version-file: failover-controller/go.mod
-          cache-dependency-path: failover-controller/go.sum
+          go-version-file: failover/failover-basic/go.mod
+          cache-dependency-path: failover/failover-basic/go.sum
       - name: the three registry allowlists carry the same pattern
         run: make check-allowlist
       - name: vet
-        working-directory: failover-controller
+        working-directory: failover/failover-basic
         run: go vet ./...
       - name: api server and etcd for the admission tests
-        working-directory: failover-controller
+        working-directory: failover/failover-basic
         run: |
           set -eu
           go install sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.25.2
@@ -47,7 +47,7 @@ jobs:
           test -x "$bin/initdb"
           echo "BEDROCK_PG_BIN=$bin" >> "$GITHUB_ENV"
       - name: test
-        working-directory: failover-controller
+        working-directory: failover/failover-basic
         run: go test ./...
 
   image:
@@ -71,5 +71,5 @@ jobs:
             echo "$image is already published. A tag is never rebuilt: bump FAILOVER_IMAGE in the Makefile to publish a change."
             exit 0
           fi
-          docker build -t "$image" failover-controller
+          docker build -t "$image" failover/failover-basic
           docker push "$image"

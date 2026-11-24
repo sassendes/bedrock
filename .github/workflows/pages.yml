@@ -6,7 +6,7 @@ on:
     paths:
       - docs/**
       - tenant-workload/**
-      - failover-controller/**
+      - failover/failover-basic/**
       - .github/workflows/pages.yml
   workflow_dispatch:
 

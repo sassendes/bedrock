@@ -17,12 +17,13 @@ description: "Where each part of a tenant lives in the repository."
 | `tenant-workload/database/replica/` | Templates `make add-replica` renders for a new live replica |
 | `tenant-workload/observability/` | Prometheus and exporters, Loki and Alloy, Tempo, Grafana and dashboards, alerting, OpenCost, Falco |
 | `tenant-workload/event-buses/` | NATS, Valkey and Kafka |
-| `tenant-workload/failover/` | The failover controller's deployment, admission policies, network policy and alerts |
+| `tenant-workload/failover/failover-basic/` | The failover controller's deployment, admission policies, network policy and alerts |
 | `tenant-workload/openbao/` | OpenBao: three pods on raft |
 | `tenant-workload/secrets-store/` | The Secrets Store CSI driver and the OpenBao CSI provider |
 | `tenant-workload/secrets/` | The placeholder Longhorn encryption key |
 | `tenant-workload/bootstrap/dependencies/` | Controller setup |
-| `failover-controller/` | The failover controller's Go code, its Dockerfile and its TLA+ models |
+| `failover/failover-basic/` | The failover controller's Go code, its Dockerfile and its TLA+ models |
+| `failover/failover-full/` | failoverd's TLA+ models |
 | `.github/workflows/` | Builds and publishes the failover controller's image |
 | `docs/` | This documentation site |
 | `reports/` | The CIS 1.9 self-assessment |
