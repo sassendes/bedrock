@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../../docs/static/images/logo.svg" width="96" alt="bedrock">
+<img src="https://raw.githubusercontent.com/sassendes/bedrock/main/docs/static/images/logo.svg" width="96" alt="bedrock">
 
 # failoverd
 
