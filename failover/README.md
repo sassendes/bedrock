@@ -2,12 +2,11 @@
 
 <img src="https://raw.githubusercontent.com/sassendes/bedrock/main/docs/static/images/logo.svg" width="96" alt="bedrock">
 
-# failoverd
+# failover
 
 **Cross cluster failover for CloudNativePG**
 
-[![TLA+](https://img.shields.io/badge/TLA%2B-23_models-2b2a27?style=flat-square&labelColor=151413)](model)
-[![TLC](https://img.shields.io/badge/TLC-135_configurations-2b2a27?style=flat-square&labelColor=151413)](model)
+[![TLA+](https://img.shields.io/badge/TLA%2B-23_models-2b2a27?style=flat-square&labelColor=151413)](failover-full/model)
 [![CloudNativePG](https://img.shields.io/badge/CloudNativePG-1.30-2b2a27?style=flat-square&labelColor=151413)](https://cloudnative-pg.io)
 [![License](https://img.shields.io/badge/license-Apache_2.0-2b2a27?style=flat-square&labelColor=151413)](https://github.com/sassendes/bedrock/blob/main/LICENSE)
 
@@ -15,21 +14,16 @@
 
 <br>
 
-failoverd moves a tenant's database to another CNPG cluster when the primary cluster can no longer write. CNPG handles failover inside a cluster. failoverd acts only when the whole cluster is gone and CNPG already had its chance.
+CNPG handles failover inside a cluster. This moves a tenant's database to another CNPG cluster when the whole primary cluster can no longer write.
 
-It is the second version of [`failover-basic`](../failover-basic) and keeps everything the first one proved.
+## [failover-basic](failover-basic)
 
-## How it decides
+Postgres commits a signed proof of life every round. Observers on every node check for it and vote. When a majority agrees the primary is gone, the decider fences it and promotes the live replica. Admission checks every write the decider makes. Tested live with RPO 0 and RTO 66 s.
 
-Observers on every node collect evidence. Each observer has a clerk in its pod that checks the evidence is real. The judge weighs the evidence and reaches a verdict. The bailiff checks the verdict and grants the decider its permissions for that one run. The decider fences the old primary and promotes the live replica with the highest LSN.
+## [failover-full](failover-full)
 
-## Rules it never breaks
+A superset of failover-basic with more complexity and more assurance. Evidence is graded from many independent viewpoints. A cut off primary fences itself. Every verdict passes through a clerk, a judge and a bailiff before the decider can act. Each part of the design is a TLA+ model checked with TLC.
 
-- It never promotes past a node it cannot reach.
-- It never fences a database that sent a fresh proof of life.
-- One run at a time.
-- No failback.
-
-## Models
-
-The design is model checked in TLA+ in [`model/`](model). Run them with `./model/run.sh`.
+```sh
+./failover-full/model/run.sh
+```
