@@ -15,7 +15,7 @@ check-allowlist:
 	@f=tenant-workload/kyverno/admission/registry-allowlist.yaml; n=$$(grep -c "p.matches(r'" $$f); u=$$(grep -o "p.matches(r'[^']*')" $$f | sort -u | wc -l); \
 	if [ "$$n" -lt 3 ] || [ "$$u" -ne 1 ]; then echo "the registry allowlists in $$f drifted: $$n patterns, $$u different"; exit 1; fi
 failover-image:
-	docker build -t $(FAILOVER_IMAGE) failover/failover-basic
+	$(MAKE) -C failover/failover-basic image IMAGE=$(FAILOVER_IMAGE)
 print-failover-image:
 	@echo $(FAILOVER_IMAGE)
 rotate-proof-key:
