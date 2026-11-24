@@ -9,7 +9,7 @@
 [![TLA+](https://img.shields.io/badge/TLA%2B-23_models-2b2a27?style=flat-square&labelColor=151413)](model)
 [![TLC](https://img.shields.io/badge/TLC-135_configurations-2b2a27?style=flat-square&labelColor=151413)](model)
 [![CloudNativePG](https://img.shields.io/badge/CloudNativePG-1.30-2b2a27?style=flat-square&labelColor=151413)](https://cloudnative-pg.io)
-[![License](https://img.shields.io/badge/license-Apache_2.0-2b2a27?style=flat-square&labelColor=151413)](../../LICENSE)
+[![License](https://img.shields.io/badge/license-Apache_2.0-2b2a27?style=flat-square&labelColor=151413)](https://github.com/sassendes/bedrock/blob/main/LICENSE)
 
 </div>
 
