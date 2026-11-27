@@ -1,0 +1,27 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: bedrock-immutable-netpols
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["cilium.io"]
+        apiVersions: ["*"]
+        operations: ["UPDATE", "DELETE"]
+        resources: ["ciliumnetworkpolicies", "ciliumclusterwidenetworkpolicies"]
+  validations:
+    - expression: >-
+        request.userInfo.username in [
+          "system:admin",
+          "system:serviceaccount:kube-system:namespace-controller"
+        ]
+      message: "network policies cannot be changed or deleted after the bootstrap"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: bedrock-immutable-netpols
+spec:
+  policyName: bedrock-immutable-netpols
+  validationActions: [Deny]
