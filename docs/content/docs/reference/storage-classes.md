@@ -43,7 +43,7 @@ Both encrypted classes pass the `longhorn-crypto` Secret to the CSI driver at st
 | `CRYPTO_KEY_HASH` | `sha256` |
 | `CRYPTO_KEY_SIZE` | `512` |
 | `CRYPTO_PBKDF` | `pbkdf2` |
-| `CRYPTO_KEY_VALUE` | The passphrase. Set it before the first deploy. |
+| `CRYPTO_KEY_VALUE` | The passphrase. Made once by the bootstrap and kept in `~/.bedrock/longhorn-crypto-key`. |
 
 The classes have no provisioner secret parameters on purpose. Encryption happens on the node, so only the node stages need the key.
 

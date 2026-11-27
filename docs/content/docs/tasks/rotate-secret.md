@@ -130,4 +130,4 @@ The observers and the verifier read the file again on every connection and the S
 
 ## Longhorn encryption key
 
-Do not rotate `longhorn-crypto` on a running tenant. Every encrypted volume is unlocked with this key, so changing it leaves existing volumes unable to attach. Choose its value before the first deploy.
+Do not rotate `longhorn-crypto` on a running tenant. Every encrypted volume is unlocked with this key, so changing it leaves existing volumes unable to attach. The bootstrap makes it once, keeps it in `~/.bedrock/longhorn-crypto-key` and reuses the value already in the cluster on every later run.

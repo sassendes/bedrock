@@ -69,12 +69,12 @@ tenant-workload/platform/        reloader, namespaces, priority classes
 tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
 tenant-workload/kyverno/         admission policies and the database CA syncs
 tenant-workload/database/        CloudNativePG clusters, poolers, backups, the add-replica templates
-tenant-workload/failover/        the failover controllers: TLA models, Golang code and tests
+tenant-workload/failover/        the failover controllers' manifests: deployment, admission, network policy, alerts
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
 tenant-workload/event-buses/     NATS, Valkey, Kafka
 tenant-workload/openbao/         OpenBao, three pods on raft
-tenant-workload/secrets/         the placeholder Longhorn encryption key
+tenant-workload/secrets/         the Longhorn encryption settings, the key itself is made by the bootstrap
 failover/failover-basic/         the failover controller: Go code, Dockerfile, TLA+ models
 failover/failover-full/          failoverd: TLA+ models
 .github/workflows/               builds the failover controller image
@@ -104,4 +104,4 @@ The full walkthrough is in the [documentation](https://bedrockctl.com/docs/tutor
 
 The tenant layer runs end to end on a production cluster. The failover controller is built, model checked and tested live: a whole PostgreSQL cluster killed, cluster-2 promoted in 66 s with 0 bytes lost.
 
-The Longhorn encryption key in `tenant-workload/secrets/` is a placeholder for a public repository. Change it before the first deploy since it cannot be rotated on a running tenant.
+The bootstrap makes the Longhorn encryption key once and keeps it in `~/.bedrock/longhorn-crypto-key` on the controller. Back it up: every encrypted volume needs it and it cannot be rotated on a running tenant.

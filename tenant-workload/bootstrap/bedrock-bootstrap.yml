@@ -536,13 +536,47 @@
       retries: 30
       delay: 10
 
-    - name: Apply Longhorn encryption key and longhorn-local storage class
+    - name: Read the Longhorn encryption key already in the cluster
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Secret
+        namespace: longhorn-system
+        name: longhorn-crypto
+      register: longhorn_crypto
+      no_log: true
+
+    - name: Keep the cluster's Longhorn key on the controller so a running tenant never gets a new one
+      when: longhorn_crypto.resources | length > 0
+      ansible.builtin.copy:
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/longhorn-crypto-key"
+        content: "{{ longhorn_crypto.resources[0].data.CRYPTO_KEY_VALUE | b64decode }}"
+        mode: "0600"
+        force: false
+      no_log: true
+
+    - name: Make the Longhorn encryption key once, kept on the controller only
+      ansible.builtin.copy:
+        dest: "{{ lookup('env', 'HOME') }}/.bedrock/longhorn-crypto-key"
+        content: "{{ lookup('ansible.builtin.password', '/dev/null', length=64, chars=['ascii_letters', 'digits']) }}"
+        mode: "0600"
+        force: false
+      no_log: true
+
+    - name: Apply the Longhorn encryption key
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: present
+        definition: >-
+          {{ lookup('file', repo_root + '/secrets/longhorn-crypto.yaml') | from_yaml
+             | combine({'stringData': {'CRYPTO_KEY_VALUE': lookup('file', lookup('env', 'HOME') + '/.bedrock/longhorn-crypto-key')}}, recursive=True) }}
+      no_log: true
+
+    - name: Apply the Longhorn storage classes
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         state: present
         src: "{{ item }}"
       loop:
-        - "{{ repo_root }}/secrets/longhorn-crypto.yaml"
         - "{{ repo_root }}/storage/longhorn/longhorn-local.yaml"
         - "{{ repo_root }}/storage/longhorn/longhorn-encrypted.yaml"
       

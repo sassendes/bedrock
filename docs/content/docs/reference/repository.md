@@ -20,7 +20,7 @@ description: "Where each part of a tenant lives in the repository."
 | `tenant-workload/failover/failover-basic/` | The failover controller's deployment, admission policies, network policy and alerts |
 | `tenant-workload/openbao/` | OpenBao: three pods on raft |
 | `tenant-workload/secrets-store/` | The Secrets Store CSI driver and the OpenBao CSI provider |
-| `tenant-workload/secrets/` | The placeholder Longhorn encryption key |
+| `tenant-workload/secrets/` | The Longhorn encryption settings. The key itself is made by the bootstrap |
 | `tenant-workload/bootstrap/dependencies/` | Controller setup |
 | `failover/failover-basic/` | The failover controller's Go code, its Dockerfile and its TLA+ models |
 | `failover/failover-full/` | failoverd's TLA+ models |
