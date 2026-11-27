@@ -2,7 +2,7 @@
 aliases: ["/components/monitoring/"]
 title: "Monitoring stack"
 weight: 6
-description: "Prometheus, Alertmanager, Loki, Alloy, Tempo, Grafana and OpenCost, and how each is configured."
+description: "Prometheus, Alertmanager, Loki, Alloy, Tempo, InfluxDB, Grafana and OpenCost, and how each is configured."
 ---
 
 All monitoring components except the node agents run in the `observability` namespace under the `restricted` Pod Security level.
@@ -63,9 +63,13 @@ Alloy runs as root to read the root-owned audit log, but drops every Linux capab
 
 Tempo 3.1.0, a single instance, storing traces in the `tempo-data` Garage bucket and keeping them for 14 days.
 
+## InfluxDB
+
+InfluxDB 3.12.3 Core, a single instance, storing its data on a 10 GiB `longhorn-encrypted` volume. It holds network telemetry and stays empty until something writes to it. Its admin token is made by the bootstrap and delivered from OpenBao as a file in memory. Only Grafana and the blackbox probe can reach it. The Python processing engine is turned off.
+
 ## Grafana
 
-Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki and Tempo are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `observability` only. The admin user is `admin` and its password comes from OpenBao through the Secrets Store CSI driver, as a file in memory that never becomes a Kubernetes Secret. Update checks, plugin checks and the news feed are turned off.
+Grafana 13.2.4, a single instance. Datasources for Prometheus, Loki, Tempo and InfluxDB are provisioned from a ConfigMap, and dashboards are loaded by the k8s-sidecar from ConfigMaps in `observability` only. The admin user is `admin` and its password comes from OpenBao through the Secrets Store CSI driver, as a file in memory that never becomes a Kubernetes Secret. Update checks, plugin checks and the news feed are turned off.
 
 ## OpenCost
 

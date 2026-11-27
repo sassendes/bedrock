@@ -1,0 +1,136 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: influxdb
+  namespace: observability
+automountServiceAccountToken: false
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: influxdb-admin
+  namespace: observability
+spec:
+  provider: openbao
+  parameters:
+    openbaoAddress: http://openbao.openbao.svc:8200
+    roleName: influxdb
+    audience: openbao
+    objects: |
+      - objectName: admin-token.json
+        secretPath: apps/data/influxdb/admin
+        secretKey: token-file
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: influxdb
+  namespace: observability
+  labels:
+    app: influxdb
+spec:
+  serviceName: influxdb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: influxdb
+  template:
+    metadata:
+      labels:
+        app: influxdb
+    spec:
+      serviceAccountName: influxdb
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1500
+        runAsGroup: 1500
+        fsGroup: 1500
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: influxdb
+          image: influxdb:3.12.3-core@sha256:9eb55d1873ea629e497179cc465d1d345a78f4bce5c5bc318d3d3ac0b8647022
+          args:
+            - serve
+            - --node-id=influxdb-0
+            - --object-store=file
+            - --data-dir=/var/lib/influxdb3/data
+            - --admin-token-file=/run/secrets/openbao/admin-token.json
+            - --disable-authz=health
+            - --disable-telemetry-upload
+          env:
+            - name: INFLUXDB3_UNSET_VARS
+              value: INFLUXDB3_PLUGIN_DIR
+            - name: HOME
+              value: /tmp
+          ports:
+            - name: http
+              containerPort: 8181
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/influxdb3
+            - name: tmp
+              mountPath: /tmp
+            - name: openbao-secrets
+              mountPath: /run/secrets/openbao
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: openbao-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: influxdb-admin
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-encrypted
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: influxdb
+  namespace: observability
+  labels:
+    app: influxdb
+spec:
+  selector:
+    app: influxdb
+  ports:
+    - name: http
+      port: 8181
+      targetPort: 8181

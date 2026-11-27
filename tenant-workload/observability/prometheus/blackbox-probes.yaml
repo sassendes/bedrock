@@ -19,6 +19,7 @@ spec:
         - http://prometheus-operated.observability.svc:9090/-/healthy
         - http://garage.garage.svc:3903/health
         - http://tempo.observability.svc:3200/ready
+        - http://influxdb.observability.svc:8181/health
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: Probe

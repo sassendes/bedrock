@@ -79,6 +79,17 @@ data:
             filterByTraceID: true
           nodeGraph:
             enabled: true
+      - name: InfluxDB
+        uid: influxdb
+        type: influxdb
+        access: proxy
+        url: http://influxdb.observability.svc:8181
+        jsonData:
+          version: SQL
+          dbName: network
+          insecureGrpc: true
+        secureJsonData:
+          token: $__file{/run/secrets/openbao/influxdb-token}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -115,6 +126,9 @@ spec:
       - objectName: admin-password
         secretPath: apps/data/grafana/admin
         secretKey: password
+      - objectName: influxdb-token
+        secretPath: apps/data/grafana/influxdb
+        secretKey: token
 ---
 apiVersion: apps/v1
 kind: Deployment

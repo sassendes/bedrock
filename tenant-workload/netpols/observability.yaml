@@ -23,6 +23,8 @@ specs:
         protocol: TCP
       - port: '9093'
         protocol: TCP
+      - port: '8181'
+        protocol: TCP
   egress:
   - toEndpoints:
     - matchLabels:
@@ -304,6 +306,13 @@ specs:
     - ports:
       - port: '3200'
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: influxdb
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
 - description: loki
   endpointSelector:
     matchLabels:
@@ -473,6 +482,29 @@ specs:
     - ports:
       - port: '3900'
         protocol: TCP
+- description: influxdb
+  endpointSelector:
+    matchLabels:
+      app: influxdb
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: grafana
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: blackbox-exporter
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: /health
 - description: opencost
   endpointSelector:
     matchLabels:
@@ -568,6 +600,17 @@ specs:
     - ports:
       - port: '3200'
         protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        app: influxdb
+    toPorts:
+    - ports:
+      - port: '8181'
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: /health
   - toEndpoints:
     - matchLabels:
         k8s:io.cilium.k8s.namespace.labels.bedrockctl.com/role: garage

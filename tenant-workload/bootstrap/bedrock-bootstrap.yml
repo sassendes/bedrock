@@ -741,6 +741,7 @@
         - { name: garage-admin-token, length: 48, chars: ['ascii_letters', 'digits'] }
         - { name: garage-rpc-secret, length: 64, chars: ['digits', 'abcdef'] }
         - { name: observer-password, length: 40, chars: ['ascii_letters', 'digits'] }
+        - { name: influxdb-token, length: 48, chars: ['ascii_letters', 'digits'] }
       loop_control:
         label: "{{ item.name }}"
       no_log: true
@@ -751,7 +752,7 @@
         d="$HOME/.bedrock"
         {
           printf '%s\n' "$BAO_ROOT"
-          for f in grafana-admin valkey-password nats-route-password nats-sys-password nats-app-password garage-admin-token garage-rpc-secret observer-password; do
+          for f in grafana-admin valkey-password nats-route-password nats-sys-password nats-app-password garage-admin-token garage-rpc-secret observer-password influxdb-token; do
             printf '%s\n' "$(cat "$d/$f")"
           done
         } | kubectl -n openbao exec -i openbao-0 -- sh -c "$BAO_SCRIPT"
@@ -769,6 +770,7 @@
           read -r gadmin_tok
           read -r grpc
           read -r obs
+          read -r ifx
           export BAO_TOKEN
           bao auth list -format=json | grep -q '"kubernetes/"' || bao auth enable kubernetes
           bao write auth/kubernetes/config kubernetes_host=https://kubernetes.default.svc:443 >/dev/null
@@ -785,6 +787,7 @@
           role bedrock-app application 'path "database/static-creds/bedrock-app" {\n  capabilities = ["read"]\n}\n'
           role bedrock-observer bedrock-failover 'path "apps/data/failover/observer" {\n  capabilities = ["read"]\n}\n'
           role bedrock-verifier bedrock-failover 'path "apps/data/failover/observer" {\n  capabilities = ["read"]\n}\n'
+          role influxdb observability 'path "apps/data/influxdb/admin" {\n  capabilities = ["read"]\n}\n'
           bao secrets list -format=json | grep -q '"database/"' || bao secrets enable database
           missing() { ! bao kv get -mount=apps "$1" >/dev/null 2>&1; }
           if missing grafana/admin; then printf '%s' "$gf" | bao kv put -mount=apps grafana/admin username=admin password=- >/dev/null; fi
@@ -800,6 +803,8 @@
           if missing garage/admin; then printf '%s' "$gadmin_tok" | bao kv put -mount=apps garage/admin token=- >/dev/null; fi
           if missing garage/rpc; then printf '%s' "$grpc" | bao kv put -mount=apps garage/rpc secret=- >/dev/null; fi
           if missing failover/observer; then printf '%s' "$obs" | bao kv put -mount=apps failover/observer password=- >/dev/null; fi
+          if missing influxdb/admin; then printf '{"token":"apiv3_%s","name":"_admin","description":"bedrock admin token"}' "$ifx" | bao kv put -mount=apps influxdb/admin token-file=- >/dev/null; fi
+          if missing grafana/influxdb; then printf 'apiv3_%s' "$ifx" | bao kv put -mount=apps grafana/influxdb token=- >/dev/null; fi
       no_log: true
       changed_when: false
 
@@ -1210,6 +1215,11 @@
 
     - name: Apply Tempo
       ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/tempo/
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+
+    - name: Apply InfluxDB
+      ansible.builtin.command: kubectl apply -f {{ repo_root }}/observability/influxdb/
       environment:
         KUBECONFIG: "{{ kubeconfig }}"
 
