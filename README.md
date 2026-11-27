@@ -69,7 +69,7 @@ tenant-workload/platform/        reloader, namespaces, priority classes
 tenant-workload/netpols/         Cilium network policies, one file per namespace plus the cluster-wide default deny
 tenant-workload/kyverno/         admission policies and the database CA syncs
 tenant-workload/database/        CloudNativePG clusters, poolers, backups, the add-replica templates
-tenant-workload/failover/        the failover controllers: deployment, admission, network policy, alerts
+tenant-workload/failover/        the failover controllers: TLA models, Golang code and tests
 tenant-workload/storage/         Garage, bucket initialisation, Longhorn settings
 tenant-workload/observability/   metrics, logs, traces, dashboards, alerting, falco
 tenant-workload/event-buses/     NATS, Valkey, Kafka
