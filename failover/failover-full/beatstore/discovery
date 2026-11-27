@@ -1,0 +1,33 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+  "flag"
+  "context"
+	"time"
+
+	discoveryv1 "k8s.io/api/discovery/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+)
+
+var (
+	namespace = flag.String("namespace", "bedrock-failover", "namespace of beatstore service")
+	service   = flag.String("service", "beatstore", "name of the beatstore svc")
+	peersFile = flag.String("peers-file", "/data/boards.json", "the json file where the list of beatstores is listed")
+)
+
+func discover(ctx context.Context) error {
+  cfg, err := rest.InClusterConfig()
+	if err != nil {
+		return err
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return err
+	}
+	return nil
+}
